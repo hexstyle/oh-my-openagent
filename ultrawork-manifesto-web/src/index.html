@@ -3,17 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ultrawork Manifesto</title>
+    
+    <!-- SEO Meta Tags -->
+    <title>Ultrawork Manifesto | The Philosophy of High-Output Engineering</title>
+    <meta name="description" content="A philosophical framework for developers and AI engineers to achieve extreme productivity through deep focus, atomic execution, and the Ultrawork methodology.">
+    <meta name="keywords" content="ultrawork, developer productivity, AI engineering, deep work, tech manifesto, oh my opencode, sisyphus">
+    <meta name="robots" content="index, follow, max-image-preview:large">
+    <link rel="canonical" href="https://ulw.dev/">
+    <meta name="theme-color" content="#0a0a0a">
+    <meta name="author" content="Yeongyu Kim">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://ulw.dev/">
+    <meta property="og:title" content="Ultrawork Manifesto | The Philosophy of High-Output Engineering">
+    <meta property="og:description" content="A philosophical framework for developers and AI engineers to achieve extreme productivity through deep focus, atomic execution, and the Ultrawork methodology.">
+    <meta property="og:image" content="https://ulw.dev/images/og-image.png">
+    <meta property="og:site_name" content="Ultrawork">
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@justsisyphus">
+    <meta name="twitter:creator" content="@justsisyphus">
+    <meta name="twitter:title" content="Ultrawork Manifesto | The Philosophy of High-Output Engineering">
+    <meta name="twitter:description" content="A philosophical framework for developers and AI engineers to achieve extreme productivity through deep focus, atomic execution, and the Ultrawork methodology.">
+    <meta name="twitter:image" content="https://ulw.dev/images/og-image.png">
+    
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <header>
         <div class="hero-container">
-            <img src="../public/images/hero.png" alt="Ultrawork Hero" class="hero-image">
-            <h1 class="hero-title">Manifesto</h1>
+            <img src="./images/hero.png" alt="Ultrawork Hero" class="hero-image">
+            <h1 class="hero-title">Ultrawork Manifesto</h1>
         </div>
     </header>
 
@@ -42,11 +68,11 @@
 
             <p>...that's not "human-AI collaboration." That's the AI failing to do its job.</p>
 
-            <p><strong>Oh My OpenCode is built on this premise</strong>: Human intervention during agentic work is fundamentally a wrong signal. If the system is designed correctly, the agent should complete the work without requiring you to babysit it.</p>
+            <p><strong><a href="https://github.com/code-yeongyu/oh-my-opencode" target="_blank" rel="noopener">Oh My OpenCode</a> is built on this premise</strong>: Human intervention during agentic work is fundamentally a wrong signal. If the system is designed correctly, the agent should complete the work without requiring you to babysit it.</p>
         </section>
 
         <div class="divider">
-            <img src="../public/images/orb-divider.png" alt="Divider">
+            <img src="./images/orb-divider.png" alt="Divider">
         </div>
 
         <!-- Section 2 -->
@@ -70,7 +96,7 @@
         </section>
 
         <div class="divider">
-            <img src="../public/images/orb-divider.png" alt="Divider">
+            <img src="./images/orb-divider.png" alt="Divider">
         </div>
 
         <!-- Section 3 -->
@@ -103,7 +129,7 @@
         </section>
 
         <div class="divider">
-            <img src="../public/images/orb-divider.png" alt="Divider">
+            <img src="./images/orb-divider.png" alt="Divider">
         </div>
 
         <!-- Section 4 -->
@@ -115,32 +141,42 @@
             <p>Two approaches to achieve this:</p>
 
             <div class="approach-container">
-                <div class="approach">
-                    <h3>Approach 1: Prometheus (Interview Mode)</h3>
-                    <p>You say: "I want to add authentication."</p>
-                    <p>Prometheus:</p>
+                <div class="approach ultrawork-approach">
+                    <h3>Approach 1: Ultrawork</h3>
+                    <p class="approach-tagline">Just say "ulw" and walk away.</p>
+                    <p>You say: <code>ulw add authentication</code></p>
+                    <p>The agent autonomously:</p>
                     <ul>
-                        <li>Researches your codebase to understand existing patterns</li>
-                        <li>Asks clarifying questions based on actual findings</li>
-                        <li>Surfaces edge cases you hadn't considered</li>
-                        <li>Documents decisions as you make them</li>
-                        <li>Generates a complete work plan</li>
+                        <li>Analyzes your codebase patterns and architecture</li>
+                        <li>Researches best practices from official docs</li>
+                        <li>Plans the implementation strategy internally</li>
+                        <li>Implements following your existing conventions</li>
+                        <li>Verifies with tests and LSP diagnostics</li>
+                        <li>Self-corrects when something goes wrong</li>
+                        <li><strong>Keeps bouldering until 100% complete</strong></li>
                     </ul>
-                    <p><strong>You provide intent. The agent provides structure.</strong></p>
+                    <p class="approach-summary"><strong>Zero intervention. Full autonomy. Just results.</strong></p>
                 </div>
 
-                <div class="approach">
-                    <h3>Approach 2: Ultrawork (Just Do It Mode)</h3>
-                    <p>You say: "ulw add authentication"</p>
-                    <p>The agent:</p>
+                <div class="approach prometheus-approach">
+                    <h3>Approach 2: Prometheus + Atlas</h3>
+                    <p class="approach-tagline">When you want strategic control.</p>
+                    <p>You say: <code>프로메테우스 에이전트 add authentication</code></p>
+                    <p><strong>Prometheus</strong> (Strategic Planner):</p>
                     <ul>
-                        <li>Figures out the right approach</li>
-                        <li>Researches best practices</li>
-                        <li>Implements following conventions</li>
-                        <li>Verifies everything works</li>
-                        <li>Keeps going until complete</li>
+                        <li>Conducts deep codebase research via parallel agents</li>
+                        <li>Interviews you with intelligent, contextual questions</li>
+                        <li>Identifies edge cases and architectural implications</li>
+                        <li>Generates a detailed YAML work plan with dependencies</li>
                     </ul>
-                    <p><strong>You provide intent. The agent handles everything.</strong></p>
+                    <p><strong>Atlas</strong> (Master Orchestrator):</p>
+                    <ul>
+                        <li>Executes the plan via <code>/start-work</code></li>
+                        <li>Delegates tasks to specialized agents (Oracle, Frontend Engineer, etc.)</li>
+                        <li>Manages parallel execution waves for efficiency</li>
+                        <li>Tracks progress, handles failures, ensures completion</li>
+                    </ul>
+                    <p class="approach-summary"><strong>You architect. Agents execute. Full transparency.</strong></p>
                 </div>
             </div>
 
@@ -148,7 +184,7 @@
         </section>
 
         <div class="divider">
-            <img src="../public/images/orb-divider.png" alt="Divider">
+            <img src="./images/orb-divider.png" alt="Divider">
         </div>
 
         <!-- Section 5 -->
@@ -187,7 +223,7 @@
         </section>
 
         <div class="divider">
-            <img src="../public/images/orb-divider.png" alt="Divider">
+            <img src="./images/orb-divider.png" alt="Divider">
         </div>
 
         <!-- Section 6 -->
@@ -201,7 +237,7 @@ Human Intent → Agent Execution → Verified Result
           (intervention only on true failure)
             </div>
 
-            <p>Everything in Oh My OpenCode is designed to make this loop work:</p>
+            <p>Everything in <a href="https://github.com/code-yeongyu/oh-my-opencode" target="_blank" rel="noopener">Oh My OpenCode</a> is designed to make this loop work:</p>
 
             <table>
                 <thead>
@@ -248,7 +284,7 @@ Human Intent → Agent Execution → Verified Result
         </section>
 
         <div class="divider">
-            <img src="../public/images/orb-divider.png" alt="Divider">
+            <img src="./images/orb-divider.png" alt="Divider">
         </div>
 
         <!-- Section 7 -->
@@ -273,7 +309,10 @@ Human Intent → Agent Execution → Verified Result
 
     <footer>
         <div class="footer-content">
-            <img src="../public/images/footer-pattern.png" alt="Footer Pattern" class="footer-pattern">
+            <img src="./images/footer-pattern.png" alt="Footer Pattern" class="footer-pattern">
+            <a href="https://github.com/code-yeongyu/oh-my-opencode" class="cta-link" target="_blank" rel="noopener">
+                Get Oh My OpenCode →
+            </a>
             <p><strong>just ulw ulw</strong></p>
         </div>
     </footer>
