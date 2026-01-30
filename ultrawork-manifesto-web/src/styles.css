@@ -419,7 +419,10 @@ footer::before {
     display: none;
 }
 
-.cta-link {
+a.cta-link,
+a.cta-link:hover,
+a.cta-link:focus,
+a.cta-link:active {
     display: inline-block;
     padding: 1.2rem 3rem;
     background: var(--text-primary);
@@ -433,11 +436,9 @@ footer::before {
     z-index: 3;
 }
 
-.cta-link:hover {
+a.cta-link:hover {
     transform: scale(1.05);
     box-shadow: 0 0 40px rgba(255, 255, 255, 0.4), var(--glow-cyan);
-    color: #000;
-    text-decoration: none;
 }
 
 .final-statement {
