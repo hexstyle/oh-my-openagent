@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- SEO Meta Tags -->
+    <title>Ultrawork Manifesto | 고성능 엔지니어링의 철학</title>
+    <meta name="description" content="개발자와 AI 엔지니어가 깊은 몰입, 원자적 실행, 그리고 Ultrawork 방법론을 통해 극한의 생산성을 달성하기 위한 철학적 프레임워크입니다.">
+    <meta name="keywords" content="ultrawork, 개발자 생산성, AI 엔지니어링, 딥워크, 기술 선언문, oh my opencode, sisyphus">
+    <meta name="robots" content="index, follow, max-image-preview:large">
+    <link rel="canonical" href="https://ulw.dev/ko/">
+    <link rel="alternate" hreflang="en" href="https://ulw.dev/">
+    <link rel="alternate" hreflang="ko" href="https://ulw.dev/ko/">
+    <link rel="alternate" hreflang="ja" href="https://ulw.dev/ja/">
+    <link rel="alternate" hreflang="zh" href="https://ulw.dev/zh/">
+    <link rel="alternate" hreflang="es" href="https://ulw.dev/es/">
+    <link rel="alternate" hreflang="x-default" href="https://ulw.dev/">
+    <meta name="theme-color" content="#0a0a0a">
+    <meta name="author" content="Yeongyu Kim">
+    <link rel="icon" type="image/png" href="../images/favicon.png">
+    <link rel="apple-touch-icon" href="../images/favicon.png">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://ulw.dev/ko/">
+    <meta property="og:title" content="Ultrawork Manifesto | 고성능 엔지니어링의 철학">
+    <meta property="og:description" content="개발자와 AI 엔지니어가 깊은 몰입, 원자적 실행, 그리고 Ultrawork 방법론을 통해 극한의 생산성을 달성하기 위한 철학적 프레임워크입니다.">
+    <meta property="og:image" content="https://ulw.dev/images/og-image.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Ultrawork Manifesto - 의미 있는 작업을 위한 청사진">
+    <meta property="og:site_name" content="Ultrawork">
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@justsisyphus">
+    <meta name="twitter:creator" content="@justsisyphus">
+    <meta name="twitter:title" content="Ultrawork Manifesto | 고성능 엔지니어링의 철학">
+    <meta name="twitter:description" content="개발자와 AI 엔지니어가 깊은 몰입, 원자적 실행, 그리고 Ultrawork 방법론을 통해 극한의 생산성을 달성하기 위한 철학적 프레임워크입니다.">
+    <meta name="twitter:image" content="https://ulw.dev/images/og-image.png">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+    <header>
+        <div class="hero-container">
+            <img src="../images/hero.png" alt="Ultrawork Hero" class="hero-image">
+            <h1 class="hero-title">Ultrawork Manifesto</h1>
+        </div>
+    </header>
+
+    <main>
+        <!-- Section 1 -->
+        <section id="human-intervention">
+            <h2>인간의 개입은 실패 신호다</h2>
+            
+            <div class="gold-gradient-text bottleneck-text">
+                HUMAN IN THE LOOP = BOTTLENECK<br>
+                HUMAN IN THE LOOP = BOTTLENECK<br>
+                HUMAN IN THE LOOP = BOTTLENECK
+            </div>
+
+            <p>자율 주행을 생각해 보십시오. 인간이 운전대를 잡아야 한다면, 그것은 기능이 아니라 시스템의 실패입니다. 자동차가 스스로 상황을 감당하지 못한 것입니다.</p>
+
+            <h3>코딩이라고 다를 이유가 있습니까?</h3>
+
+            <p>당신이 다음과 같은 상황에 처해 있다면:</p>
+            <ul>
+                <li>AI가 작성하다 만 코드를 고치고 있거나</li>
+                <li>뻔한 실수를 직접 수정하고 있거나</li>
+                <li>에이전트에게 작업을 단계별로 하나하나 지시하고 있거나</li>
+                <li>같은 요구사항을 반복해서 설명하고 있다면</li>
+            </ul>
+
+            <p>...그것은 "인간과 AI의 협업"이 아닙니다. AI가 제 역할을 못하고 있는 것입니다.</p>
+
+            <p><strong><a href="https://github.com/code-yeongyu/oh-my-opencode" target="_blank" rel="noopener">Oh My OpenCode</a>는 이 전제 위에 구축되었습니다</strong>: 에이전트 작업 중 인간의 개입은 근본적으로 잘못된 신호입니다. 시스템이 올바르게 설계되었다면, 에이전트는 당신이 돌봐주지 않아도 작업을 완수해야 합니다.</p>
+        </section>
+
+        <div class="divider">
+            <img src="../images/orb-divider.png" alt="Divider">
+        </div>
+
+        <!-- Section 2 -->
+        <section id="indistinguishable-code">
+            <h2>구별할 수 없는 코드</h2>
+
+            <p class="highlight-box"><strong>목표: 에이전트가 작성한 코드는 시니어 엔지니어가 작성한 코드와 구별할 수 없어야 한다.</strong></p>
+
+            <p>"정리가 필요한 AI 생성 코드"가 아닙니다. "좋은 시작점"도 아닙니다. 실제, 최종, 프로덕션 준비가 완료된 코드여야 합니다.</p>
+
+            <p>이는 다음을 의미합니다:</p>
+            <ul>
+                <li>기존 코드베이스 패턴을 정확히 따르는 것</li>
+                <li>요청하지 않아도 적절한 에러 처리를 하는 것</li>
+                <li>실제로 필요한 것을 검증하는 테스트를 작성하는 것</li>
+                <li>AI Slop(과도한 엔지니어링, 불필요한 추상화, 범위 확장)이 없는 것</li>
+                <li>가치가 있을 때만 주석을 다는 것</li>
+            </ul>
+
+            <p>커밋을 인간이 했는지 에이전트가 했는지 구분할 수 있다면, 그 에이전트는 실패한 것입니다.</p>
+        </section>
+
+        <div class="divider">
+            <img src="../images/orb-divider.png" alt="Divider">
+        </div>
+
+        <!-- Section 3 -->
+        <section id="token-cost">
+            <h2>토큰 비용 vs. 생산성</h2>
+
+            <p><strong>생산성을 획기적으로 높일 수 있다면 더 많은 토큰 사용은 허용됩니다.</strong></p>
+
+            <p>더 많은 토큰을 사용하여:</p>
+            <ul>
+                <li>여러 전문 에이전트가 병렬로 조사하게 하고</li>
+                <li>인간의 개입 없이 작업을 완전히 끝내고</li>
+                <li>완료 전에 작업을 철저히 검증하고</li>
+                <li>작업 전반에 걸쳐 지식을 축적하는 것</li>
+            </ul>
+
+            <p>...이것이 10배, 20배, 100배의 생산성 향상을 의미한다면 가치 있는 투자입니다.</p>
+
+            <h3>하지만:</h3>
+
+            <p>불필요한 토큰 낭비는 지양합니다. 시스템은 다음을 위해 최적화합니다:</p>
+            <ul>
+                <li>단순 작업에는 더 저렴한 모델(Haiku, Flash) 사용</li>
+                <li>중복 탐색 방지</li>
+                <li>세션 간 학습 내용 캐싱</li>
+                <li>충분한 맥락이 수집되면 조사 중단</li>
+            </ul>
+
+            <p>토큰 효율성은 중요합니다. 하지만 작업 품질이나 인간의 인지 부하를 희생해서는 안 됩니다.</p>
+        </section>
+
+        <div class="divider">
+            <img src="../images/orb-divider.png" alt="Divider">
+        </div>
+
+        <!-- Section 4 -->
+        <section id="cognitive-load">
+            <h2>인간의 인지 부하 최소화</h2>
+
+            <p><strong>인간은 원하는 것이 무엇인지만 말하면 됩니다. 나머지는 모두 에이전트의 몫입니다.</strong></p>
+
+            <p>이를 달성하기 위한 두 가지 접근 방식:</p>
+
+            <div class="approach-container">
+                <div class="approach ultrawork-approach">
+                    <h3>접근 방식 1: Ultrawork</h3>
+                    <p class="approach-tagline">그냥 "ulw"라고 말하고 자리를 비우십시오.</p>
+                    <p>당신이 말합니다: <code>ulw add authentication</code></p>
+                    <p>에이전트는 자율적으로:</p>
+                    <ul>
+                        <li>코드베이스 패턴과 아키텍처를 분석하고</li>
+                        <li>공식 문서에서 모범 사례를 조사하고</li>
+                        <li>내부적으로 구현 전략을 수립하고</li>
+                        <li>기존 컨벤션을 따르며 구현하고</li>
+                        <li>테스트와 LSP 진단으로 검증하고</li>
+                        <li>문제가 생기면 스스로 수정하고</li>
+                        <li><strong>100% 완료될 때까지 계속 밀어붙입니다</strong></li>
+                    </ul>
+                    <p class="approach-summary"><strong>개입 제로. 완전 자율. 오직 결과뿐.</strong></p>
+                </div>
+
+                <div class="approach prometheus-approach">
+                    <h3>접근 방식 2: Prometheus + Atlas</h3>
+                    <p class="approach-tagline">전략적인 제어가 필요할 때.</p>
+                    <p><kbd>Tab</kbd>을 눌러 에이전트를 전환한 뒤: <code>add authentication</code></p>
+                    <p><strong>Prometheus</strong> (전략 기획자):</p>
+                    <ul>
+                        <li>병렬 에이전트를 통해 심층적인 코드베이스 조사를 수행하고</li>
+                        <li>지능적이고 맥락에 맞는 질문으로 당신을 인터뷰하고</li>
+                        <li>엣지 케이스와 아키텍처에 미칠 영향을 식별하고</li>
+                        <li>의존성이 포함된 상세한 YAML 작업 계획을 생성합니다</li>
+                    </ul>
+                    <p><strong>Atlas</strong> (마스터 오케스트레이터):</p>
+                    <ul>
+                        <li><code>/start-work</code>를 통해 계획을 실행하고</li>
+                        <li>전문 에이전트(Oracle, Frontend Engineer 등)에게 작업을 위임하고</li>
+                        <li>효율성을 위해 병렬 실행 웨이브를 관리하고</li>
+                        <li>진행 상황을 추적하고, 실패를 처리하며, 완료를 보장합니다</li>
+                    </ul>
+                    <p class="approach-summary"><strong>당신은 설계하고, 에이전트는 실행합니다. 완전한 투명성.</strong></p>
+                </div>
+            </div>
+
+            <p>두 경우 모두, 인간의 역할은 <strong>원하는 것을 표현하는 것</strong>이지, 어떻게 할지를 관리하는 것이 아닙니다.</p>
+        </section>
+
+        <div class="divider">
+            <img src="../images/orb-divider.png" alt="Divider">
+        </div>
+
+        <!-- Section 5 -->
+        <section id="predictable-continuous">
+            <h2>예측 가능성, 지속성, 위임 가능성</h2>
+
+            <p><strong>이상적인 에이전트는 컴파일러처럼 작동해야 합니다</strong>: 마크다운 문서가 들어가면, 작동하는 코드가 나와야 합니다.</p>
+
+            <h3>예측 가능성 (Predictable)</h3>
+            <p>동일한 입력이 주어졌을 때:</p>
+            <ul>
+                <li>동일한 코드베이스 패턴</li>
+                <li>동일한 요구사항</li>
+                <li>동일한 제약조건</li>
+            </ul>
+            <p>...출력은 일관되어야 합니다. 무작위적이거나, 놀랍거나, 요청하지 않은 방식으로 "창의적"이어서는 안 됩니다.</p>
+
+            <h3>지속성 (Continuous)</h3>
+            <p>작업은 중단되어도 지속되어야 합니다:</p>
+            <ul>
+                <li>세션이 충돌했나요? <code>/start-work</code>로 재개하십시오</li>
+                <li>자리를 비워야 하나요? 진행 상황은 추적됩니다</li>
+                <li>며칠 걸리는 프로젝트인가요? 맥락은 보존됩니다</li>
+            </ul>
+            <p>상태 유지는 에이전트가 합니다. 당신이 할 필요가 없습니다.</p>
+
+            <h3>위임 가능성 (Delegatable)</h3>
+            <p>유능한 팀원에게 업무를 맡기고 믿는 것처럼, 에이전트에게도 위임할 수 있어야 합니다.</p>
+            <p>이는 다음을 의미합니다:</p>
+            <ul>
+                <li>독립적으로 검증된 명확한 인수 조건</li>
+                <li>문제가 발생했을 때의 자가 수정 행동</li>
+                <li>정말 필요할 때만 (Oracle이나 사용자에게) 에스컬레이션</li>
+                <li>"거의 다 된" 것이 아닌, 완전히 끝난 작업</li>
+            </ul>
+        </section>
+
+        <div class="divider">
+            <img src="../images/orb-divider.png" alt="Divider">
+        </div>
+
+        <!-- Section 6 -->
+        <section id="core-loop">
+            <h2>핵심 루프 (The Core Loop)</h2>
+
+            <div class="ascii-art">
+Human Intent → Agent Execution → Verified Result
+       ↑                              ↓
+       └──────── Minimum ─────────────┘
+          (intervention only on true failure)
+            </div>
+
+            <p><a href="https://github.com/code-yeongyu/oh-my-opencode" target="_blank" rel="noopener">Oh My OpenCode</a>의 모든 것은 이 루프가 작동하도록 설계되었습니다:</p>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>기능</th>
+                        <th>목적</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Prometheus</td>
+                        <td>지능형 인터뷰를 통해 의도 추출</td>
+                    </tr>
+                    <tr>
+                        <td>Metis</td>
+                        <td>버그가 되기 전에 모호함 포착</td>
+                    </tr>
+                    <tr>
+                        <td>Momus</td>
+                        <td>실행 전 계획의 완전성 검증</td>
+                    </tr>
+                    <tr>
+                        <td>Orchestrator</td>
+                        <td>인간의 마이크로매니지먼트 없이 작업 조정</td>
+                    </tr>
+                    <tr>
+                        <td>Todo Continuation</td>
+                        <td>완료를 강제하고, "다 했어요"라는 거짓말 방지</td>
+                    </tr>
+                    <tr>
+                        <td>Category System</td>
+                        <td>인간의 결정 없이 최적의 모델로 라우팅</td>
+                    </tr>
+                    <tr>
+                        <td>Background Agents</td>
+                        <td>사용자를 차단하지 않고 병렬 조사</td>
+                    </tr>
+                    <tr>
+                        <td>Wisdom Accumulation</td>
+                        <td>작업에서 학습하여 실수 반복 방지</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <div class="divider">
+            <img src="../images/orb-divider.png" alt="Divider">
+        </div>
+
+        <!-- Section 7 -->
+        <section id="future">
+            <h2>우리가 만드는 미래</h2>
+
+            <p>다음과 같은 세상입니다:</p>
+            <ul>
+                <li>인간 개발자는 AI에게 어떻게 만들게 할지가 아니라, <strong>무엇</strong>을 만들지에 집중합니다</li>
+                <li>코드 품질이 누가(또는 무엇이) 작성했는지와 무관합니다</li>
+                <li>복잡한 프로젝트도 단순한 프로젝트만큼 쉽습니다 (단지 시간이 더 걸릴 뿐)</li>
+                <li>"프롬프트 엔지니어링"이 "컴파일러 디버깅"만큼이나 구시대의 유물이 됩니다</li>
+            </ul>
+
+            <p><strong>에이전트는 보이지 않아야 합니다.</strong> 숨겨져 있다는 뜻이 아니라, 전기나 수돗물, 인터넷처럼 그저 작동한다는 의미에서 그렇습니다.</p>
+
+            <p>스위치를 켜면 불이 들어옵니다. 전력망에 대해서는 생각하지 않습니다.</p>
+
+            <p class="final-statement">그것이 목표입니다.</p>
+        </section>
+    </main>
+
+    <footer>
+        <div class="footer-content">
+            <a href="https://github.com/code-yeongyu/oh-my-opencode" class="cta-link" target="_blank" rel="noopener">
+                Oh My OpenCode 받기 →
+            </a>
+            <p><strong>just ulw ulw</strong></p>
+            
+            <nav class="language-selector" aria-label="Language selection">
+                <span class="language-selector-label">Language</span>
+                <div class="language-links">
+                    <a href="../" class="language-link" lang="en">English</a>
+                    <a href="./" class="language-link active" lang="ko">한국어</a>
+                    <a href="../ja/" class="language-link" lang="ja">日本語</a>
+                    <a href="../zh/" class="language-link" lang="zh">简体中文</a>
+                    <a href="../es/" class="language-link" lang="es">Español</a>
+                </div>
+            </nav>
+        </div>
+    </footer>
+</body>
+</html>
