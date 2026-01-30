@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultrawork Manifesto</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <div class="hero-container">
+            <img src="../public/images/hero.png" alt="Ultrawork Hero" class="hero-image">
+            <h1 class="hero-title">Manifesto</h1>
+        </div>
+    </header>
+
+    <main>
+        <!-- Section 1 -->
+        <section id="human-intervention">
+            <h2>Human Intervention is a Failure Signal</h2>
+            
+            <div class="gold-gradient-text bottleneck-text">
+                HUMAN IN THE LOOP = BOTTLENECK<br>
+                HUMAN IN THE LOOP = BOTTLENECK<br>
+                HUMAN IN THE LOOP = BOTTLENECK
+            </div>
+
+            <p>Think about autonomous driving. When a human has to take over the wheel, that's not a feature - it's a failure of the system. The car couldn't handle the situation on its own.</p>
+
+            <h3>Why is coding any different?</h3>
+
+            <p>When you find yourself:</p>
+            <ul>
+                <li>Fixing the AI's half-finished code</li>
+                <li>Manually correcting obvious mistakes</li>
+                <li>Guiding the agent step-by-step through a task</li>
+                <li>Repeatedly clarifying the same requirements</li>
+            </ul>
+
+            <p>...that's not "human-AI collaboration." That's the AI failing to do its job.</p>
+
+            <p><strong>Oh My OpenCode is built on this premise</strong>: Human intervention during agentic work is fundamentally a wrong signal. If the system is designed correctly, the agent should complete the work without requiring you to babysit it.</p>
+        </section>
+
+        <div class="divider">
+            <img src="../public/images/orb-divider.png" alt="Divider">
+        </div>
+
+        <!-- Section 2 -->
+        <section id="indistinguishable-code">
+            <h2>Indistinguishable Code</h2>
+
+            <p class="highlight-box"><strong>Goal: Code written by the agent should be indistinguishable from code written by a senior engineer.</strong></p>
+
+            <p>Not "AI-generated code that needs cleanup." Not "a good starting point." The actual, final, production-ready code.</p>
+
+            <p>This means:</p>
+            <ul>
+                <li>Following existing codebase patterns exactly</li>
+                <li>Proper error handling without being asked</li>
+                <li>Tests that actually test the right things</li>
+                <li>No AI slop (over-engineering, unnecessary abstractions, scope creep)</li>
+                <li>Comments only when they add value</li>
+            </ul>
+
+            <p>If you can tell whether a commit was made by a human or an agent, the agent has failed.</p>
+        </section>
+
+        <div class="divider">
+            <img src="../public/images/orb-divider.png" alt="Divider">
+        </div>
+
+        <!-- Section 3 -->
+        <section id="token-cost">
+            <h2>Token Cost vs. Productivity</h2>
+
+            <p><strong>Higher token usage is acceptable if it significantly increases productivity.</strong></p>
+
+            <p>Using more tokens to:</p>
+            <ul>
+                <li>Have multiple specialized agents research in parallel</li>
+                <li>Get the job done completely without human intervention</li>
+                <li>Verify work thoroughly before completion</li>
+                <li>Accumulate knowledge across tasks</li>
+            </ul>
+
+            <p>...is a worthwhile investment when it means 10x, 20x, or 100x productivity gains.</p>
+
+            <h3>However:</h3>
+
+            <p>Unnecessary token waste is not pursued. The system optimizes for:</p>
+            <ul>
+                <li>Using cheaper models (Haiku, Flash) for simple tasks</li>
+                <li>Avoiding redundant exploration</li>
+                <li>Caching learnings across sessions</li>
+                <li>Stopping research when sufficient context is gathered</li>
+            </ul>
+
+            <p>Token efficiency matters. But not at the cost of work quality or human cognitive load.</p>
+        </section>
+
+        <div class="divider">
+            <img src="../public/images/orb-divider.png" alt="Divider">
+        </div>
+
+        <!-- Section 4 -->
+        <section id="cognitive-load">
+            <h2>Minimize Human Cognitive Load</h2>
+
+            <p><strong>The human should only need to say what they want. Everything else is the agent's job.</strong></p>
+
+            <p>Two approaches to achieve this:</p>
+
+            <div class="approach-container">
+                <div class="approach">
+                    <h3>Approach 1: Prometheus (Interview Mode)</h3>
+                    <p>You say: "I want to add authentication."</p>
+                    <p>Prometheus:</p>
+                    <ul>
+                        <li>Researches your codebase to understand existing patterns</li>
+                        <li>Asks clarifying questions based on actual findings</li>
+                        <li>Surfaces edge cases you hadn't considered</li>
+                        <li>Documents decisions as you make them</li>
+                        <li>Generates a complete work plan</li>
+                    </ul>
+                    <p><strong>You provide intent. The agent provides structure.</strong></p>
+                </div>
+
+                <div class="approach">
+                    <h3>Approach 2: Ultrawork (Just Do It Mode)</h3>
+                    <p>You say: "ulw add authentication"</p>
+                    <p>The agent:</p>
+                    <ul>
+                        <li>Figures out the right approach</li>
+                        <li>Researches best practices</li>
+                        <li>Implements following conventions</li>
+                        <li>Verifies everything works</li>
+                        <li>Keeps going until complete</li>
+                    </ul>
+                    <p><strong>You provide intent. The agent handles everything.</strong></p>
+                </div>
+            </div>
+
+            <p>In both cases, the human's job is to <strong>express what they want</strong>, not to manage how it gets done.</p>
+        </section>
+
+        <div class="divider">
+            <img src="../public/images/orb-divider.png" alt="Divider">
+        </div>
+
+        <!-- Section 5 -->
+        <section id="predictable-continuous">
+            <h2>Predictable, Continuous, Delegatable</h2>
+
+            <p><strong>The ideal agent should work like a compiler</strong>: markdown document goes in, working code comes out.</p>
+
+            <h3>Predictable</h3>
+            <p>Given the same inputs:</p>
+            <ul>
+                <li>Same codebase patterns</li>
+                <li>Same requirements</li>
+                <li>Same constraints</li>
+            </ul>
+            <p>...the output should be consistent. Not random, not surprising, not "creative" in ways you didn't ask for.</p>
+
+            <h3>Continuous</h3>
+            <p>Work should survive interruptions:</p>
+            <ul>
+                <li>Session crashes? Resume with <code>/start-work</code></li>
+                <li>Need to step away? Progress is tracked</li>
+                <li>Multi-day project? Context is preserved</li>
+            </ul>
+            <p>The agent maintains state. You don't have to.</p>
+
+            <h3>Delegatable</h3>
+            <p>Just like you can assign a task to a capable team member and trust them to handle it, you should be able to delegate to the agent.</p>
+            <p>This means:</p>
+            <ul>
+                <li>Clear acceptance criteria, verified independently</li>
+                <li>Self-correcting behavior when something goes wrong</li>
+                <li>Escalation (to Oracle, to user) only when truly needed</li>
+                <li>Complete work, not "mostly done"</li>
+            </ul>
+        </section>
+
+        <div class="divider">
+            <img src="../public/images/orb-divider.png" alt="Divider">
+        </div>
+
+        <!-- Section 6 -->
+        <section id="core-loop">
+            <h2>The Core Loop</h2>
+
+            <div class="ascii-art">
+Human Intent → Agent Execution → Verified Result
+       ↑                              ↓
+       └──────── Minimum ─────────────┘
+          (intervention only on true failure)
+            </div>
+
+            <p>Everything in Oh My OpenCode is designed to make this loop work:</p>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Prometheus</td>
+                        <td>Extract intent through intelligent interview</td>
+                    </tr>
+                    <tr>
+                        <td>Metis</td>
+                        <td>Catch ambiguities before they become bugs</td>
+                    </tr>
+                    <tr>
+                        <td>Momus</td>
+                        <td>Verify plans are complete before execution</td>
+                    </tr>
+                    <tr>
+                        <td>Orchestrator</td>
+                        <td>Coordinate work without human micromanagement</td>
+                    </tr>
+                    <tr>
+                        <td>Todo Continuation</td>
+                        <td>Force completion, prevent "I'm done" lies</td>
+                    </tr>
+                    <tr>
+                        <td>Category System</td>
+                        <td>Route to optimal model without human decision</td>
+                    </tr>
+                    <tr>
+                        <td>Background Agents</td>
+                        <td>Parallel research without blocking user</td>
+                    </tr>
+                    <tr>
+                        <td>Wisdom Accumulation</td>
+                        <td>Learn from work, don't repeat mistakes</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <div class="divider">
+            <img src="../public/images/orb-divider.png" alt="Divider">
+        </div>
+
+        <!-- Section 7 -->
+        <section id="future">
+            <h2>The Future We're Building</h2>
+
+            <p>A world where:</p>
+            <ul>
+                <li>Human developers focus on <strong>what</strong> to build, not <strong>how</strong> to get AI to build it</li>
+                <li>Code quality is independent of who (or what) wrote it</li>
+                <li>Complex projects are as easy as simple ones (just take longer)</li>
+                <li>"Prompt engineering" becomes as obsolete as "compiler debugging"</li>
+            </ul>
+
+            <p><strong>The agent should be invisible.</strong> Not in the sense that it's hidden, but in the sense that it just works - like electricity, like running water, like the internet.</p>
+
+            <p>You flip the switch. The light turns on. You don't think about the power grid.</p>
+
+            <p class="final-statement">That's the goal.</p>
+        </section>
+    </main>
+
+    <footer>
+        <div class="footer-content">
+            <img src="../public/images/footer-pattern.png" alt="Footer Pattern" class="footer-pattern">
+            <p><strong>just ulw ulw</strong></p>
+        </div>
+    </footer>
+</body>
+</html>
