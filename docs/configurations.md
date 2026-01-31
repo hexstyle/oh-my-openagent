@@ -610,7 +610,7 @@ Configure git-master skill behavior:
 When enabled (default), Sisyphus provides a powerful orchestrator with optional specialized agents:
 
 - **Sisyphus**: Primary orchestrator agent (Claude Opus 4.5)
-- **OpenCode-Builder**: OpenCode's default build agent, renamed due to SDK limitations (disabled by default)
+- **opencode-builder**: OpenCode's default build agent, renamed due to SDK limitations (disabled by default)
 - **Prometheus (Planner)**: OpenCode's default plan agent with work-planner methodology (enabled by default)
 - **Metis (Plan Consultant)**: Pre-planning analysis agent that identifies hidden requirements and AI failure points
 
@@ -627,7 +627,7 @@ When enabled (default), Sisyphus provides a powerful orchestrator with optional 
 }
 ```
 
-**Example: Enable OpenCode-Builder:**
+**Example: Enable opencode-builder:**
 
 ```json
 {
@@ -637,7 +637,7 @@ When enabled (default), Sisyphus provides a powerful orchestrator with optional 
 }
 ```
 
-This enables OpenCode-Builder agent alongside Sisyphus. The default build agent is always demoted to subagent mode when Sisyphus is enabled.
+This enables opencode-builder agent alongside Sisyphus. The default build agent is always demoted to subagent mode when Sisyphus is enabled.
 
 **Example: Disable all Sisyphus orchestration:**
 
@@ -658,7 +658,7 @@ You can also customize Sisyphus agents like other agents:
       "model": "anthropic/claude-sonnet-4",
       "temperature": 0.3
     },
-    "OpenCode-Builder": {
+    "opencode-builder": {
       "model": "anthropic/claude-opus-4"
     },
     "Prometheus (Planner)": {
@@ -674,7 +674,7 @@ You can also customize Sisyphus agents like other agents:
 | Option                    | Default | Description                                                                                                                            |
 | ------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `disabled`                | `false` | When `true`, disables all Sisyphus orchestration and restores original build/plan as primary.                                          |
-| `default_builder_enabled` | `false` | When `true`, enables OpenCode-Builder agent (same as OpenCode build, renamed due to SDK limitations). Disabled by default.             |
+| `default_builder_enabled` | `false` | When `true`, enables opencode-builder agent (same as OpenCode build, renamed due to SDK limitations). Disabled by default.             |
 | `planner_enabled`         | `true`  | When `true`, enables Prometheus (Planner) agent with work-planner methodology. Enabled by default.                                     |
 | `replace_plan`            | `true`  | When `true`, demotes default plan agent to subagent mode. Set to `false` to keep both Prometheus (Planner) and default plan available. |
 

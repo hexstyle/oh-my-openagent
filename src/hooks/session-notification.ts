@@ -139,7 +139,7 @@ async function hasIncompleteTodos(ctx: PluginInput, sessionID: string): Promise<
   }
 }
 
-export function createSessionNotification(
+export function createSessionNotificationHook(
   ctx: PluginInput,
   config: SessionNotificationConfig = {}
 ) {

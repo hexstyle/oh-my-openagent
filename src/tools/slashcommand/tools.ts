@@ -269,4 +269,4 @@ export function createSlashcommandTool(options: SlashcommandToolOptions = {}): T
 }
 
 // Default instance for backward compatibility (lazy loading)
-export const slashcommand: ToolDefinition = createSlashcommandTool()
+export const slash_command: ToolDefinition = createSlashcommandTool()

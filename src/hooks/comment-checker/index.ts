@@ -32,8 +32,8 @@ function cleanupOldPendingCalls(): void {
   }
 }
 
-export function createCommentCheckerHooks(config?: CommentCheckerConfig) {
-  debugLog("createCommentCheckerHooks called", { config })
+export function createCommentCheckerHook(config?: CommentCheckerConfig) {
+  debugLog("createCommentCheckerHook called", { config })
 
   if (!cleanupIntervalStarted) {
     cleanupIntervalStarted = true

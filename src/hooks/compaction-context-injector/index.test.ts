@@ -24,7 +24,7 @@ mock.module("../../shared/system-directive", () => ({
   },
 }))
 
-import { createCompactionContextInjector } from "./index"
+import { createCompactionContextInjectorHook } from "./index"
 import type { SummarizeContext } from "./index"
 
 describe("createCompactionContextInjector", () => {
@@ -35,7 +35,7 @@ describe("createCompactionContextInjector", () => {
   describe("Agent Verification State preservation", () => {
     it("includes Agent Verification State section in compaction prompt", async () => {
       // given
-      const injector = createCompactionContextInjector()
+      const injector = createCompactionContextInjectorHook()
       const context: SummarizeContext = {
         sessionID: "test-session",
         providerID: "anthropic",
@@ -58,7 +58,7 @@ describe("createCompactionContextInjector", () => {
 
     it("includes Momus-specific context for reviewer agents", async () => {
       // given
-      const injector = createCompactionContextInjector()
+      const injector = createCompactionContextInjectorHook()
       const context: SummarizeContext = {
         sessionID: "test-session",
         providerID: "anthropic",
@@ -80,7 +80,7 @@ describe("createCompactionContextInjector", () => {
 
     it("preserves file verification progress in compaction prompt", async () => {
       // given
-      const injector = createCompactionContextInjector()
+      const injector = createCompactionContextInjectorHook()
       const context: SummarizeContext = {
         sessionID: "test-session",
         providerID: "anthropic",

@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeEach, afterEach, spyOn } from "bun:test"
 
-import { createSessionNotification } from "./session-notification"
+import { createSessionNotificationHook } from "./session-notification"
 import { setMainSession, subagentSessions, _resetForTesting } from "../features/claude-code-session-state"
 import * as utils from "./session-notification-utils"
 
@@ -53,7 +53,7 @@ describe("session-notification", () => {
     const subagentSessionID = "subagent-123"
     subagentSessions.add(subagentSessionID)
 
-    const hook = createSessionNotification(createMockPluginInput(), {
+    const hook = createSessionNotificationHook(createMockPluginInput(), {
       idleConfirmationDelay: 0,
     })
 
@@ -78,7 +78,7 @@ describe("session-notification", () => {
     const otherSessionID = "other-456"
     setMainSession(mainSessionID)
 
-    const hook = createSessionNotification(createMockPluginInput(), {
+    const hook = createSessionNotificationHook(createMockPluginInput(), {
       idleConfirmationDelay: 0,
     })
 
@@ -102,7 +102,7 @@ describe("session-notification", () => {
     const mainSessionID = "main-789"
     setMainSession(mainSessionID)
 
-    const hook = createSessionNotification(createMockPluginInput(), {
+    const hook = createSessionNotificationHook(createMockPluginInput(), {
       idleConfirmationDelay: 10,
       skipIfIncompleteTodos: false,
     })
@@ -129,7 +129,7 @@ describe("session-notification", () => {
     setMainSession(mainSessionID)
     subagentSessions.add(subagentSessionID)
 
-    const hook = createSessionNotification(createMockPluginInput(), {
+    const hook = createSessionNotificationHook(createMockPluginInput(), {
       idleConfirmationDelay: 0,
     })
 
@@ -156,7 +156,7 @@ describe("session-notification", () => {
     setMainSession(mainSessionID)
     subagentSessions.add(subagentSessionID)
 
-    const hook = createSessionNotification(createMockPluginInput(), {
+    const hook = createSessionNotificationHook(createMockPluginInput(), {
       idleConfirmationDelay: 0,
     })
 
@@ -188,7 +188,7 @@ describe("session-notification", () => {
     const mainSessionID = "main-cancel"
     setMainSession(mainSessionID)
 
-    const hook = createSessionNotification(createMockPluginInput(), {
+    const hook = createSessionNotificationHook(createMockPluginInput(), {
       idleConfirmationDelay: 100, // Long delay
       skipIfIncompleteTodos: false,
     })
@@ -218,7 +218,7 @@ describe("session-notification", () => {
 
   test("should handle session.created event without notification", async () => {
     // #given - a new session is created
-    const hook = createSessionNotification(createMockPluginInput(), {})
+    const hook = createSessionNotificationHook(createMockPluginInput(), {})
 
     // #when - session.created event fires
     await hook({
@@ -239,7 +239,7 @@ describe("session-notification", () => {
 
   test("should handle session.deleted event and cleanup state", async () => {
     // #given - a session exists
-    const hook = createSessionNotification(createMockPluginInput(), {})
+    const hook = createSessionNotificationHook(createMockPluginInput(), {})
 
     // #when - session.deleted event fires
     await hook({
@@ -263,7 +263,7 @@ describe("session-notification", () => {
     const mainSessionID = "main-message"
     setMainSession(mainSessionID)
 
-    const hook = createSessionNotification(createMockPluginInput(), {
+    const hook = createSessionNotificationHook(createMockPluginInput(), {
       idleConfirmationDelay: 50,
       skipIfIncompleteTodos: false,
     })
@@ -297,7 +297,7 @@ describe("session-notification", () => {
     const mainSessionID = "main-tool"
     setMainSession(mainSessionID)
 
-    const hook = createSessionNotification(createMockPluginInput(), {
+    const hook = createSessionNotificationHook(createMockPluginInput(), {
       idleConfirmationDelay: 50,
       skipIfIncompleteTodos: false,
     })
@@ -329,7 +329,7 @@ describe("session-notification", () => {
     const mainSessionID = "main-dup"
     setMainSession(mainSessionID)
 
-    const hook = createSessionNotification(createMockPluginInput(), {
+    const hook = createSessionNotificationHook(createMockPluginInput(), {
       idleConfirmationDelay: 10,
       skipIfIncompleteTodos: false,
     })

@@ -367,7 +367,7 @@ const OhMyOpenCodePlugin: Plugin = async (ctx) => {
   });
 
   const commands = discoverCommandsSync();
-  const slashcommandTool = createSlashcommandTool({
+  const slash_commandTool = createSlashcommandTool({
     commands,
     skills: mergedSkills,
   });
@@ -391,7 +391,7 @@ const OhMyOpenCodePlugin: Plugin = async (ctx) => {
       delegate_task: delegateTask,
       skill: skillTool,
       skill_mcp: skillMcpTool,
-      slashcommand: slashcommandTool,
+      slash_command: slash_commandTool,
       interactive_bash,
     },
 
@@ -622,7 +622,7 @@ const OhMyOpenCodePlugin: Plugin = async (ctx) => {
         };
       }
 
-      if (ralphLoop && input.tool === "slashcommand") {
+      if (ralphLoop && input.tool === "slash_command") {
         const args = output.args as { command?: string } | undefined;
         const command = args?.command?.replace(/^\//, "").toLowerCase();
         const sessionID = input.sessionID || getMainSessionID();

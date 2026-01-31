@@ -187,7 +187,7 @@ export async function executeSlashCommand(parsed: ParsedSlashCommand, options?: 
   if (!command) {
     return {
       success: false,
-      error: `Command "/${parsed.command}" not found. Use the slashcommand tool to list available commands.`,
+      error: `Command "/${parsed.command}" not found. Use the slash_command tool to list available commands.`,
     }
   }
 

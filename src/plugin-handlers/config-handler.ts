@@ -208,13 +208,13 @@ export function createConfigHandler(deps: ConfigHandlerDeps) {
           buildConfigWithoutName as Record<string, unknown>
         );
         const openCodeBuilderOverride =
-          pluginConfig.agents?.["OpenCode-Builder"];
+          pluginConfig.agents?.["opencode-builder"];
         const openCodeBuilderBase = {
           ...migratedBuildConfig,
           description: `${configAgent?.build?.description ?? "Build agent"} (OpenCode default)`,
         };
 
-        agentConfig["OpenCode-Builder"] = openCodeBuilderOverride
+        agentConfig["opencode-builder"] = openCodeBuilderOverride
           ? { ...openCodeBuilderBase, ...openCodeBuilderOverride }
           : openCodeBuilderBase;
       }

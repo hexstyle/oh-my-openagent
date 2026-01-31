@@ -57,7 +57,7 @@ This section is CRITICAL for reviewer agents (momus, oracle) to maintain continu
 This context is critical for maintaining continuity after compaction.
 `
 
-export function createCompactionContextInjector() {
+export function createCompactionContextInjectorHook() {
   return async (ctx: SummarizeContext): Promise<void> => {
     log("[compaction-context-injector] injecting context", { sessionID: ctx.sessionID })
 
