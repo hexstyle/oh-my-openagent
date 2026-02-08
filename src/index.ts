@@ -365,6 +365,7 @@ const OhMyOpenCodePlugin: Plugin = async (ctx) => {
     ? safeCreateHook("todo-continuation-enforcer", () => createTodoContinuationEnforcer(ctx, {
         backgroundManager,
         isContinuationStopped: stopContinuationGuard?.isStopped,
+        config: pluginConfig.todo_continuation,
       }), { enabled: safeHookEnabled })
     : null;
 

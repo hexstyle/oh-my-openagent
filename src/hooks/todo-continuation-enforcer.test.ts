@@ -1313,4 +1313,64 @@ describe("todo-continuation-enforcer", () => {
     // then - no continuation injected (all countdowns cancelled)
     expect(promptCalls).toHaveLength(0)
   })
+
+  test("should stop injecting after max injections reached", async () => {
+    // given - session with incomplete todos and low injection cap
+    const sessionID = "main-max-injections"
+    setMainSession(sessionID)
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {
+      config: { max_injections: 2, max_stale_injections: 100 },
+    })
+
+    // when - idle cycles happen repeatedly
+    for (let i = 0; i < 3; i++) {
+      await hook.handler({
+        event: { type: "session.idle", properties: { sessionID } },
+      })
+      await fakeTimers.advanceBy(2500)
+    }
+
+    // then - only 2 injections occur
+    expect(promptCalls).toHaveLength(2)
+    expect(toastCalls.some((t) => t.title === "Todo Continuation Stopped")).toBe(true)
+  }, { timeout: 15000 })
+
+  test("should stop injecting when stale injections exceed limit and reset on progress", async () => {
+    // given - session with a progress drop after first injection
+    const sessionID = "main-stale-breaker"
+    setMainSession(sessionID)
+
+    const mockInput = createMockPluginInput()
+    mockInput.client.session.todo = async () => {
+      // before first injection: 2 pending, after: 1 pending
+      return {
+        data: promptCalls.length === 0
+          ? [
+              { id: "1", content: "Task 1", status: "pending", priority: "high" },
+              { id: "2", content: "Task 2", status: "pending", priority: "high" },
+            ]
+          : [
+              { id: "1", content: "Task 1", status: "pending", priority: "high" },
+              { id: "2", content: "Task 2", status: "completed", priority: "medium" },
+            ],
+      }
+    }
+
+    const hook = createTodoContinuationEnforcer(mockInput, {
+      config: { max_injections: 100, max_stale_injections: 1 },
+    })
+
+    // when - three idle cycles happen
+    for (let i = 0; i < 3; i++) {
+      await hook.handler({
+        event: { type: "session.idle", properties: { sessionID } },
+      })
+      await fakeTimers.advanceBy(2500)
+    }
+
+    // then - progress allows a second injection, but the third is blocked as stale
+    expect(promptCalls).toHaveLength(2)
+    expect(toastCalls.some((t) => t.title === "Todo Continuation Stopped")).toBe(true)
+  }, { timeout: 15000 })
 })

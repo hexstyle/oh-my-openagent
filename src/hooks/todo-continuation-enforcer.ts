@@ -1,4 +1,5 @@
 import type { PluginInput } from "@opencode-ai/plugin"
+import type { TodoContinuationConfig } from "../config"
 import { existsSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import type { BackgroundManager } from "../features/background-agent"
@@ -19,6 +20,7 @@ export interface TodoContinuationEnforcerOptions {
   backgroundManager?: BackgroundManager
   skipAgents?: string[]
   isContinuationStopped?: (sessionID: string) => boolean
+  config?: TodoContinuationConfig
 }
 
 export interface TodoContinuationEnforcer {
@@ -41,6 +43,10 @@ interface SessionState {
   isRecovering?: boolean
   countdownStartedAt?: number
   abortDetectedAt?: number
+  injectionCount?: number
+  staleInjectionCount?: number
+  lastIncompleteCount?: number
+  circuitBroken?: boolean
 }
 
 const CONTINUATION_PROMPT = `${createSystemDirective(SystemDirectiveTypes.TODO_CONTINUATION)}
@@ -97,8 +103,16 @@ export function createTodoContinuationEnforcer(
   ctx: PluginInput,
   options: TodoContinuationEnforcerOptions = {}
 ): TodoContinuationEnforcer {
-  const { backgroundManager, skipAgents = DEFAULT_SKIP_AGENTS, isContinuationStopped } = options
+  const {
+    backgroundManager,
+    skipAgents = DEFAULT_SKIP_AGENTS,
+    isContinuationStopped,
+    config,
+  } = options
   const sessions = new Map<string, SessionState>()
+
+  const maxInjections = config?.max_injections ?? 8
+  const maxStaleInjections = config?.max_stale_injections ?? 3
 
   function getState(sessionID: string): SessionState {
     let state = sessions.get(sessionID)
@@ -127,6 +141,45 @@ export function createTodoContinuationEnforcer(
   function cleanup(sessionID: string): void {
     cancelCountdown(sessionID)
     sessions.delete(sessionID)
+  }
+
+  function resetCircuitBreaker(sessionID: string): void {
+    const state = sessions.get(sessionID)
+    if (!state) return
+    state.injectionCount = 0
+    state.staleInjectionCount = 0
+    state.lastIncompleteCount = undefined
+    state.circuitBroken = false
+  }
+
+  async function tripCircuitBreaker(
+    sessionID: string,
+    reason: string,
+    incompleteCount: number
+  ): Promise<void> {
+    const state = getState(sessionID)
+    if (state.circuitBroken) return
+    state.circuitBroken = true
+    cancelCountdown(sessionID)
+
+    log(`[${HOOK_NAME}] Circuit breaker tripped`, {
+      sessionID,
+      reason,
+      injectionCount: state.injectionCount,
+      staleInjectionCount: state.staleInjectionCount,
+      incompleteCount,
+      maxInjections,
+      maxStaleInjections,
+    })
+
+    await ctx.client.tui.showToast({
+      body: {
+        title: "Todo Continuation Stopped",
+        message: reason,
+        variant: "warning" as const,
+        duration: 5000,
+      },
+    }).catch(() => {})
   }
 
   const markRecovering = (sessionID: string): void => {
@@ -169,6 +222,20 @@ export function createTodoContinuationEnforcer(
   ): Promise<void> {
     const state = sessions.get(sessionID)
 
+    if (state?.circuitBroken) {
+      log(`[${HOOK_NAME}] Skipped injection: circuit breaker active`, { sessionID })
+      return
+    }
+
+    if ((state?.injectionCount ?? 0) >= maxInjections) {
+      await tripCircuitBreaker(
+        sessionID,
+        `Max injections (${maxInjections}) reached without todo completion progress`,
+        incompleteCount
+      )
+      return
+    }
+
     if (state?.isRecovering) {
       log(`[${HOOK_NAME}] Skipped injection: in recovery`, { sessionID })
       return
@@ -195,6 +262,25 @@ export function createTodoContinuationEnforcer(
     const freshIncompleteCount = getIncompleteCount(todos)
     if (freshIncompleteCount === 0) {
       log(`[${HOOK_NAME}] Skipped injection: no incomplete todos`, { sessionID })
+      return
+    }
+
+    const currentState = getState(sessionID)
+    if (typeof currentState.lastIncompleteCount === "number") {
+      if (freshIncompleteCount < currentState.lastIncompleteCount) {
+        currentState.staleInjectionCount = 0
+      } else {
+        currentState.staleInjectionCount = (currentState.staleInjectionCount ?? 0) + 1
+      }
+    }
+    currentState.lastIncompleteCount = freshIncompleteCount
+
+    if (maxStaleInjections > 0 && (currentState.staleInjectionCount ?? 0) >= maxStaleInjections) {
+      await tripCircuitBreaker(
+        sessionID,
+        `No todo progress detected for ${maxStaleInjections} consecutive continuation(s); stopping to prevent infinite loop`,
+        freshIncompleteCount
+      )
       return
     }
 
@@ -244,6 +330,9 @@ ${todoList}`
 
     try {
       log(`[${HOOK_NAME}] Injecting continuation`, { sessionID, agent: agentName, model, incompleteCount: freshIncompleteCount })
+
+      const nextCount = (currentState.injectionCount ?? 0) + 1
+      currentState.injectionCount = nextCount
 
       await ctx.client.session.promptAsync({
         path: { id: sessionID },
@@ -324,6 +413,11 @@ ${todoList}`
       }
 
       const state = getState(sessionID)
+
+      if (state.circuitBroken) {
+        log(`[${HOOK_NAME}] Skipped: circuit breaker active`, { sessionID })
+        return
+      }
 
       if (state.isRecovering) {
         log(`[${HOOK_NAME}] Skipped: in recovery`, { sessionID })
@@ -448,6 +542,7 @@ ${todoList}`
       if (!sessionID) return
 
       if (role === "user") {
+        resetCircuitBreaker(sessionID)
         const state = sessions.get(sessionID)
         if (state?.countdownStartedAt) {
           const elapsed = Date.now() - state.countdownStartedAt

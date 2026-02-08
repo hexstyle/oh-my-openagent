@@ -35,3 +35,6 @@ test-injection/
 notepad.md
 oauth-success.html
 *.bun-build
+
+# Local test sandbox
+.test-home/

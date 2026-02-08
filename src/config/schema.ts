@@ -322,6 +322,13 @@ export const RalphLoopConfigSchema = z.object({
   state_dir: z.string().optional(),
 })
 
+export const TodoContinuationConfigSchema = z.object({
+  /** Max continuation injections per session before stopping (default: 8) */
+  max_injections: z.number().min(1).max(1000).default(8),
+  /** Max consecutive injections with no todo progress before stopping (default: 3) */
+  max_stale_injections: z.number().min(0).max(1000).default(3),
+})
+
 export const BackgroundTaskConfigSchema = z.object({
   defaultConcurrency: z.number().min(1).optional(),
   providerConcurrency: z.record(z.string(), z.number().min(0)).optional(),
@@ -419,6 +426,7 @@ export const OhMyOpenCodeConfigSchema = z.object({
   auto_update: z.boolean().optional(),
   skills: SkillsConfigSchema.optional(),
   ralph_loop: RalphLoopConfigSchema.optional(),
+  todo_continuation: TodoContinuationConfigSchema.optional(),
   background_task: BackgroundTaskConfigSchema.optional(),
   notification: NotificationConfigSchema.optional(),
   babysitting: BabysittingConfigSchema.optional(),
@@ -446,6 +454,7 @@ export type DynamicContextPruningConfig = z.infer<typeof DynamicContextPruningCo
 export type SkillsConfig = z.infer<typeof SkillsConfigSchema>
 export type SkillDefinition = z.infer<typeof SkillDefinitionSchema>
 export type RalphLoopConfig = z.infer<typeof RalphLoopConfigSchema>
+export type TodoContinuationConfig = z.infer<typeof TodoContinuationConfigSchema>
 export type NotificationConfig = z.infer<typeof NotificationConfigSchema>
 export type BabysittingConfig = z.infer<typeof BabysittingConfigSchema>
 export type CategoryConfig = z.infer<typeof CategoryConfigSchema>

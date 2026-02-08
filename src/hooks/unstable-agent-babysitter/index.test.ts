@@ -2,7 +2,7 @@ import { _resetForTesting, setMainSession } from "../../features/claude-code-ses
 import type { BackgroundTask } from "../../features/background-agent"
 import { createUnstableAgentBabysitterHook } from "./index"
 
-const projectDir = "/Users/yeongyu/local-workspaces/oh-my-opencode"
+const projectDir = "/tmp/fix-1349"
 
 type BabysitterContext = Parameters<typeof createUnstableAgentBabysitterHook>[0]
 
@@ -19,6 +19,9 @@ function createMockPluginInput(options: {
           data: messagesBySession[path.id] ?? [],
         }),
         prompt: async (input: unknown) => {
+          promptCalls.push({ input })
+        },
+        promptAsync: async (input: unknown) => {
           promptCalls.push({ input })
         },
       },
