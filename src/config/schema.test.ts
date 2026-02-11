@@ -649,7 +649,21 @@ describe("ExperimentalConfigSchema feature flags", () => {
     }
   })
 
-  test("both fields are optional", () => {
+  test("accepts team_system as boolean", () => {
+    //#given
+    const config = { team_system: true }
+
+    //#when
+    const result = ExperimentalConfigSchema.safeParse(config)
+
+    //#then
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.team_system).toBe(true)
+    }
+  })
+
+  test("defaults team_system to false when not provided", () => {
     //#given
     const config = {}
 
@@ -659,9 +673,33 @@ describe("ExperimentalConfigSchema feature flags", () => {
     //#then
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.plugin_load_timeout_ms).toBeUndefined()
-      expect(result.data.safe_hook_creation).toBeUndefined()
+      expect(result.data.team_system).toBe(false)
     }
+  })
+
+  test("accepts team_system as false", () => {
+    //#given
+    const config = { team_system: false }
+
+    //#when
+    const result = ExperimentalConfigSchema.safeParse(config)
+
+    //#then
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.team_system).toBe(false)
+    }
+  })
+
+  test("rejects non-boolean team_system", () => {
+    //#given
+    const config = { team_system: "true" }
+
+    //#when
+    const result = ExperimentalConfigSchema.safeParse(config)
+
+    //#then
+    expect(result.success).toBe(false)
   })
 })
 

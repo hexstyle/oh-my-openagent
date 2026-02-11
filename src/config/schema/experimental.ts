@@ -17,6 +17,8 @@ export const ExperimentalConfigSchema = z.object({
   safe_hook_creation: z.boolean().optional(),
   /** Enable experimental agent teams toolset (default: false) */
   agent_teams: z.boolean().optional(),
+  /** Enable experimental team system (default: false) */
+  team_system: z.boolean().default(false),
 })
 
 export type ExperimentalConfig = z.infer<typeof ExperimentalConfigSchema>
