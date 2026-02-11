@@ -2,7 +2,8 @@ import { existsSync, readFileSync, unlinkSync } from "node:fs"
 import { z } from "zod"
 import { acquireLock, ensureDir, writeJsonAtomic } from "../../features/claude-tasks/storage"
 import { getTeamInboxPath } from "./paths"
-import { InboxMessage, InboxMessageSchema } from "./types"
+import type { InboxMessage } from "./types"
+import { InboxMessageSchema } from "./types"
 
 const InboxMessageListSchema = z.array(InboxMessageSchema)
 
@@ -110,16 +111,9 @@ export function appendInboxMessage(teamName: string, agentName: string, message:
   })
 }
 
-export interface ReadInboxOptions {
-  unreadOnly?: boolean
-  markAsRead?: boolean
-}
-
-export function readInbox(teamName: string, agentName: string, options?: ReadInboxOptions): InboxMessage[] {
+export function readInbox(teamName: string, agentName: string, unreadOnly = false, markAsRead = false): InboxMessage[] {
   return withInboxLock(teamName, () => {
     const messages = readInboxMessages(teamName, agentName)
-    const unreadOnly = options?.unreadOnly ?? false
-    const markAsRead = options?.markAsRead ?? false
 
     const selectedIndexes = new Set<number>()
 
@@ -197,3 +191,7 @@ export function deleteInbox(teamName: string, agentName: string): void {
     }
   })
 }
+
+export const clearInbox = deleteInbox
+
+export { buildShutdownRequestId, sendPlainInboxMessage, sendStructuredInboxMessage } from "./inbox-message-sender"
