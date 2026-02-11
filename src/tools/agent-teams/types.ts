@@ -5,11 +5,36 @@ import { TaskObjectSchema } from "../task/types"
 export const TeamMemberSchema = z.object({
   agentId: z.string().min(1),
   name: z.string().min(1),
-  agentType: z.enum(["lead", "teammate"]),
+  agentType: z.enum(["team-lead", "lead", "teammate"]),
   color: z.string().min(1),
 })
 
 export type TeamMember = z.infer<typeof TeamMemberSchema>
+
+export type TeamLeadMember = TeamMember & {
+  agentType: "team-lead"
+  model: string
+  joinedAt: string
+  cwd: string
+  subscriptions: string[]
+}
+
+export function isTeammateMember(member: TeamMember): member is TeamTeammateMember {
+  return member.agentType === "teammate"
+}
+
+export const TEAM_COLOR_PALETTE = [
+  "#FF6B6B", // Red
+  "#4ECDC4", // Teal
+  "#45B7D1", // Blue
+  "#96CEB4", // Sage
+  "#FFEEAD", // Yellow
+  "#FF9F43", // Orange
+  "#6C5CE7", // Purple
+  "#00CEC9", // Cyan
+  "#F368E0", // Pink
+  "#FD7272", // Coral
+] as const
 
 export const TeamTeammateMemberSchema = TeamMemberSchema.extend({
   category: z.string().min(1),

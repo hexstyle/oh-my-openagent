@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from "node:fs"
+import { existsSync, readdirSync, rmSync } from "node:fs"
 import { acquireLock, ensureDir, readJsonSafe, writeJsonAtomic } from "../../features/claude-tasks/storage"
 import {
   getTeamConfigPath,
@@ -20,8 +20,8 @@ import {
 import { validateTeamName } from "./name-validation"
 import { withTeamTaskLock } from "./team-task-store"
 
-function nowMs(): number {
-  return Date.now()
+function nowMs(): string {
+  return new Date().toISOString()
 }
 
 function assertValidTeamName(teamName: string): void {
@@ -52,6 +52,7 @@ function createLeadMember(teamName: string, cwd: string, leadModel: string): Tea
     agentId: `team-lead@${teamName}`,
     name: "team-lead",
     agentType: "team-lead",
+    color: "#2D3748",
     model: leadModel,
     joinedAt: nowMs(),
     cwd,
@@ -192,4 +193,25 @@ export function deleteTeamData(teamName: string): void {
       }
     })
   })
+}
+
+export function deleteTeamDir(teamName: string): void {
+  deleteTeamData(teamName)
+}
+
+export function listTeams(): string[] {
+  const teamsRootDir = getTeamsRootDir()
+  if (!existsSync(teamsRootDir)) {
+    return []
+  }
+
+  try {
+    const entries = readdirSync(teamsRootDir, { withFileTypes: true })
+    return entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .filter((name) => existsSync(getTeamConfigPath(name)))
+  } catch {
+    return []
+  }
 }

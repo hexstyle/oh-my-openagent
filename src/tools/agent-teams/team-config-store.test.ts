@@ -8,6 +8,8 @@ import { getTeamDir, getTeamTaskDir, getTeamsRootDir } from "./paths"
 import {
   createTeamConfig,
   deleteTeamData,
+  deleteTeamDir,
+  listTeams,
   readTeamConfigOrThrow,
   teamExists,
   upsertTeammate,
@@ -17,17 +19,27 @@ import {
 describe("agent-teams team config store", () => {
   let originalCwd: string
   let tempProjectDir: string
+  let createdTeams: string[]
 
   beforeEach(() => {
     originalCwd = process.cwd()
     tempProjectDir = mkdtempSync(join(tmpdir(), "agent-teams-config-store-"))
     process.chdir(tempProjectDir)
-    createTeamConfig("core", "Core team", "ses-main", tempProjectDir, "sisyphus")
+    createdTeams = []
+    const timestamp = Date.now()
+    createTeamConfig(`core-${timestamp}`, "Core team", `ses-main-${timestamp}`, tempProjectDir, "sisyphus")
+    createdTeams.push(`core-${timestamp}`)
   })
 
   afterEach(() => {
-    if (teamExists("core")) {
-      deleteTeamData("core")
+    for (const teamName of createdTeams) {
+      if (teamExists(teamName)) {
+        try {
+          deleteTeamData(teamName)
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
     }
     process.chdir(originalCwd)
     rmSync(tempProjectDir, { recursive: true, force: true })
@@ -35,54 +47,57 @@ describe("agent-teams team config store", () => {
 
   test("deleteTeamData waits for team lock before removing team files", () => {
     //#given
-    const lock = acquireLock(getTeamDir("core"))
+    const teamName = createdTeams[0]
+    const lock = acquireLock(getTeamDir(teamName))
     expect(lock.acquired).toBe(true)
 
     try {
       //#when
-      const deleteWhileLocked = () => deleteTeamData("core")
+      const deleteWhileLocked = () => deleteTeamData(teamName)
 
       //#then
       expect(deleteWhileLocked).toThrow("team_lock_unavailable")
-      expect(teamExists("core")).toBe(true)
+      expect(teamExists(teamName)).toBe(true)
     } finally {
       //#when
       lock.release()
     }
 
-    deleteTeamData("core")
+    deleteTeamData(teamName)
 
     //#then
-    expect(teamExists("core")).toBe(false)
+    expect(teamExists(teamName)).toBe(false)
   })
 
   test("deleteTeamData waits for task lock before removing task files", () => {
     //#given
-    const lock = acquireLock(getTeamTaskDir("core"))
+    const teamName = createdTeams[0]
+    const lock = acquireLock(getTeamTaskDir(teamName))
     expect(lock.acquired).toBe(true)
 
     try {
       //#when
-      const deleteWhileLocked = () => deleteTeamData("core")
+      const deleteWhileLocked = () => deleteTeamData(teamName)
 
       //#then
       expect(deleteWhileLocked).toThrow("team_task_lock_unavailable")
-      expect(teamExists("core")).toBe(true)
+      expect(teamExists(teamName)).toBe(true)
     } finally {
       lock.release()
     }
 
     //#when
-    deleteTeamData("core")
+    deleteTeamData(teamName)
 
     //#then
-    expect(teamExists("core")).toBe(false)
+    expect(teamExists(teamName)).toBe(false)
   })
 
   test("deleteTeamData removes task files before deleting team directory", () => {
     //#given
-    const taskDir = getTeamTaskDir("core")
-    const teamDir = getTeamDir("core")
+    const teamName = createdTeams[0]
+    const taskDir = getTeamTaskDir(teamName)
+    const teamDir = getTeamDir(teamName)
     const teamsRootDir = getTeamsRootDir()
     expect(existsSync(taskDir)).toBe(true)
     expect(existsSync(teamDir)).toBe(true)
@@ -90,7 +105,7 @@ describe("agent-teams team config store", () => {
     //#when
     chmodSync(teamsRootDir, 0o555)
     try {
-      const deleteWithBlockedTeamParent = () => deleteTeamData("core")
+      const deleteWithBlockedTeamParent = () => deleteTeamData(teamName)
       expect(deleteWithBlockedTeamParent).toThrow()
     } finally {
       chmodSync(teamsRootDir, 0o755)
@@ -103,39 +118,40 @@ describe("agent-teams team config store", () => {
 
   test("deleteTeamData fails if team has active teammates", () => {
     //#given
-    const config = readTeamConfigOrThrow("core")
+    const teamName = createdTeams[0]
+    const config = readTeamConfigOrThrow(teamName)
     const updated = upsertTeammate(config, {
-      agentId: "teammate@core",
+      agentId: `teammate@${teamName}`,
       name: "teammate",
-      agentType: "sisyphus",
+      agentType: "teammate",
       category: "test",
       model: "sisyphus",
       prompt: "test prompt",
       color: "#000000",
       planModeRequired: false,
-      joinedAt: Date.now(),
+      joinedAt: new Date().toISOString(),
       cwd: process.cwd(),
       subscriptions: [],
       backendType: "native",
       isActive: true,
       sessionID: "ses-sub",
     })
-    writeTeamConfig("core", updated)
+    writeTeamConfig(teamName, updated)
 
     //#when
-    const deleteWithTeammates = () => deleteTeamData("core")
+    const deleteWithTeammates = () => deleteTeamData(teamName)
 
     //#then
     expect(deleteWithTeammates).toThrow("team_has_active_members")
-    expect(teamExists("core")).toBe(true)
+    expect(teamExists(teamName)).toBe(true)
 
     //#when - cleanup teammate to allow afterEach to succeed
     const cleared = { ...updated, members: updated.members.filter(m => m.name === "team-lead") }
-    writeTeamConfig("core", cleared)
-    deleteTeamData("core")
+    writeTeamConfig(teamName, cleared)
+    deleteTeamData(teamName)
 
     //#then
-    expect(teamExists("core")).toBe(false)
+    expect(teamExists(teamName)).toBe(false)
   })
 
 })
