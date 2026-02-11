@@ -11,6 +11,8 @@ import {
   generateTaskId,
 } from "../../features/claude-tasks/storage";
 import { syncTaskTodoUpdate } from "./todo-sync";
+import { writeTeamTask } from "../agent-teams/team-task-store";
+import { getTeamTaskDir } from "../agent-teams/paths";
 
 export function createTaskCreateTool(
   config: Partial<OhMyOpenCodeConfig>,
@@ -48,7 +50,8 @@ Calculate dependencies carefully to maximize parallel execution:
         .optional()
         .describe("Task IDs this task blocks"),
       repoURL: tool.schema.string().optional().describe("Repository URL"),
-      parentID: tool.schema.string().optional().describe("Parent task ID"),
+       parentID: tool.schema.string().optional().describe("Parent task ID"),
+       team_name: tool.schema.string().optional().describe("Optional: team name for team-namespaced tasks"),
     },
     execute: async (args, context) => {
       return handleCreate(args, config, ctx, context);
@@ -64,42 +67,83 @@ async function handleCreate(
 ): Promise<string> {
   try {
     const validatedArgs = TaskCreateInputSchema.parse(args);
-    const taskDir = getTaskDir(config);
-    const lock = acquireLock(taskDir);
+    if (validatedArgs.team_name) {
+      const teamName = validatedArgs.team_name as string;
+      const teamTaskDir = getTeamTaskDir(teamName);
+      const lock = acquireLock(teamTaskDir);
 
-    if (!lock.acquired) {
-      return JSON.stringify({ error: "task_lock_unavailable" });
-    }
+      if (!lock.acquired) {
+        return JSON.stringify({ error: "team_task_lock_unavailable" });
+      }
 
-    try {
-      const taskId = generateTaskId();
-      const task: TaskObject = {
-        id: taskId,
-        subject: validatedArgs.subject,
-        description: validatedArgs.description ?? "",
-        status: "pending",
-        blocks: validatedArgs.blocks ?? [],
-        blockedBy: validatedArgs.blockedBy ?? [],
-        activeForm: validatedArgs.activeForm,
-        metadata: validatedArgs.metadata,
-        repoURL: validatedArgs.repoURL,
-        parentID: validatedArgs.parentID,
-        threadID: context.sessionID,
-      };
+      try {
+        const taskId = generateTaskId();
+        const task: TaskObject = {
+          id: taskId,
+          subject: validatedArgs.subject,
+          description: validatedArgs.description ?? "",
+          status: "pending",
+          blocks: validatedArgs.blocks ?? [],
+          blockedBy: validatedArgs.blockedBy ?? [],
+          activeForm: validatedArgs.activeForm,
+          metadata: validatedArgs.metadata,
+          repoURL: validatedArgs.repoURL,
+          parentID: validatedArgs.parentID,
+          threadID: context.sessionID,
+        };
 
-      const validatedTask = TaskObjectSchema.parse(task);
-      writeJsonAtomic(join(taskDir, `${taskId}.json`), validatedTask);
+        const validatedTask = TaskObjectSchema.parse(task);
+        writeTeamTask(teamName, taskId, validatedTask);
 
-      await syncTaskTodoUpdate(ctx, validatedTask, context.sessionID);
+        await syncTaskTodoUpdate(ctx, validatedTask, context.sessionID);
 
-      return JSON.stringify({
-        task: {
-          id: validatedTask.id,
-          subject: validatedTask.subject,
-        },
-      });
-    } finally {
-      lock.release();
+        return JSON.stringify({
+          task: {
+            id: validatedTask.id,
+            subject: validatedTask.subject,
+          },
+        });
+      } finally {
+        lock.release();
+      }
+    } else {
+      const taskDir = getTaskDir(config);
+      const lock = acquireLock(taskDir);
+
+      if (!lock.acquired) {
+        return JSON.stringify({ error: "task_lock_unavailable" });
+      }
+
+      try {
+        const taskId = generateTaskId();
+        const task: TaskObject = {
+          id: taskId,
+          subject: validatedArgs.subject,
+          description: validatedArgs.description ?? "",
+          status: "pending",
+          blocks: validatedArgs.blocks ?? [],
+          blockedBy: validatedArgs.blockedBy ?? [],
+          activeForm: validatedArgs.activeForm,
+          metadata: validatedArgs.metadata,
+          repoURL: validatedArgs.repoURL,
+          parentID: validatedArgs.parentID,
+          threadID: context.sessionID,
+        };
+
+        const validatedTask = TaskObjectSchema.parse(task);
+        writeJsonAtomic(join(taskDir, `${taskId}.json`), validatedTask);
+
+        await syncTaskTodoUpdate(ctx, validatedTask, context.sessionID);
+
+        return JSON.stringify({
+          task: {
+            id: validatedTask.id,
+            subject: validatedTask.subject,
+          },
+        });
+      } finally {
+        lock.release();
+      }
     }
   } catch (error) {
     if (error instanceof Error && error.message.includes("Required")) {

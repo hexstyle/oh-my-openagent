@@ -10,6 +10,7 @@ const TEST_CONFIG = {
   sisyphus: {
     tasks: {
       storage_path: TEST_STORAGE,
+      claude_code_compat: true,
     },
   },
 }
@@ -296,6 +297,42 @@ describe("task_create tool", () => {
       expect(taskContent.id).toBe(taskId)
       expect(taskContent.subject).toBe("Test task")
       expect(taskContent.description).toBe("Test description")
+    })
+
+    test("creates task in team namespace when team_name provided", async () => {
+      //#given
+      const args = {
+        subject: "Team task",
+        team_name: "test-team",
+      }
+
+      //#when
+      const resultStr = await tool.execute(args, TEST_CONTEXT)
+      const result = JSON.parse(resultStr)
+
+      //#then
+      expect(result).toHaveProperty("task")
+      expect(result.task).toHaveProperty("id")
+      expect(result.task.subject).toBe("Team task")
+    })
+
+    test("creates task in regular storage when no team_name", async () => {
+      //#given
+      const args = {
+        subject: "Regular task",
+      }
+
+      //#when
+      const resultStr = await tool.execute(args, TEST_CONTEXT)
+      const result = JSON.parse(resultStr)
+
+      //#then
+      expect(result).toHaveProperty("task")
+      expect(result.task.subject).toBe("Regular task")
+      // Verify it's in regular storage
+      const taskId = result.task.id
+      const taskFile = join(TEST_DIR, `${taskId}.json`)
+      expect(existsSync(taskFile)).toBe(true)
     })
   })
 })

@@ -37,6 +37,7 @@ export const TaskCreateInputSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
   repoURL: z.string().optional(),
   parentID: z.string().optional(),
+  team_name: z.string().optional(),
 })
 
 export type TaskCreateInput = z.infer<typeof TaskCreateInputSchema>
