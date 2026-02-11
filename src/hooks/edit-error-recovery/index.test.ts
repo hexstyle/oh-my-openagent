@@ -21,6 +21,17 @@ describe("createEditErrorRecoveryHook", () => {
       metadata: {},
     })
 
+    describe("#given output.output is undefined", () => {
+      //#when tool.execute.after is called
+      //#then should return without throwing
+      it("#then should not throw", async () => {
+        const input = createInput("Edit")
+        const output = { title: "Edit", output: undefined as unknown as string, metadata: {} }
+
+        await expect(hook["tool.execute.after"](input, output)).resolves.toBeUndefined()
+      })
+    })
+
     describe("#given Edit tool with oldString/newString same error", () => {
       describe("#when the error message is detected", () => {
         it("#then should append the recovery reminder", async () => {
