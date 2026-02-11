@@ -115,38 +115,49 @@ export const TeamDeleteInputSchema = z.object({
 
 export type TeamDeleteInput = z.infer<typeof TeamDeleteInputSchema>
 
+const teamNameField = z.string().regex(/^[A-Za-z0-9_-]+$/, "Team name must contain only letters, numbers, hyphens, and underscores").max(64)
+const senderField = z.string().optional()
+
 export const SendMessageInputSchema = z.discriminatedUnion("type", [
   z.object({
-    team_name: z.string().regex(/^[A-Za-z0-9_-]+$/, "Team name must contain only letters, numbers, hyphens, and underscores").max(64),
+    team_name: teamNameField,
     type: z.literal("message"),
     recipient: z.string().min(1),
     content: z.string().optional(),
     summary: z.string().optional(),
+    sender: senderField,
   }),
   z.object({
-    team_name: z.string().regex(/^[A-Za-z0-9_-]+$/, "Team name must contain only letters, numbers, hyphens, and underscores").max(64),
+    team_name: teamNameField,
     type: z.literal("broadcast"),
     content: z.string().optional(),
     summary: z.string().optional(),
+    sender: senderField,
   }),
   z.object({
-    team_name: z.string().regex(/^[A-Za-z0-9_-]+$/, "Team name must contain only letters, numbers, hyphens, and underscores").max(64),
+    team_name: teamNameField,
     type: z.literal("shutdown_request"),
     recipient: z.string().min(1),
     content: z.string().optional(),
     summary: z.string().optional(),
+    sender: senderField,
   }),
   z.object({
-    team_name: z.string().regex(/^[A-Za-z0-9_-]+$/, "Team name must contain only letters, numbers, hyphens, and underscores").max(64),
+    team_name: teamNameField,
     type: z.literal("shutdown_response"),
     request_id: z.string().min(1),
     approve: z.boolean(),
+    content: z.string().optional(),
+    sender: senderField,
   }),
   z.object({
-    team_name: z.string().regex(/^[A-Za-z0-9_-]+$/, "Team name must contain only letters, numbers, hyphens, and underscores").max(64),
+    team_name: teamNameField,
     type: z.literal("plan_approval_response"),
     request_id: z.string().min(1),
     approve: z.boolean(),
+    recipient: z.string().optional(),
+    content: z.string().optional(),
+    sender: senderField,
   }),
 ])
 
@@ -183,9 +194,74 @@ export const ForceKillTeammateInputSchema = z.object({
 
 export type ForceKillTeammateInput = z.infer<typeof ForceKillTeammateInputSchema>
 
+export type TeamToolContext = {
+  sessionID: string
+  messageID: string
+  agent: string
+  abort?: AbortSignal
+}
+
+export const TeamSendMessageInputSchema = SendMessageInputSchema
+
+export type TeamSendMessageInput = z.infer<typeof TeamSendMessageInputSchema>
+
+export const TeamReadInboxInputSchema = ReadInboxInputSchema
+
+export type TeamReadInboxInput = z.infer<typeof TeamReadInboxInputSchema>
+
+export const TeamReadConfigInputSchema = ReadConfigInputSchema
+
+export type TeamReadConfigInput = z.infer<typeof TeamReadConfigInputSchema>
+
 export const ProcessShutdownApprovedInputSchema = z.object({
   team_name: z.string().regex(/^[A-Za-z0-9_-]+$/, "Team name must contain only letters, numbers, hyphens, and underscores").max(64),
   teammate_name: z.string().min(1),
 })
 
 export type ProcessShutdownApprovedInput = z.infer<typeof ProcessShutdownApprovedInputSchema>
+
+export const TeamForceKillInputSchema = ForceKillTeammateInputSchema
+
+export type TeamForceKillInput = z.infer<typeof TeamForceKillInputSchema>
+
+export const TeamProcessShutdownInputSchema = ProcessShutdownApprovedInputSchema
+
+export type TeamProcessShutdownInput = z.infer<typeof TeamProcessShutdownInputSchema>
+
+export const TeamTaskCreateInputSchema = z.object({
+  team_name: teamNameField,
+  subject: z.string().min(1),
+  description: z.string(),
+  active_form: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+})
+
+export type TeamTaskCreateInput = z.infer<typeof TeamTaskCreateInputSchema>
+
+export const TeamTaskListInputSchema = z.object({
+  team_name: teamNameField,
+})
+
+export type TeamTaskListInput = z.infer<typeof TeamTaskListInputSchema>
+
+export const TeamTaskGetInputSchema = z.object({
+  team_name: teamNameField,
+  task_id: z.string().min(1),
+})
+
+export type TeamTaskGetInput = z.infer<typeof TeamTaskGetInputSchema>
+
+export const TeamTaskUpdateInputSchema = z.object({
+  team_name: teamNameField,
+  task_id: z.string().min(1),
+  status: z.enum(["pending", "in_progress", "completed", "deleted"]).optional(),
+  owner: z.string().optional(),
+  subject: z.string().optional(),
+  description: z.string().optional(),
+  active_form: z.string().optional(),
+  add_blocks: z.array(z.string()).optional(),
+  add_blocked_by: z.array(z.string()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+})
+
+export type TeamTaskUpdateInput = z.infer<typeof TeamTaskUpdateInputSchema>
