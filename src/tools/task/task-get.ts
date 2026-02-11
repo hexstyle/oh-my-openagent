@@ -4,6 +4,7 @@ import type { OhMyOpenCodeConfig } from "../../config/schema"
 import type { TaskGetInput } from "./types"
 import { TaskGetInputSchema, TaskObjectSchema } from "./types"
 import { getTaskDir, readJsonSafe } from "../../features/claude-tasks/storage"
+import { readTeamTask } from "../agent-teams/team-task-store"
 
 const TASK_ID_PATTERN = /^T-[A-Za-z0-9-]+$/
 
@@ -21,6 +22,7 @@ Returns the full task object including all fields: id, subject, description, sta
 Returns null if the task does not exist or the file is invalid.`,
     args: {
       id: tool.schema.string().describe("Task ID to retrieve (format: T-{uuid})"),
+      team_name: tool.schema.string().optional().describe("Optional: team name for team-namespaced tasks"),
     },
     execute: async (args: Record<string, unknown>): Promise<string> => {
       try {
@@ -31,12 +33,15 @@ Returns null if the task does not exist or the file is invalid.`,
           return JSON.stringify({ error: "invalid_task_id" })
         }
 
-        const taskDir = getTaskDir(config)
-        const taskPath = join(taskDir, `${taskId}.json`)
-
-         const task = readJsonSafe(taskPath, TaskObjectSchema)
-
-        return JSON.stringify({ task: task ?? null })
+        if (validatedArgs.team_name) {
+          const task = readTeamTask(validatedArgs.team_name, taskId)
+          return JSON.stringify({ task: task ?? null })
+        } else {
+          const taskDir = getTaskDir(config)
+          const taskPath = join(taskDir, `${taskId}.json`)
+          const task = readJsonSafe(taskPath, TaskObjectSchema)
+          return JSON.stringify({ task: task ?? null })
+        }
       } catch (error) {
         if (error instanceof Error && error.message.includes("validation")) {
           return JSON.stringify({ error: "invalid_arguments" })

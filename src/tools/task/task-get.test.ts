@@ -3,6 +3,7 @@ import { existsSync, rmSync, mkdirSync, writeFileSync } from "fs"
 import { join } from "path"
 import type { TaskObject } from "./types"
 import { createTaskGetTool } from "./task-get"
+import { writeTeamTask } from "../agent-teams/team-task-store"
 
 const TEST_STORAGE = ".test-task-get-tool"
 const TEST_DIR = join(process.cwd(), TEST_STORAGE)
@@ -10,6 +11,7 @@ const TEST_CONFIG = {
   sisyphus: {
     tasks: {
       storage_path: TEST_STORAGE,
+      claude_code_compat: true,
     },
   },
 }
@@ -217,6 +219,56 @@ describe("task_get tool", () => {
       expect(result.task.id).toBe(taskId)
       expect(result.task.owner).toBeUndefined()
       expect(result.task.metadata).toBeUndefined()
+    })
+
+    test("retrieves task from team namespace when team_name provided", async () => {
+      //#given
+      const teamName = "test-team"
+      const taskId = "T-team-task-404"
+      const taskData: TaskObject = {
+        id: taskId,
+        subject: "Team task",
+        description: "Team description",
+        status: "pending",
+        blocks: [],
+        blockedBy: [],
+        threadID: TEST_SESSION_ID,
+      }
+      writeTeamTask(teamName, taskId, taskData)
+
+      //#when
+      const resultStr = await tool.execute({ id: taskId, team_name: teamName }, TEST_CONTEXT)
+      const result = JSON.parse(resultStr)
+
+      //#then
+      expect(result).toHaveProperty("task")
+      expect(result.task).not.toBeNull()
+      expect(result.task.id).toBe(taskId)
+      expect(result.task.subject).toBe("Team task")
+    })
+
+    test("retrieves task from regular storage when no team_name", async () => {
+      //#given
+      const taskId = "T-regular-task-505"
+      const taskData: TaskObject = {
+        id: taskId,
+        subject: "Regular task",
+        description: "Regular",
+        status: "pending",
+        blocks: [],
+        blockedBy: [],
+        threadID: TEST_SESSION_ID,
+      }
+      const taskFile = join(TEST_DIR, `${taskId}.json`)
+      writeFileSync(taskFile, JSON.stringify(taskData, null, 2))
+
+      //#when
+      const resultStr = await tool.execute({ id: taskId }, TEST_CONTEXT)
+      const result = JSON.parse(resultStr)
+
+      //#then
+      expect(result.task).not.toBeNull()
+      expect(result.task.subject).toBe("Regular task")
     })
   })
 })

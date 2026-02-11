@@ -51,6 +51,7 @@ export type TaskListInput = z.infer<typeof TaskListInputSchema>
 
 export const TaskGetInputSchema = z.object({
   id: z.string(),
+  team_name: z.string().optional(),
 })
 
 export type TaskGetInput = z.infer<typeof TaskGetInputSchema>
