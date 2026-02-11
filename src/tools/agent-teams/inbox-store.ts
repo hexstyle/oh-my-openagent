@@ -1,35 +1,43 @@
 import { existsSync, readFileSync, unlinkSync } from "node:fs"
 import { z } from "zod"
 import { acquireLock, ensureDir, writeJsonAtomic } from "../../features/claude-tasks/storage"
-import { getTeamInboxDir, getTeamInboxPath } from "./paths"
-import { validateAgentNameOrLead, validateTeamName } from "./name-validation"
-import { TeamInboxMessage, TeamInboxMessageSchema } from "./types"
+import { getTeamInboxPath } from "./paths"
+import { InboxMessage, InboxMessageSchema } from "./types"
 
-const TeamInboxListSchema = z.array(TeamInboxMessageSchema)
-
-function nowIso(): string {
-  return new Date().toISOString()
-}
+const InboxMessageListSchema = z.array(InboxMessageSchema)
 
 function assertValidTeamName(teamName: string): void {
-  const validationError = validateTeamName(teamName)
-  if (validationError) {
-    throw new Error(validationError)
+  const errors: string[] = []
+
+  if (!/^[A-Za-z0-9_-]+$/.test(teamName)) {
+    errors.push("Team name must contain only letters, numbers, hyphens, and underscores")
+  }
+  if (teamName.length > 64) {
+    errors.push("Team name must be at most 64 characters")
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Invalid team name: ${errors.join(", ")}`)
   }
 }
 
-function assertValidInboxAgentName(agentName: string): void {
-  const validationError = validateAgentNameOrLead(agentName)
-  if (validationError) {
-    throw new Error(validationError)
+function assertValidAgentName(agentName: string): void {
+  if (!agentName || agentName.length === 0) {
+    throw new Error("Agent name must not be empty")
   }
+}
+
+function getTeamInboxDirFromName(teamName: string): string {
+  const { dirname } = require("node:path")
+  return dirname(getTeamInboxPath(teamName, "dummy"))
 }
 
 function withInboxLock<T>(teamName: string, operation: () => T): T {
   assertValidTeamName(teamName)
-  const inboxDir = getTeamInboxDir(teamName)
+  const inboxDir = getTeamInboxDirFromName(teamName)
   ensureDir(inboxDir)
   const lock = acquireLock(inboxDir)
+
   if (!lock.acquired) {
     throw new Error("inbox_lock_unavailable")
   }
@@ -41,7 +49,7 @@ function withInboxLock<T>(teamName: string, operation: () => T): T {
   }
 }
 
-function parseInboxFile(content: string): TeamInboxMessage[] {
+function parseInboxFile(content: string): InboxMessage[] {
   let parsed: unknown
 
   try {
@@ -50,7 +58,7 @@ function parseInboxFile(content: string): TeamInboxMessage[] {
     throw new Error("team_inbox_parse_failed")
   }
 
-  const result = TeamInboxListSchema.safeParse(parsed)
+  const result = InboxMessageListSchema.safeParse(parsed)
   if (!result.success) {
     throw new Error("team_inbox_schema_invalid")
   }
@@ -58,100 +66,63 @@ function parseInboxFile(content: string): TeamInboxMessage[] {
   return result.data
 }
 
-function readInboxMessages(teamName: string, agentName: string): TeamInboxMessage[] {
+function readInboxMessages(teamName: string, agentName: string): InboxMessage[] {
   assertValidTeamName(teamName)
-  assertValidInboxAgentName(agentName)
+  assertValidAgentName(agentName)
   const path = getTeamInboxPath(teamName, agentName)
+
   if (!existsSync(path)) {
     return []
   }
+
   return parseInboxFile(readFileSync(path, "utf-8"))
 }
 
-function writeInboxMessages(teamName: string, agentName: string, messages: TeamInboxMessage[]): void {
+function writeInboxMessages(teamName: string, agentName: string, messages: InboxMessage[]): void {
   assertValidTeamName(teamName)
-  assertValidInboxAgentName(agentName)
+  assertValidAgentName(agentName)
   const path = getTeamInboxPath(teamName, agentName)
   writeJsonAtomic(path, messages)
 }
 
 export function ensureInbox(teamName: string, agentName: string): void {
   assertValidTeamName(teamName)
-  assertValidInboxAgentName(agentName)
+  assertValidAgentName(agentName)
+
   withInboxLock(teamName, () => {
     const path = getTeamInboxPath(teamName, agentName)
+
     if (!existsSync(path)) {
       writeJsonAtomic(path, [])
     }
   })
 }
 
-export function appendInboxMessage(teamName: string, agentName: string, message: TeamInboxMessage): void {
+export function appendInboxMessage(teamName: string, agentName: string, message: InboxMessage): void {
   assertValidTeamName(teamName)
-  assertValidInboxAgentName(agentName)
+  assertValidAgentName(agentName)
+
   withInboxLock(teamName, () => {
     const path = getTeamInboxPath(teamName, agentName)
     const messages = existsSync(path) ? parseInboxFile(readFileSync(path, "utf-8")) : []
-    messages.push(TeamInboxMessageSchema.parse(message))
+    messages.push(InboxMessageSchema.parse(message))
     writeInboxMessages(teamName, agentName, messages)
   })
 }
 
-export function clearInbox(teamName: string, agentName: string): void {
-  assertValidTeamName(teamName)
-  assertValidInboxAgentName(agentName)
-  withInboxLock(teamName, () => {
-    const path = getTeamInboxPath(teamName, agentName)
-    if (existsSync(path)) {
-      unlinkSync(path)
-    }
-  })
+export interface ReadInboxOptions {
+  unreadOnly?: boolean
+  markAsRead?: boolean
 }
 
-export function sendPlainInboxMessage(
-  teamName: string,
-  from: string,
-  to: string,
-  text: string,
-  summary: string,
-  color?: string,
-): void {
-  appendInboxMessage(teamName, to, {
-    from,
-    text,
-    timestamp: nowIso(),
-    read: false,
-    summary,
-    ...(color ? { color } : {}),
-  })
-}
-
-export function sendStructuredInboxMessage(
-  teamName: string,
-  from: string,
-  to: string,
-  payload: Record<string, unknown>,
-  summary?: string,
-): void {
-  appendInboxMessage(teamName, to, {
-    from,
-    text: JSON.stringify(payload),
-    timestamp: nowIso(),
-    read: false,
-    ...(summary ? { summary } : {}),
-  })
-}
-
-export function readInbox(
-  teamName: string,
-  agentName: string,
-  unreadOnly = false,
-  markAsRead = true,
-): TeamInboxMessage[] {
+export function readInbox(teamName: string, agentName: string, options?: ReadInboxOptions): InboxMessage[] {
   return withInboxLock(teamName, () => {
     const messages = readInboxMessages(teamName, agentName)
+    const unreadOnly = options?.unreadOnly ?? false
+    const markAsRead = options?.markAsRead ?? false
 
     const selectedIndexes = new Set<number>()
+
     const selected = unreadOnly
       ? messages.filter((message, index) => {
           if (!message.read) {
@@ -182,10 +153,47 @@ export function readInbox(
     if (changed) {
       writeInboxMessages(teamName, agentName, updated)
     }
+
     return updated.filter((_, index) => selectedIndexes.has(index))
   })
 }
 
-export function buildShutdownRequestId(recipient: string): string {
-  return `shutdown-${Date.now()}@${recipient}`
+export function markMessagesRead(teamName: string, agentName: string, messageIds: string[]): void {
+  assertValidTeamName(teamName)
+  assertValidAgentName(agentName)
+
+  if (messageIds.length === 0) {
+    return
+  }
+
+  withInboxLock(teamName, () => {
+    const messages = readInboxMessages(teamName, agentName)
+    const idsToMark = new Set(messageIds)
+
+    const updated = messages.map((message) => {
+      if (idsToMark.has(message.id) && !message.read) {
+        return { ...message, read: true }
+      }
+      return message
+    })
+
+    const changed = updated.some((msg, index) => msg.read !== messages[index].read)
+
+    if (changed) {
+      writeInboxMessages(teamName, agentName, updated)
+    }
+  })
+}
+
+export function deleteInbox(teamName: string, agentName: string): void {
+  assertValidTeamName(teamName)
+  assertValidAgentName(agentName)
+
+  withInboxLock(teamName, () => {
+    const path = getTeamInboxPath(teamName, agentName)
+
+    if (existsSync(path)) {
+      unlinkSync(path)
+    }
+  })
 }
