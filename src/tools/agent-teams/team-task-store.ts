@@ -41,6 +41,8 @@ function withTaskLock<T>(teamName: string, operation: () => T): T {
   }
 }
 
+export { getTeamTaskPath } from "./paths"
+
 export function readTeamTask(teamName: string, taskId: string): TeamTask | null {
   assertValidTeamName(teamName)
   assertValidTaskId(taskId)
@@ -94,38 +96,44 @@ export function createTeamTask(
   }
 
   return withTaskLock(teamName, () => {
+    const taskId = generateTaskId()
     const task: TeamTask = {
-      id: generateTaskId(),
+      id: taskId,
       subject,
       description,
       activeForm,
       status: "pending",
       blocks: [],
       blockedBy: [],
+      threadID: `unknown_${taskId}`,
       ...(metadata ? { metadata } : {}),
     }
 
     const validated = TeamTaskSchema.parse(task)
-    writeJsonAtomic(getTeamTaskPath(teamName, validated.id), validated)
+    writeJsonAtomic(getTeamTaskPath(teamName, taskId), validated)
     return validated
   })
 }
 
-export function writeTeamTask(teamName: string, task: TeamTask): TeamTask {
+export function writeTeamTask(teamName: string, taskId: string, task: TeamTask): void {
   assertValidTeamName(teamName)
-  assertValidTaskId(task.id)
+  assertValidTaskId(taskId)
   const validated = TeamTaskSchema.parse(task)
-  writeJsonAtomic(getTeamTaskPath(teamName, validated.id), validated)
-  return validated
+  writeJsonAtomic(getTeamTaskPath(teamName, taskId), validated)
 }
 
-export function deleteTeamTaskFile(teamName: string, taskId: string): void {
+export function deleteTeamTask(teamName: string, taskId: string): void {
   assertValidTeamName(teamName)
   assertValidTaskId(taskId)
   const taskPath = getTeamTaskPath(teamName, taskId)
   if (existsSync(taskPath)) {
     unlinkSync(taskPath)
   }
+}
+
+// Backward compatibility alias
+export function deleteTeamTaskFile(teamName: string, taskId: string): void {
+  deleteTeamTask(teamName, taskId)
 }
 
 export function readTaskFromDirectory(taskDir: string, taskId: string): TeamTask | null {
@@ -146,7 +154,7 @@ export function resetOwnerTasks(teamName: string, ownerName: string): void {
         owner: undefined,
         status: task.status === "completed" ? "completed" : "pending",
       }
-      writeTeamTask(teamName, next)
+      writeTeamTask(teamName, next.id, next)
     }
   })
 }
