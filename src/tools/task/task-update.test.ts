@@ -3,6 +3,7 @@ import { existsSync, rmSync, mkdirSync } from "fs"
 import { join } from "path"
 import type { TaskObject } from "./types"
 import { createTaskUpdateTool } from "./task-update"
+import { writeTeamTask } from "../agent-teams/team-task-store"
 
 const TEST_STORAGE = ".test-task-update-tool"
 const TEST_DIR = join(process.cwd(), TEST_STORAGE)
@@ -427,6 +428,54 @@ describe("task_update tool", () => {
       expect(result.task.description).toBe("New description")
       expect(result.task.status).toBe("in_progress")
       expect(result.task.owner).toBe("alice")
+    })
+
+    test("updates task in team namespace when team_name provided", async () => {
+      //#given
+      const taskId = "T-team-test-135"
+      const teamName = "test-team"
+      const initialTask: TaskObject = {
+        id: taskId,
+        subject: "Original team subject",
+        description: "Team task description",
+        status: "pending",
+        blocks: [],
+        blockedBy: [],
+        threadID: TEST_SESSION_ID,
+      }
+      writeTeamTask(teamName, taskId, initialTask)
+
+      //#when
+      const args = {
+        id: taskId,
+        team_name: teamName,
+        subject: "Updated team subject",
+        status: "in_progress" as const,
+      }
+      const resultStr = await tool.execute(args, TEST_CONTEXT)
+      const result = JSON.parse(resultStr)
+
+      //#then
+      expect(result).toHaveProperty("task")
+      expect(result.task.subject).toBe("Updated team subject")
+      expect(result.task.status).toBe("in_progress")
+      expect(result.task.description).toBe("Team task description")
+    })
+
+    test("returns error when team task not found", async () => {
+      //#given
+      const args = {
+        id: "T-nonexistent-team-task",
+        team_name: "test-team",
+      }
+
+      //#when
+      const resultStr = await tool.execute(args, TEST_CONTEXT)
+      const result = JSON.parse(resultStr)
+
+      //#then
+      expect(result).toHaveProperty("error")
+      expect(result.error).toBe("task_not_found")
     })
   })
 })

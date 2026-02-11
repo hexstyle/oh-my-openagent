@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import { createTaskList } from "./task-list"
 import { writeJsonAtomic } from "../../features/claude-tasks/storage"
+import { writeTeamTask } from "../agent-teams/team-task-store"
+import { getTeamTaskDir } from "../agent-teams/paths"
 import type { TaskObject } from "./types"
 import { join } from "path"
 import { existsSync, rmSync } from "fs"
@@ -20,6 +22,11 @@ describe("createTaskList", () => {
   afterEach(() => {
     if (existsSync(taskDir)) {
       rmSync(taskDir, { recursive: true })
+    }
+    // Clean up team task directories
+    const teamTaskDir = getTeamTaskDir("test-team")
+    if (existsSync(teamTaskDir)) {
+      rmSync(teamTaskDir, { recursive: true })
     }
   })
 
@@ -330,6 +337,72 @@ describe("createTaskList", () => {
 
      //#then
      const parsed = JSON.parse(result)
-     expect(parsed.tasks[0].blockedBy).toEqual(["T-missing"])
-   })
+      expect(parsed.tasks[0].blockedBy).toEqual(["T-missing"])
+    })
+
+    it("lists tasks from team namespace when team_name provided", async () => {
+      //#given
+      const teamTask = {
+        id: "T-team-1",
+        subject: "Team task",
+        description: "",
+        status: "pending" as const,
+        blocks: [],
+        blockedBy: [],
+        threadID: "test-session",
+      }
+
+      writeTeamTask("test-team", "T-team-1", teamTask)
+
+      const config = {
+        sisyphus: {
+          tasks: {
+            storage_path: join(testProjectDir, ".sisyphus/tasks"),
+            claude_code_compat: false,
+          },
+        },
+      }
+      const tool = createTaskList(config)
+
+      //#when
+      const result = await tool.execute({ team_name: "test-team" }, { sessionID: "test-session" })
+
+      //#then
+      const parsed = JSON.parse(result)
+      expect(parsed.tasks).toHaveLength(1)
+      expect(parsed.tasks[0].subject).toBe("Team task")
+    })
+
+    it("lists tasks from regular storage when no team_name", async () => {
+      //#given
+      const task: TaskObject = {
+        id: "T-1",
+        subject: "Regular task",
+        description: "",
+        status: "pending",
+        blocks: [],
+        blockedBy: [],
+        threadID: "test-session",
+      }
+
+      writeJsonAtomic(join(testProjectDir, ".sisyphus/tasks", "T-1.json"), task)
+
+      const config = {
+        sisyphus: {
+          tasks: {
+            storage_path: join(testProjectDir, ".sisyphus/tasks"),
+            claude_code_compat: false,
+          },
+        },
+      }
+      const tool = createTaskList(config)
+
+      //#when
+      const result = await tool.execute({}, { sessionID: "test-session" })
+
+      //#then
+      const parsed = JSON.parse(result)
+      expect(parsed.tasks).toHaveLength(1)
+      expect(parsed.tasks[0].subject).toBe("Regular task")
+    })
 })

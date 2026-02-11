@@ -45,6 +45,7 @@ export type TaskCreateInput = z.infer<typeof TaskCreateInputSchema>
 export const TaskListInputSchema = z.object({
   status: TaskStatusSchema.optional(),
   parentID: z.string().optional(),
+  team_name: z.string().optional(),
 })
 
 export type TaskListInput = z.infer<typeof TaskListInputSchema>
@@ -68,6 +69,7 @@ export const TaskUpdateInputSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
   repoURL: z.string().optional(),
   parentID: z.string().optional(),
+  team_name: z.string().optional(),
 })
 
 export type TaskUpdateInput = z.infer<typeof TaskUpdateInputSchema>
