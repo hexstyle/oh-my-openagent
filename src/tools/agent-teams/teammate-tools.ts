@@ -135,7 +135,7 @@ export function createForceKillTeammateTool(manager: BackgroundManager): ToolDef
     description: "Force stop a teammate and clean up ownership state.",
     args: {
       team_name: tool.schema.string().describe("Team name"),
-      agent_name: tool.schema.string().describe("Teammate name"),
+      teammate_name: tool.schema.string().describe("Teammate name"),
     },
     execute: async (args: Record<string, unknown>, context: TeamToolContext): Promise<string> => {
       try {
@@ -144,17 +144,17 @@ export function createForceKillTeammateTool(manager: BackgroundManager): ToolDef
         if (teamError) {
           return JSON.stringify({ error: teamError })
         }
-        const agentError = validateAgentName(input.agent_name)
+        const agentError = validateAgentName(input.teammate_name)
         if (agentError) {
           return JSON.stringify({ error: agentError })
         }
 
-        const shutdownError = await shutdownTeammateWithCleanup(manager, context, input.team_name, input.agent_name)
+        const shutdownError = await shutdownTeammateWithCleanup(manager, context, input.team_name, input.teammate_name)
         if (shutdownError) {
           return JSON.stringify({ error: shutdownError })
         }
 
-        return JSON.stringify({ success: true, message: `${input.agent_name} stopped` })
+        return JSON.stringify({ success: true, message: `${input.teammate_name} stopped` })
       } catch (error) {
         return JSON.stringify({ error: error instanceof Error ? error.message : "force_kill_teammate_failed" })
       }
@@ -167,7 +167,7 @@ export function createProcessShutdownTool(manager: BackgroundManager): ToolDefin
     description: "Finalize an approved shutdown by removing teammate and resetting owned tasks.",
     args: {
       team_name: tool.schema.string().describe("Team name"),
-      agent_name: tool.schema.string().describe("Teammate name"),
+      teammate_name: tool.schema.string().describe("Teammate name"),
     },
     execute: async (args: Record<string, unknown>, context: TeamToolContext): Promise<string> => {
       try {
@@ -176,20 +176,20 @@ export function createProcessShutdownTool(manager: BackgroundManager): ToolDefin
         if (teamError) {
           return JSON.stringify({ error: teamError })
         }
-        if (input.agent_name === "team-lead") {
+        if (input.teammate_name === "team-lead") {
           return JSON.stringify({ error: "cannot_shutdown_team_lead" })
         }
-        const agentError = validateAgentName(input.agent_name)
+        const agentError = validateAgentName(input.teammate_name)
         if (agentError) {
           return JSON.stringify({ error: agentError })
         }
 
-        const shutdownError = await shutdownTeammateWithCleanup(manager, context, input.team_name, input.agent_name)
+        const shutdownError = await shutdownTeammateWithCleanup(manager, context, input.team_name, input.teammate_name)
         if (shutdownError) {
           return JSON.stringify({ error: shutdownError })
         }
 
-        return JSON.stringify({ success: true, message: `${input.agent_name} removed` })
+        return JSON.stringify({ success: true, message: `${input.teammate_name} removed` })
       } catch (error) {
         return JSON.stringify({ error: error instanceof Error ? error.message : "process_shutdown_failed" })
       }

@@ -7,6 +7,7 @@ import { join } from "node:path"
 import type { BackgroundManager } from "../../features/background-agent"
 import { readInbox } from "./inbox-store"
 import { createAgentTeamsTools } from "./tools"
+import { readTeamConfig, upsertTeammate, writeTeamConfig } from "./team-config-store"
 
 interface TestToolContext {
   sessionID: string
@@ -63,18 +64,56 @@ function createMockManager(): { manager: BackgroundManager; resumeCalls: ResumeC
 }
 
 async function setupTeamWithWorker(
-  tools: ReturnType<typeof createAgentTeamsTools>,
+  _tools: ReturnType<typeof createAgentTeamsTools>,
   context: TestToolContext,
   teamName = "core",
   workerName = "worker_1",
 ): Promise<void> {
-  await executeJsonTool(tools, "team_create", { team_name: teamName }, context)
-  await executeJsonTool(
-    tools,
-    "spawn_teammate",
-    { team_name: teamName, name: workerName, prompt: "Handle tasks", category: "quick" },
-    context,
-  )
+  await executeJsonTool(_tools, "team_create", { team_name: teamName }, context)
+
+  const config = readTeamConfig(teamName)
+  if (config) {
+    const teammate = {
+      agentId: `agent-${randomUUID()}`,
+      name: workerName,
+      agentType: "teammate" as const,
+      category: "quick",
+      model: "default",
+      prompt: "Handle tasks",
+      joinedAt: new Date().toISOString(),
+      color: "#FF5733",
+      cwd: process.cwd(),
+      planModeRequired: false,
+      subscriptions: [],
+      backendType: "native" as const,
+      isActive: true,
+    }
+    const updatedConfig = upsertTeammate(config, teammate)
+    writeTeamConfig(teamName, updatedConfig)
+  }
+}
+
+async function addTeammateManually(teamName: string, workerName: string): Promise<void> {
+  const config = readTeamConfig(teamName)
+  if (config) {
+    const teammate = {
+      agentId: `agent-${randomUUID()}`,
+      name: workerName,
+      agentType: "teammate" as const,
+      category: "quick",
+      model: "default",
+      prompt: "Handle tasks",
+      joinedAt: new Date().toISOString(),
+      color: "#FF5733",
+      cwd: process.cwd(),
+      planModeRequired: false,
+      subscriptions: [],
+      backendType: "native" as const,
+      isActive: true,
+    }
+    const updatedConfig = upsertTeammate(config, teammate)
+    writeTeamConfig(teamName, updatedConfig)
+  }
 }
 
 describe("agent-teams messaging tools", () => {
@@ -197,12 +236,7 @@ describe("agent-teams messaging tools", () => {
       const leadContext = createContext()
       await executeJsonTool(tools, "team_create", { team_name: tn }, leadContext)
       for (const name of ["worker_1", "worker_2"]) {
-        await executeJsonTool(
-          tools,
-          "spawn_teammate",
-          { team_name: tn, name, prompt: "Handle tasks", category: "quick" },
-          leadContext,
-        )
+        await addTeammateManually(tn, name)
       }
 
       //#when

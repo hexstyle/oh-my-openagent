@@ -101,6 +101,8 @@ export const TeamTaskSchema = TaskObjectSchema
 
 export type TeamTask = z.infer<typeof TeamTaskSchema>
 
+export type TeamTaskStatus = "pending" | "in_progress" | "completed" | "deleted"
+
 // Input schemas for tools
 export const TeamCreateInputSchema = z.object({
   team_name: z.string().regex(/^[A-Za-z0-9_-]+$/, "Team name must contain only letters, numbers, hyphens, and underscores").max(64),
@@ -183,6 +185,9 @@ export const TeamSpawnInputSchema = z.object({
   name: z.string().min(1),
   category: z.string().min(1),
   prompt: z.string().min(1),
+  subagent_type: z.string().optional(),
+  model: z.string().optional(),
+  plan_mode_required: z.boolean().optional(),
 })
 
 export type TeamSpawnInput = z.infer<typeof TeamSpawnInputSchema>

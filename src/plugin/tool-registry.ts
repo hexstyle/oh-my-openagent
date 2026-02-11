@@ -118,8 +118,8 @@ export function createToolRegistry(args: {
       }
     : {}
 
-  const agentTeamsEnabled = pluginConfig.experimental?.agent_teams ?? false
-  const agentTeamsRecord: Record<string, ToolDefinition> = agentTeamsEnabled
+  const teamSystemEnabled = pluginConfig.experimental?.team_system ?? false
+  const agentTeamsRecord: Record<string, ToolDefinition> = teamSystemEnabled
     ? createAgentTeamsTools(managers.backgroundManager, {
         client: ctx.client,
         userCategories: pluginConfig.categories,
