@@ -1,16 +1,28 @@
-const { describe, test, expect, mock } = require("bun:test")
+const { describe, test, expect, mock, beforeEach, afterEach } = require("bun:test")
 
-mock.module("./session-creator", () => ({
-  createOrGetSession: mock(async () => ({ sessionID: "ses-test-123" })),
-}))
+const realCompletionPoller = require("./completion-poller")
+const realMessageProcessor = require("./message-processor")
 
-mock.module("./completion-poller", () => ({
-  waitForCompletion: mock(async () => {}),
-}))
+const waitForCompletionMock = mock(async () => {})
+const processMessagesMock = mock(async () => "agent response")
 
-mock.module("./message-processor", () => ({
-  processMessages: mock(async () => "agent response"),
-}))
+beforeEach(() => {
+  waitForCompletionMock.mockClear()
+  processMessagesMock.mockClear()
+
+  mock.module("./completion-poller", () => ({
+    waitForCompletion: waitForCompletionMock,
+  }))
+
+  mock.module("./message-processor", () => ({
+    processMessages: processMessagesMock,
+  }))
+})
+
+afterEach(() => {
+  mock.module("./completion-poller", () => ({ ...realCompletionPoller }))
+  mock.module("./message-processor", () => ({ ...realMessageProcessor }))
+})
 
 describe("executeSync", () => {
   test("passes question=false via tools parameter to block question tool", async () => {
@@ -27,6 +39,7 @@ describe("executeSync", () => {
       subagent_type: "explore",
       description: "test task",
       prompt: "find something",
+      session_id: "ses-test-123",
     }
 
     const toolContext = {
@@ -39,7 +52,10 @@ describe("executeSync", () => {
 
     const ctx = {
       client: {
-        session: { promptAsync },
+        session: {
+          promptAsync,
+          get: mock(async () => ({ data: { id: "ses-test-123" } })),
+        },
       },
     }
 
@@ -65,6 +81,7 @@ describe("executeSync", () => {
       subagent_type: "librarian",
       description: "search docs",
       prompt: "find docs",
+      session_id: "ses-test-123",
     }
 
     const toolContext = {
@@ -77,7 +94,10 @@ describe("executeSync", () => {
 
     const ctx = {
       client: {
-        session: { promptAsync },
+        session: {
+          promptAsync,
+          get: mock(async () => ({ data: { id: "ses-test-123" } })),
+        },
       },
     }
 

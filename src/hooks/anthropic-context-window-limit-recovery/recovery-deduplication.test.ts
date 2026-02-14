@@ -1,12 +1,20 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test"
+import { describe, test, expect, mock, beforeEach, afterAll } from "bun:test"
 import type { PluginInput } from "@opencode-ai/plugin"
 import type { ExperimentalConfig } from "../../config"
 
-const attemptDeduplicationRecoveryMock = mock(async () => {})
+const realDeduplicationRecovery = await import("./deduplication-recovery")
+
+const attemptDeduplicationRecoveryMock = mock<(sessionID: string) => Promise<void>>(
+  async () => {}
+)
 
 mock.module("./deduplication-recovery", () => ({
   attemptDeduplicationRecovery: attemptDeduplicationRecoveryMock,
 }))
+
+afterAll(() => {
+  mock.module("./deduplication-recovery", () => ({ ...realDeduplicationRecovery }))
+})
 
 function createImmediateTimeouts(): () => void {
   const originalSetTimeout = globalThis.setTimeout
@@ -37,13 +45,15 @@ describe("createAnthropicContextWindowLimitRecoveryHook", () => {
     const experimental = {
       dynamic_context_pruning: {
         enabled: true,
+        notification: "off",
+        protected_tools: [],
         strategies: {
           deduplication: { enabled: true },
         },
       },
     } satisfies ExperimentalConfig
 
-    let resolveSummarize: (() => void) | null = null
+    let resolveSummarize: ((value?: void) => void) | null = null
     const summarizePromise = new Promise<void>((resolve) => {
       resolveSummarize = resolve
     })
@@ -62,7 +72,7 @@ describe("createAnthropicContextWindowLimitRecoveryHook", () => {
 
     try {
       const { createAnthropicContextWindowLimitRecoveryHook } = await import("./recovery-hook")
-      const ctx = { client: mockClient, directory: "/tmp" } as PluginInput
+      const ctx = { client: mockClient, directory: "/tmp" } as unknown as PluginInput
       const hook = createAnthropicContextWindowLimitRecoveryHook(ctx, { experimental })
 
       // first error triggers compaction (setTimeout runs immediately due to mock)
@@ -105,7 +115,7 @@ describe("createAnthropicContextWindowLimitRecoveryHook", () => {
     }
 
     const { createAnthropicContextWindowLimitRecoveryHook } = await import("./recovery-hook")
-    const ctx = { client: mockClient, directory: "/tmp" } as PluginInput
+    const ctx = { client: mockClient, directory: "/tmp" } as unknown as PluginInput
     const hook = createAnthropicContextWindowLimitRecoveryHook(ctx)
 
     //#when - single error (no compaction in progress)

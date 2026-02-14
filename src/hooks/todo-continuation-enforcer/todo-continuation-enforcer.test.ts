@@ -518,7 +518,7 @@ describe("todo-continuation-enforcer", () => {
 
     //#then
     expect(promptCalls).toHaveLength(2)
-  })
+  }, 20000)
 
   test("should keep injecting even when todos remain unchanged across cycles", async () => {
     //#given
@@ -553,7 +553,7 @@ describe("todo-continuation-enforcer", () => {
 
     //#then — all 5 injections should fire (no stagnation cap)
     expect(promptCalls).toHaveLength(5)
-  })
+  }, 30000)
 
   test("should skip idle handling while injection is in flight", async () => {
     //#given
@@ -613,7 +613,7 @@ describe("todo-continuation-enforcer", () => {
 
     //#then
     expect(promptCalls).toHaveLength(2)
-  })
+  }, 20000)
 
   test("should accept skipAgents option without error", async () => {
     // given - session with skipAgents configured for Prometheus

@@ -30,7 +30,7 @@ function createMockContext(todoResponses: TodoSnapshot[][]): PluginInput {
       },
     },
     directory: "/tmp/test",
-  } as PluginInput
+  } as unknown as PluginInput
 }
 
 describe("compaction-todo-preserver", () => {
@@ -38,7 +38,7 @@ describe("compaction-todo-preserver", () => {
     //#given
     updateMock.mockClear()
     const sessionID = "session-compaction-missing"
-    const todos = [
+    const todos: TodoSnapshot[] = [
       { id: "1", content: "Task 1", status: "pending", priority: "high" },
       { id: "2", content: "Task 2", status: "in_progress", priority: "medium" },
     ]
@@ -58,7 +58,7 @@ describe("compaction-todo-preserver", () => {
     //#given
     updateMock.mockClear()
     const sessionID = "session-compaction-present"
-    const todos = [
+    const todos: TodoSnapshot[] = [
       { id: "1", content: "Task 1", status: "pending", priority: "high" },
     ]
     const ctx = createMockContext([todos, todos])
