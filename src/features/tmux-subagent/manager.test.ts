@@ -1,8 +1,12 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test'
+import { describe, test, expect, mock, beforeEach, afterAll } from 'bun:test'
 import type { TmuxConfig } from '../../config/schema'
 import type { WindowState, PaneAction } from './types'
 import type { ActionResult, ExecuteContext } from './action-executor'
 import type { TmuxUtilDeps } from './manager'
+
+const realPaneStateQuerier = await import('./pane-state-querier')
+const realActionExecutor = await import('./action-executor')
+const realSharedTmux = await import('../../shared/tmux')
 
 type ExecuteActionsResult = {
   success: boolean
@@ -69,6 +73,12 @@ mock.module('../../shared/tmux', () => {
     SESSION_READY_POLL_INTERVAL_MS: 100,
     SESSION_READY_TIMEOUT_MS: 500,
   }
+})
+
+afterAll(() => {
+  mock.module('./pane-state-querier', () => ({ ...realPaneStateQuerier }))
+  mock.module('./action-executor', () => ({ ...realActionExecutor }))
+  mock.module('../../shared/tmux', () => ({ ...realSharedTmux }))
 })
 
 const trackedSessions = new Set<string>()

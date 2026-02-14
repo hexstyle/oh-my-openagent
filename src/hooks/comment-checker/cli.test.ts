@@ -1,9 +1,18 @@
-import { describe, test, expect, mock } from "bun:test"
+import { describe, test, expect, mock, afterAll } from "bun:test"
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
 import type { PendingCall } from "./types"
+
+const realCli = await import("./cli")
+const cliTsHref = new URL("./cli.ts", import.meta.url).href
+
+afterAll(() => {
+  mock.module("./cli", () => ({ ...realCli }))
+  mock.module("./cli.ts", () => ({ ...realCli }))
+  mock.module(cliTsHref, () => ({ ...realCli }))
+})
 
 function createMockInput() {
   return {

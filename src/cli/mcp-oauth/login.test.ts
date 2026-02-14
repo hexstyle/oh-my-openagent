@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach, afterAll, mock } from "bun:test"
+
+const realMcpOauthProvider = await import("../../features/mcp-oauth/provider")
 
 const mockLogin = mock(() => Promise.resolve({ accessToken: "test-token", expiresAt: 1710000000 }))
 
@@ -10,6 +12,10 @@ mock.module("../../features/mcp-oauth/provider", () => ({
     }
   },
 }))
+
+afterAll(() => {
+  mock.module("../../features/mcp-oauth/provider", () => ({ ...realMcpOauthProvider }))
+})
 
 const { login } = await import("./login")
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock, spyOn } from "bun:test"
+import { describe, it, expect, beforeEach, mock, spyOn, afterAll } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin/tool"
 import * as fs from "node:fs"
 import { createSkillTool } from "./tools"
@@ -7,6 +7,8 @@ import type { LoadedSkill } from "../../features/opencode-skill-loader/types"
 import type { Tool as McpTool } from "@modelcontextprotocol/sdk/types.js"
 
 const originalReadFileSync = fs.readFileSync.bind(fs)
+
+const realNodeFs = await import("node:fs")
 
 mock.module("node:fs", () => ({
   ...fs,
@@ -20,6 +22,10 @@ Test skill body content`
     return originalReadFileSync(path, encoding as BufferEncoding)
   },
 }))
+
+afterAll(() => {
+  mock.module("node:fs", () => ({ ...realNodeFs }))
+})
 
 function createMockSkill(name: string, options: { agent?: string } = {}): LoadedSkill {
   return {

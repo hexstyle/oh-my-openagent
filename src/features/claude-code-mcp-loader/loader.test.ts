@@ -6,15 +6,20 @@ import { tmpdir } from "os"
 const TEST_DIR = join(tmpdir(), "mcp-loader-test-" + Date.now())
 const TEST_HOME = join(TEST_DIR, "home")
 
+const realOs = await import("os")
+const realShared = await import("../../shared")
+
 describe("getSystemMcpServerNames", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true })
     mkdirSync(TEST_HOME, { recursive: true })
     mock.module("os", () => ({
+      ...realOs,
       homedir: () => TEST_HOME,
       tmpdir,
     }))
     mock.module("../../shared", () => ({
+      ...realShared,
       getClaudeConfigDir: () => join(TEST_HOME, ".claude"),
     }))
   })
@@ -22,6 +27,9 @@ describe("getSystemMcpServerNames", () => {
   afterEach(() => {
     mock.restore()
     rmSync(TEST_DIR, { recursive: true, force: true })
+
+    mock.module("os", () => ({ ...realOs }))
+    mock.module("../../shared", () => ({ ...realShared }))
   })
 
   it("returns empty set when no .mcp.json files exist", async () => {

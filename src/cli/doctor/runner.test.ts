@@ -1,5 +1,8 @@
-import { afterEach, describe, expect, it, mock } from "bun:test"
+import { afterEach, afterAll, describe, expect, it, mock } from "bun:test"
 import type { CheckDefinition, CheckResult, DoctorResult, SystemInfo, ToolsSummary } from "./types"
+
+const realChecks = await import("./checks")
+const realFormatter = await import("./formatter")
 
 function createSystemInfo(): SystemInfo {
   return {
@@ -45,6 +48,11 @@ function createDeferred(): {
 describe("runner", () => {
   afterEach(() => {
     mock.restore()
+  })
+
+  afterAll(() => {
+    mock.module("./checks", () => ({ ...realChecks }))
+    mock.module("./formatter", () => ({ ...realFormatter }))
   })
 
   describe("runCheck", () => {

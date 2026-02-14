@@ -1,4 +1,6 @@
-import { describe, expect, it, mock } from "bun:test"
+import { describe, expect, it, mock, afterAll } from "bun:test"
+
+const realSystemDirective = await import("../../shared/system-directive")
 
 mock.module("../../shared/system-directive", () => ({
   createSystemDirective: (type: string) => `[DIRECTIVE:${type}]`,
@@ -13,6 +15,10 @@ mock.module("../../shared/system-directive", () => ({
     PROMETHEUS_READ_ONLY: "PROMETHEUS READ-ONLY",
   },
 }))
+
+afterAll(() => {
+  mock.module("../../shared/system-directive", () => ({ ...realSystemDirective }))
+})
 
 import { createCompactionContextInjector } from "./index"
 import { TaskHistory } from "../../features/background-agent/task-history"

@@ -1,4 +1,11 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test"
+import { describe, it, expect, mock, beforeEach, afterAll } from "bun:test"
+
+const realChecker = await import("../checker")
+const realVersionChannel = await import("../version-channel")
+const realCache = await import("../cache")
+const realConfigManager = await import("../../../cli/config-manager")
+const realUpdateToasts = await import("./update-toasts")
+const realLogger = await import("../../../shared/logger")
 
 // Mock modules before importing
 const mockFindPluginEntry = mock(() => null as any)
@@ -38,6 +45,15 @@ mock.module("./update-toasts", () => ({
 mock.module("../../../shared/logger", () => ({
   log: () => {},
 }))
+
+afterAll(() => {
+  mock.module("../checker", () => ({ ...realChecker }))
+  mock.module("../version-channel", () => ({ ...realVersionChannel }))
+  mock.module("../cache", () => ({ ...realCache }))
+  mock.module("../../../cli/config-manager", () => ({ ...realConfigManager }))
+  mock.module("./update-toasts", () => ({ ...realUpdateToasts }))
+  mock.module("../../../shared/logger", () => ({ ...realLogger }))
+})
 
 const { runBackgroundUpdateCheck } = await import("./background-update-check")
 

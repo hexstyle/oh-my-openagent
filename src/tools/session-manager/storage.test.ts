@@ -1,8 +1,10 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test"
+import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from "bun:test"
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { randomUUID } from "node:crypto"
+
+const realConstants = await import("./constants")
 
 const TEST_DIR = join(tmpdir(), `omo-test-session-manager-${randomUUID()}`)
 const TEST_MESSAGE_STORAGE = join(TEST_DIR, "message")
@@ -25,6 +27,10 @@ mock.module("./constants", () => ({
   SESSION_DELETE_DESCRIPTION: "test",
   TOOL_NAME_PREFIX: "session_",
 }))
+
+afterAll(() => {
+  mock.module("./constants", () => ({ ...realConstants }))
+})
 
 const { getAllSessions, getMessageDir, sessionExists, readSessionMessages, readSessionTodos, getSessionInfo } =
   await import("./storage")

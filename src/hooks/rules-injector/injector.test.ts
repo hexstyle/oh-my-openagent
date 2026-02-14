@@ -1,10 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock, afterAll } from "bun:test";
 import * as fs from "node:fs";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RULES_INJECTOR_STORAGE } from "./constants";
+
+const realNodeFs = await import("node:fs");
+const realNodeOs = await import("node:os");
+const realMatcher = await import("./matcher");
 
 type StatSnapshot = { mtimeMs: number; size: number };
 
@@ -55,6 +59,12 @@ mock.module("./matcher", () => ({
   createContentHash: (content: string) => `hash:${content}`,
   isDuplicateByContentHash: (hash: string, cache: Set<string>) => cache.has(hash),
 }));
+
+afterAll(() => {
+  mock.module("node:fs", () => ({ ...realNodeFs }));
+  mock.module("node:os", () => ({ ...realNodeOs }));
+  mock.module("./matcher", () => ({ ...realMatcher }));
+});
 
 function createOutput(): { title: string; output: string; metadata: unknown } {
   return { title: "tool", output: "", metadata: {} };

@@ -1,6 +1,9 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test"
+import { describe, it, expect, mock, beforeEach, afterAll } from "bun:test"
 import type { ClaudeHooksConfig } from "./types"
 import type { StopContext } from "./stop"
+
+const realCommandExecutor = await import("../../shared/command-executor")
+const realLogger = await import("../../shared/logger")
 
 const mockExecuteHookCommand = mock(() =>
   Promise.resolve({ exitCode: 0, stdout: "", stderr: "" })
@@ -16,6 +19,11 @@ mock.module("../../shared/logger", () => ({
   log: () => {},
   getLogFilePath: () => "/tmp/test.log",
 }))
+
+afterAll(() => {
+  mock.module("../../shared/command-executor", () => ({ ...realCommandExecutor }))
+  mock.module("../../shared/logger", () => ({ ...realLogger }))
+})
 
 const { executeStopHooks } = await import("./stop")
 

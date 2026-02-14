@@ -1,5 +1,9 @@
-import { afterEach, describe, expect, it, mock } from "bun:test"
+import { afterEach, afterAll, describe, expect, it, mock } from "bun:test"
 import type { DoctorResult } from "./types"
+
+const realFormatDefault = await import("./format-default")
+const realFormatStatus = await import("./format-status")
+const realFormatVerbose = await import("./format-verbose")
 
 function createDoctorResult(): DoctorResult {
   return {
@@ -42,6 +46,12 @@ function createDoctorResult(): DoctorResult {
 describe("formatter", () => {
   afterEach(() => {
     mock.restore()
+  })
+
+  afterAll(() => {
+    mock.module("./format-default", () => ({ ...realFormatDefault }))
+    mock.module("./format-status", () => ({ ...realFormatStatus }))
+    mock.module("./format-verbose", () => ({ ...realFormatVerbose }))
   })
 
   describe("formatDoctorOutput", () => {
