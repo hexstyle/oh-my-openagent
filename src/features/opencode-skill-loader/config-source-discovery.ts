@@ -53,26 +53,28 @@ async function loadSourcePath(options: {
   const stat = await fs.stat(absolutePath).catch(() => null)
   if (!stat) return []
 
+  const realBasePath = await fs.realpath(absolutePath).catch(() => absolutePath)
+
   if (stat.isFile()) {
-    if (!isMarkdownPath(absolutePath)) return []
+    if (!isMarkdownPath(realBasePath)) return []
     const loaded = await loadSkillFromPath({
-      skillPath: absolutePath,
-      resolvedPath: dirname(absolutePath),
-      defaultName: inferSkillNameFromFileName(absolutePath),
+      skillPath: realBasePath,
+      resolvedPath: dirname(realBasePath),
+      defaultName: inferSkillNameFromFileName(realBasePath),
       scope: "config",
     })
     if (!loaded) return []
-    return filterByGlob([loaded], dirname(absolutePath), options.globPattern)
+    return filterByGlob([loaded], dirname(realBasePath), options.globPattern)
   }
 
   if (!stat.isDirectory()) return []
 
   const directorySkills = await loadSkillsFromDir({
-    skillsDir: absolutePath,
+    skillsDir: realBasePath,
     scope: "config",
     maxDepth: options.recursive ? MAX_RECURSIVE_DEPTH : 0,
   })
-  return filterByGlob(directorySkills, absolutePath, options.globPattern)
+  return filterByGlob(directorySkills, realBasePath, options.globPattern)
 }
 
 export async function discoverConfigSourceSkills(options: {
