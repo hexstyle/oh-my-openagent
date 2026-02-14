@@ -1,34 +1,59 @@
-import { beforeEach, describe, expect, it, mock } from "bun:test"
+import { beforeEach, afterEach, describe, expect, it, mock, afterAll } from "bun:test"
 
-const readFileSyncMock = mock((_: string, __: string) => "# AGENTS")
+const realNodeFs = await import("node:fs")
+const realFinder = await import("./finder")
+const realStorage = await import("./storage")
+
+const originalReadFileSync = realNodeFs.readFileSync
+const readFileSyncMock = mock((filePath: string, encoding?: string) => {
+  if (String(filePath).endsWith("AGENTS.md")) {
+    return "# AGENTS"
+  }
+  return originalReadFileSync(filePath as never, encoding as never)
+})
 const findAgentsMdUpMock = mock((_: { startDir: string; rootDir: string }) => [] as string[])
 const resolveFilePathMock = mock((_: string, path: string) => path)
 const loadInjectedPathsMock = mock((_: string) => new Set<string>())
 const saveInjectedPathsMock = mock((_: string, __: Set<string>) => {})
 
-mock.module("node:fs", () => ({
-  readFileSync: readFileSyncMock,
-}))
+afterAll(() => {
+  mock.module("node:fs", () => ({ ...realNodeFs }))
+  mock.module("./finder", () => ({ ...realFinder }))
+  mock.module("./storage", () => ({ ...realStorage }))
+})
 
-mock.module("./finder", () => ({
-  findAgentsMdUp: findAgentsMdUpMock,
-  resolveFilePath: resolveFilePathMock,
-}))
-
-mock.module("./storage", () => ({
-  loadInjectedPaths: loadInjectedPathsMock,
-  saveInjectedPaths: saveInjectedPathsMock,
-}))
-
-const { processFilePathForAgentsInjection } = await import("./injector")
+let processFilePathForAgentsInjection: typeof import("./injector").processFilePathForAgentsInjection
 
 describe("processFilePathForAgentsInjection", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     readFileSyncMock.mockClear()
     findAgentsMdUpMock.mockClear()
     resolveFilePathMock.mockClear()
     loadInjectedPathsMock.mockClear()
     saveInjectedPathsMock.mockClear()
+
+    mock.module("node:fs", () => ({
+      ...realNodeFs,
+      readFileSync: readFileSyncMock,
+    }))
+
+    mock.module("./finder", () => ({
+      findAgentsMdUp: findAgentsMdUpMock,
+      resolveFilePath: resolveFilePathMock,
+    }))
+
+    mock.module("./storage", () => ({
+      loadInjectedPaths: loadInjectedPathsMock,
+      saveInjectedPaths: saveInjectedPathsMock,
+    }))
+
+    ;({ processFilePathForAgentsInjection } = await import(`./injector?${Date.now()}`))
+  })
+
+  afterEach(() => {
+    mock.module("node:fs", () => ({ ...realNodeFs }))
+    mock.module("./finder", () => ({ ...realFinder }))
+    mock.module("./storage", () => ({ ...realStorage }))
   })
 
   it("does not save when all discovered paths are already cached", async () => {
