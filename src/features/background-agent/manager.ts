@@ -15,6 +15,7 @@ import {
   resolveInheritedPromptTools,
   createInternalAgentTextPart,
 } from "../../shared"
+import { normalizeAgentForPrompt } from "../../shared/agent-display-names"
 import { setSessionTools } from "../../shared/session-tools-store"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { ConcurrencyManager } from "./concurrency"
@@ -1311,10 +1312,11 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
         }
 
         const resolvedTools = resolveInheritedPromptTools(task.parentSessionID, tools)
+        const promptAgent = normalizeAgentForPrompt(agent)
 
         log("[background-agent] notifyParentSession context:", {
           taskId: task.id,
-          resolvedAgent: agent,
+          resolvedAgent: promptAgent,
           resolvedModel: model,
         })
 
@@ -1323,7 +1325,7 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
             path: { id: task.parentSessionID },
             body: {
               noReply: !allComplete,
-              ...(agent !== undefined ? { agent } : {}),
+              ...(promptAgent !== undefined ? { agent: promptAgent } : {}),
               ...(model !== undefined ? { model } : {}),
               ...(resolvedTools ? { tools: resolvedTools } : {}),
               parts: [createInternalAgentTextPart(notification)],
