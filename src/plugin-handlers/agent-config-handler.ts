@@ -78,6 +78,7 @@ export async function applyAgentConfig(params: {
   const useTaskSystem = params.pluginConfig.experimental?.task_system ?? false;
   const disableOmoEnv = params.pluginConfig.experimental?.disable_omo_env ?? false;
 
+  const athenaCouncilConfig = params.pluginConfig.agents?.athena?.council
   const builtinAgents = await createBuiltinAgents(
     migratedDisabledAgents,
     params.pluginConfig.agents,
@@ -92,6 +93,7 @@ export async function applyAgentConfig(params: {
     disabledSkills,
     useTaskSystem,
     disableOmoEnv,
+    athenaCouncilConfig,
   );
 
   const includeClaudeAgents = params.pluginConfig.claude_code?.agents ?? true;
