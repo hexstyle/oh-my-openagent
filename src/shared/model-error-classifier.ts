@@ -55,6 +55,8 @@ const RETRYABLE_MESSAGE_PATTERNS = [
   "504",
 ]
 
+const MAX_FALLBACK_ATTEMPTS = 10
+
 export interface ErrorInfo {
   name?: string
   message?: string
@@ -108,7 +110,10 @@ export function hasMoreFallbacks(
   fallbackChain: FallbackEntry[],
   attemptCount: number,
 ): boolean {
-  return attemptCount < fallbackChain.length
+  return (
+    attemptCount < fallbackChain.length &&
+    attemptCount < MAX_FALLBACK_ATTEMPTS
+  )
 }
 
 /**
