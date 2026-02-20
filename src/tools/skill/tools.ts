@@ -181,7 +181,7 @@ async function formatMcpCapabilities(
   return sections.join("\n")
 }
 
-export function createSkillTool(options: SkillLoadOptions = {}): ToolDefinition {
+export function createSkillTool(options: SkillLoadOptions): ToolDefinition {
   let cachedSkills: LoadedSkill[] | null = null
   let cachedCommands: CommandInfo[] | null = options.commands ?? null
   let cachedDescription: string | null = null
@@ -250,7 +250,7 @@ export function createSkillTool(options: SkillLoadOptions = {}): ToolDefinition 
           body = injectGitMasterConfig(body, options.gitMasterConfig)
         }
 
-        const dir = matchedSkill.path ? dirname(matchedSkill.path) : matchedSkill.resolvedPath || options.directory || process.cwd()
+        const dir = matchedSkill.path ? dirname(matchedSkill.path) : matchedSkill.resolvedPath || options.directory
 
         const output = [
           `## Skill: ${matchedSkill.name}`,
@@ -309,5 +309,3 @@ export function createSkillTool(options: SkillLoadOptions = {}): ToolDefinition 
     },
   })
 }
-
-export const skill: ToolDefinition = createSkillTool()
