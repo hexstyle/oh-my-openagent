@@ -122,13 +122,13 @@ export async function loadProjectCommands(directory?: string): Promise<Record<st
 
 export async function loadOpencodeGlobalCommands(): Promise<Record<string, CommandDefinition>> {
   const configDir = getOpenCodeConfigDir({ binary: "opencode" })
-  const opencodeCommandsDir = join(configDir, "command")
+  const opencodeCommandsDir = join(configDir, "commands")
   const commands = await loadCommandsFromDir(opencodeCommandsDir, "opencode")
   return commandsToRecord(commands)
 }
 
 export async function loadOpencodeProjectCommands(directory?: string): Promise<Record<string, CommandDefinition>> {
-  const opencodeProjectDir = join(directory ?? process.cwd(), ".opencode", "command")
+  const opencodeProjectDir = join(directory ?? process.cwd(), ".opencode", "commands")
   const commands = await loadCommandsFromDir(opencodeProjectDir, "opencode-project")
   return commandsToRecord(commands)
 }
