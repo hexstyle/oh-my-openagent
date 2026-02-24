@@ -179,7 +179,7 @@ describe("opencode-config-dir", () => {
         expect(result).toBe(join(homedir(), ".config", "opencode"))
       })
 
-      test("returns ~/.config/opencode on Windows by default", () => {
+      test("returns %APPDATA%/opencode on Windows by default", () => {
         // given opencode CLI binary detected, platform is Windows
         Object.defineProperty(process, "platform", { value: "win32" })
         delete process.env.APPDATA
@@ -188,8 +188,8 @@ describe("opencode-config-dir", () => {
         // when getOpenCodeConfigDir is called with binary="opencode"
         const result = getOpenCodeConfigDir({ binary: "opencode", version: "1.0.200", checkExisting: false })
 
-        // then returns ~/.config/opencode (cross-platform default)
-        expect(result).toBe(join(homedir(), ".config", "opencode"))
+        // then returns %APPDATA%/opencode
+        expect(result).toBe(join(homedir(), "AppData", "Roaming", "opencode"))
       })
     })
 

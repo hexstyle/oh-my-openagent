@@ -10,6 +10,7 @@ describe("shell-env", () => {
     originalEnv = {
       SHELL: process.env.SHELL,
       PSModulePath: process.env.PSModulePath,
+      COMSPEC: process.env.COMSPEC,
     }
   })
 
@@ -57,6 +58,7 @@ describe("shell-env", () => {
     test("#given Windows platform without PSModulePath #when detectShellType is called #then returns cmd", () => {
       delete process.env.PSModulePath
       delete process.env.SHELL
+      delete process.env.COMSPEC
       Object.defineProperty(process, "platform", { value: "win32" })
 
       const result = detectShellType()
@@ -77,11 +79,34 @@ describe("shell-env", () => {
     test("#given PSModulePath takes priority over SHELL #when both are set #then returns powershell", () => {
       process.env.PSModulePath = "C:\\Program Files\\PowerShell\\Modules"
       process.env.SHELL = "/bin/bash"
+      process.env.COMSPEC = "C:\\Windows\\System32\\cmd.exe"
       Object.defineProperty(process, "platform", { value: "win32" })
 
       const result = detectShellType()
 
       expect(result).toBe("powershell")
+    })
+
+    test("#given Windows COMSPEC points to powershell #when detectShellType is called #then returns powershell", () => {
+      delete process.env.PSModulePath
+      delete process.env.SHELL
+      process.env.COMSPEC = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+      Object.defineProperty(process, "platform", { value: "win32" })
+
+      const result = detectShellType()
+
+      expect(result).toBe("powershell")
+    })
+
+    test("#given Windows COMSPEC points to bash executable #when detectShellType is called #then returns unix", () => {
+      delete process.env.PSModulePath
+      delete process.env.SHELL
+      process.env.COMSPEC = "C:\\Program Files\\Git\\bin\\bash.exe"
+      Object.defineProperty(process, "platform", { value: "win32" })
+
+      const result = detectShellType()
+
+      expect(result).toBe("unix")
     })
   })
 

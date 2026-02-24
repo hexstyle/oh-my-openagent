@@ -10,6 +10,10 @@ import * as os from "node:os"
  * including Windows, so we match that behavior exactly.
  */
 export function getDataDir(): string {
+  if (process.platform === "win32") {
+    return process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local")
+  }
+
   return process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share")
 }
 
@@ -27,6 +31,11 @@ export function getOpenCodeStorageDir(): string {
  * - All platforms: XDG_CACHE_HOME or ~/.cache
  */
 export function getCacheDir(): string {
+  if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local")
+    return path.join(localAppData, "cache")
+  }
+
   return process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), ".cache")
 }
 

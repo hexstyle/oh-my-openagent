@@ -13,11 +13,29 @@ export function detectShellType(): ShellType {
     return "powershell"
   }
 
+  if (process.platform === "win32") {
+    const comspec = process.env.COMSPEC ?? process.env.ComSpec
+    const normalizedComspec = comspec?.toLowerCase()
+    if (normalizedComspec?.includes("powershell") || normalizedComspec?.includes("pwsh")) {
+      return "powershell"
+    }
+
+    if (normalizedComspec?.includes("bash") || normalizedComspec?.includes("zsh")) {
+      return "unix"
+    }
+
+    if (process.env.SHELL) {
+      return "unix"
+    }
+
+    return "cmd"
+  }
+
   if (process.env.SHELL) {
     return "unix"
   }
 
-  return process.platform === "win32" ? "cmd" : "unix"
+  return "unix"
 }
 
 /**

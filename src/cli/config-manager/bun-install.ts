@@ -9,6 +9,14 @@ export interface BunInstallResult {
   error?: string
 }
 
+function resolveBunCommand(): string {
+  if (process.platform === "win32") {
+    return Bun.which("bun.exe") ?? Bun.which("bun") ?? "bun.exe"
+  }
+
+  return Bun.which("bun") ?? "bun"
+}
+
 export async function runBunInstall(): Promise<boolean> {
   const result = await runBunInstallWithDetails()
   return result.success
@@ -16,7 +24,8 @@ export async function runBunInstall(): Promise<boolean> {
 
 export async function runBunInstallWithDetails(): Promise<BunInstallResult> {
   try {
-    const proc = Bun.spawn(["bun", "install"], {
+    const bunCommand = resolveBunCommand()
+    const proc = Bun.spawn([bunCommand, "install"], {
       cwd: getConfigDir(),
       stdout: "inherit",
       stderr: "inherit",
@@ -39,7 +48,7 @@ export async function runBunInstallWithDetails(): Promise<BunInstallResult> {
       return {
         success: false,
         timedOut: true,
-        error: `bun install timed out after ${BUN_INSTALL_TIMEOUT_SECONDS} seconds. Try running manually: cd ${getConfigDir()} && bun i`,
+        error: `bun install timed out after ${BUN_INSTALL_TIMEOUT_SECONDS} seconds. Try running manually in ${getConfigDir()}: bun install`,
       }
     }
 
@@ -55,7 +64,7 @@ export async function runBunInstallWithDetails(): Promise<BunInstallResult> {
     const message = err instanceof Error ? err.message : String(err)
     return {
       success: false,
-      error: `bun install failed: ${message}. Is bun installed? Try: curl -fsSL https://bun.sh/install | bash`,
+      error: `bun install failed: ${message}. Ensure Bun is installed and available in PATH: https://bun.sh/docs/installation`,
     }
   }
 }
