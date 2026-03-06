@@ -81,7 +81,7 @@ Here's a practical starting configuration:
     "explore":   { "model": "github-copilot/grok-code-fast-1" },
 
     // Architecture consultation: GPT or Claude Opus
-    "oracle": { "model": "openai/gpt-5.2", "variant": "high" },
+    "oracle": { "model": "openai/gpt-5.4", "variant": "high" },
 
     // Prometheus inherits sisyphus model; just add prompt guidance
     "prometheus": { "prompt_append": "Leverage deep & quick agents heavily, always in parallel." }
@@ -253,7 +253,7 @@ Disable categories: `{ "disabled_categories": ["ultrabrain"] }`
 |-------|---------------|-------------------|
 | **Sisyphus** | `claude-opus-4-6` | anthropic → github-copilot → opencode → kimi-for-coding → zai-coding-plan |
 | **Hephaestus** | `gpt-5.3-codex` | openai → github-copilot → opencode |
-| **oracle** | `gpt-5.2` | openai → google → anthropic (via github-copilot/opencode) |
+| **oracle** | `gpt-5.4` | openai → google → anthropic (via github-copilot/opencode) |
 | **librarian** | `glm-4.7` | zai-coding-plan → opencode → anthropic |
 | **explore** | `grok-code-fast-1` | github-copilot → anthropic/opencode → opencode |
 | **multimodal-looker** | `gemini-3-flash` | google → openai → zai-coding-plan → kimi-for-coding → opencode → anthropic |

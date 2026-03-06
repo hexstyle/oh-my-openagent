@@ -197,7 +197,7 @@ When GitHub Copilot is the best available provider, oh-my-opencode uses these mo
 | Agent         | Model                                                     |
 | ------------- | --------------------------------------------------------- |
 | **Sisyphus**  | `github-copilot/claude-opus-4-6`                          |
-| **Oracle**    | `github-copilot/gpt-5.2`                                  |
+| **Oracle**    | `github-copilot/gpt-5.4`                                  |
 | **Explore**   | `opencode/gpt-5-nano`                                     |
 | **Librarian** | `zai-coding-plan/glm-4.7` (if Z.ai available) or fallback |
 
@@ -225,7 +225,7 @@ When OpenCode Zen is the best available provider (no native or Copilot), these m
 | Agent         | Model                      |
 | ------------- | -------------------------- |
 | **Sisyphus**  | `opencode/claude-opus-4-6` |
-| **Oracle**    | `opencode/gpt-5.2`         |
+| **Oracle**    | `opencode/gpt-5.4`         |
 | **Explore**   | `opencode/gpt-5-nano`      |
 | **Librarian** | `opencode/glm-4.7-free`    |
 

@@ -176,7 +176,7 @@ See the [Orchestration System Guide](./orchestration.md) for how agents dispatch
     "explore":   { "model": "github-copilot/grok-code-fast-1" },
 
     // Architecture consultation: GPT or Claude Opus
-    "oracle": { "model": "openai/gpt-5.2", "variant": "high" },
+    "oracle": { "model": "openai/gpt-5.4", "variant": "high" },
 
     // Prometheus inherits sisyphus model; just add prompt guidance
     "prometheus": { "prompt_append": "Leverage deep & quick agents heavily, always in parallel." }

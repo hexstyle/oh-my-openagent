@@ -7,19 +7,19 @@ import {
 } from "./model-requirements"
 
 describe("AGENT_MODEL_REQUIREMENTS", () => {
-  test("oracle has valid fallbackChain with gpt-5.2 as primary", () => {
+  test("oracle has valid fallbackChain with gpt-5.4 as primary", () => {
     // given - oracle agent requirement
     const oracle = AGENT_MODEL_REQUIREMENTS["oracle"]
 
     // when - accessing oracle requirement
-    // then - fallbackChain exists with gpt-5.2 as first entry
+    // then - fallbackChain exists with gpt-5.4 as first entry
     expect(oracle).toBeDefined()
     expect(oracle.fallbackChain).toBeArray()
     expect(oracle.fallbackChain.length).toBeGreaterThan(0)
 
     const primary = oracle.fallbackChain[0]
     expect(primary.providers).toContain("openai")
-    expect(primary.model).toBe("gpt-5.2")
+    expect(primary.model).toBe("gpt-5.4")
     expect(primary.variant).toBe("high")
   })
 

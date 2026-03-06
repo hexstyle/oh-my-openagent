@@ -191,7 +191,7 @@ describe("resolveVariantForModel", () => {
   test("returns correct variant for oracle agent with openai", () => {
     // given
     const config = {} as OhMyOpenCodeConfig
-    const model = { providerID: "openai", modelID: "gpt-5.2" }
+    const model = { providerID: "openai", modelID: "gpt-5.4" }
 
     // when
     const variant = resolveVariantForModel(config, "oracle", model)

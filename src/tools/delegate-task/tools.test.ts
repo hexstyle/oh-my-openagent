@@ -20,6 +20,7 @@ const TEST_AVAILABLE_MODELS = new Set([
   "google/gemini-3.1-pro",
   "google/gemini-3-flash",
   "openai/gpt-5.2",
+  "openai/gpt-5.4",
   "openai/gpt-5.3-codex",
 ])
 
@@ -53,7 +54,7 @@ describe("sisyphus-task", () => {
       models: {
         anthropic: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
         google: ["gemini-3.1-pro", "gemini-3-flash"],
-        openai: ["gpt-5.2", "gpt-5.3-codex"],
+        openai: ["gpt-5.2", "gpt-5.4", "gpt-5.3-codex"],
       },
       connected: ["anthropic", "google", "openai"],
       updatedAt: "2026-01-01T00:00:00.000Z",
@@ -3375,7 +3376,7 @@ describe("sisyphus-task", () => {
          app: {
            agents: async () => ({
              data: [
-               { name: "oracle", mode: "subagent", model: { providerID: "openai", modelID: "gpt-5.2" } },
+                { name: "oracle", mode: "subagent", model: { providerID: "openai", modelID: "gpt-5.4" } },
              ],
            }),
          },
@@ -3442,7 +3443,7 @@ describe("sisyphus-task", () => {
          app: {
            agents: async () => ({
              data: [
-               { name: "oracle", mode: "subagent", model: { providerID: "openai", modelID: "gpt-5.2" } },
+                { name: "oracle", mode: "subagent", model: { providerID: "openai", modelID: "gpt-5.4" } },
              ],
            }),
          },
@@ -3551,11 +3552,11 @@ describe("sisyphus-task", () => {
       )
 
       // then - should resolve via AGENT_MODEL_REQUIREMENTS fallback chain for oracle
-      // oracle fallback chain: gpt-5.2 (openai) > gemini-3.1-pro (google) > claude-opus-4-6 (anthropic)
-      // Since openai is in connectedProviders, should resolve to openai/gpt-5.2
+      // oracle fallback chain: gpt-5.4 (openai) > gemini-3.1-pro (google) > claude-opus-4-6 (anthropic)
+      // Since openai is in connectedProviders, should resolve to openai/gpt-5.4
       expect(promptBody.model).toBeDefined()
       expect(promptBody.model.providerID).toBe("openai")
-      expect(promptBody.model.modelID).toContain("gpt-5.2")
+      expect(promptBody.model.modelID).toContain("gpt-5.4")
     }, { timeout: 20000 })
   })
 

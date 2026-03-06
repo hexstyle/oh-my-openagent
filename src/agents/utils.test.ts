@@ -169,15 +169,14 @@ describe("createBuiltinAgents with model overrides", () => {
    test("Oracle uses connected provider fallback when availableModels is empty and cache exists", async () => {
      // #given - connected providers cache has "openai", which matches oracle's first fallback entry
      const cacheSpy = spyOn(connectedProvidersCache, "readConnectedProvidersCache").mockReturnValue(["openai"])
-
+     const fetchSpy = spyOn(shared, "fetchAvailableModels").mockResolvedValue(new Set())
      // #when
      const agents = await createBuiltinAgents([], {}, undefined, TEST_DEFAULT_MODEL, undefined, undefined, [], undefined, undefined)
-
-     // #then - oracle resolves via connected cache fallback to openai/gpt-5.2 (not system default)
-     expect(agents.oracle.model).toBe("openai/gpt-5.2")
+     expect(agents.oracle.model).toBe("openai/gpt-5.4")
      expect(agents.oracle.reasoningEffort).toBe("medium")
      expect(agents.oracle.thinking).toBeUndefined()
      cacheSpy.mockRestore?.()
+     fetchSpy.mockRestore?.()
    })
 
    test("Oracle created without model field when no cache exists (first run scenario)", async () => {
@@ -473,14 +472,13 @@ describe("createBuiltinAgents without systemDefaultModel", () => {
    test("agents created via connected cache fallback even without systemDefaultModel", async () => {
      // #given - connected cache has "openai", which matches oracle's fallback chain
      const cacheSpy = spyOn(connectedProvidersCache, "readConnectedProvidersCache").mockReturnValue(["openai"])
-
+     const fetchSpy = spyOn(shared, "fetchAvailableModels").mockResolvedValue(new Set())
      // #when
      const agents = await createBuiltinAgents([], {}, undefined, undefined)
-
-     // #then - connected cache enables model resolution despite no systemDefaultModel
      expect(agents.oracle).toBeDefined()
-     expect(agents.oracle.model).toBe("openai/gpt-5.2")
+     expect(agents.oracle.model).toBe("openai/gpt-5.4")
      cacheSpy.mockRestore?.()
+     fetchSpy.mockRestore?.()
    })
 
    test("agents NOT created when no cache and no systemDefaultModel (first run without defaults)", async () => {

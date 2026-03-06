@@ -12,7 +12,7 @@ Agent factories following `createXXXAgent(model) → AgentConfig` pattern. Each 
 |-------|-------|------|------|----------------|---------|
 | **Sisyphus** | claude-opus-4-6 | 0.1 | all | kimi-k2.5 → glm-5 → big-pickle | Main orchestrator, plans + delegates |
 | **Hephaestus** | gpt-5.3-codex | 0.1 | all | gpt-5.2 (copilot) | Autonomous deep worker |
-| **Oracle** | gpt-5.2 | 0.1 | subagent | gemini-3.1-pro → claude-opus-4-6 | Read-only consultation |
+| **Oracle** | gpt-5.4 | 0.1 | subagent | gemini-3.1-pro → claude-opus-4-6 | Read-only consultation |
 | **Librarian** | kimi-k2.5 | 0.1 | subagent | gemini-3-flash → gpt-5.2 → glm-4.6v | External docs/code search |
 | **Explore** | grok-code-fast-1 | 0.1 | subagent | minimax-m2.5 → claude-haiku-4-5 → gpt-5-nano | Contextual grep |
 | **Multimodal-Looker** | gemini-3-flash | 0.1 | subagent | minimax-m2.5 → big-pickle | PDF/image analysis |
