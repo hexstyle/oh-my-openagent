@@ -6,9 +6,11 @@ import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableErro
 import { createFallbackState, prepareFallback } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
+import { createSessionStatusHandler } from "./session-status-handler"
 
 export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   const { config, pluginConfig, sessionStates, sessionLastAccess, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionFallbackTimeouts } = deps
+  const sessionStatusHandler = createSessionStatusHandler(deps, helpers)
 
   const handleSessionCreated = (props: Record<string, unknown> | undefined) => {
     const sessionInfo = props?.info as { id?: string; model?: string } | undefined
@@ -33,6 +35,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       sessionRetryInFlight.delete(sessionID)
       sessionAwaitingFallbackResult.delete(sessionID)
       helpers.clearSessionFallbackTimeout(sessionID)
+      sessionStatusHandler.clearRetryKey(sessionID)
       SessionCategoryRegistry.remove(sessionID)
     }
   }
@@ -191,6 +194,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     if (event.type === "session.deleted") { handleSessionDeleted(props); return }
     if (event.type === "session.stop") { await handleSessionStop(props); return }
     if (event.type === "session.idle") { handleSessionIdle(props); return }
+    if (event.type === "session.status") { await sessionStatusHandler.handleSessionStatus(props); return }
     if (event.type === "session.error") { await handleSessionError(props); return }
   }
 }
