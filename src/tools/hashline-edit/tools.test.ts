@@ -192,6 +192,25 @@ describe("createHashlineEditTool", () => {
     expect(result).toContain("non-empty")
   })
 
+  it("treats replace with null lines as deletion", async () => {
+    //#given
+    const filePath = path.join(tempDir, "delete-line.txt")
+    fs.writeFileSync(filePath, "line1\nline2\nline3")
+    const line2Hash = computeLineHash(2, "line2")
+
+    //#when
+    await tool.execute(
+      {
+        filePath,
+        edits: [{ op: "replace", pos: `2#${line2Hash}`, lines: null }],
+      },
+      createMockContext(),
+    )
+
+    //#then
+    expect(fs.readFileSync(filePath, "utf-8")).toBe("line1\nline3")
+  })
+
   it("supports file rename with edits", async () => {
     //#given
     const filePath = path.join(tempDir, "source.txt")

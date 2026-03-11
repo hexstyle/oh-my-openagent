@@ -6,6 +6,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { tool } from "@opencode-ai/plugin"
+import { createHashlineEditTool } from "../tools/hashline-edit"
 import { normalizeToolArgSchemas } from "./normalize-tool-arg-schemas"
 
 const tempDirectories: string[] = []
@@ -17,6 +18,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function getNestedRecord(record: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
   const value = record[key]
   return isRecord(value) ? value : undefined
+}
+
+function getRecordAtPath(record: Record<string, unknown>, path: string[]): Record<string, unknown> | undefined {
+  return path.reduce<Record<string, unknown> | undefined>(
+    (currentRecord, key) => (currentRecord ? getNestedRecord(currentRecord, key) : undefined),
+    record,
+  )
 }
 
 async function loadSeparateHostZodModule(): Promise<typeof import("zod")> {
@@ -93,5 +101,30 @@ describe("normalizeToolArgSchemas", () => {
     expect(afterQuery?.description).toBe("Free-text search query")
     expect(afterQuery?.title).toBe("Query")
     expect(afterQuery?.examples).toEqual(["issue 2314"])
+  })
+
+  it("collapses hashline lines union into a Vertex-compatible array schema", async () => {
+    // given
+    const hostZod = await loadSeparateHostZodModule()
+    const toolDefinition = createHashlineEditTool()
+
+    // when
+    const beforeSchema = serializeWithHostZod(hostZod, toolDefinition.args)
+    const beforeLines = getRecordAtPath(beforeSchema, ["properties", "edits", "items", "properties", "lines"])
+
+    normalizeToolArgSchemas(toolDefinition)
+
+    const afterSchema = serializeWithHostZod(hostZod, toolDefinition.args)
+    const afterLines = getRecordAtPath(afterSchema, ["properties", "edits", "items", "properties", "lines"])
+    const afterItems = afterLines ? getNestedRecord(afterLines, "items") : undefined
+
+    // then
+    expect(beforeLines?.type).toBeUndefined()
+    expect(Array.isArray(beforeLines?.anyOf)).toBe(true)
+    expect(afterLines?.type).toBe("array")
+    expect(afterLines?.nullable).toBe(true)
+    expect(afterLines?.anyOf).toBeUndefined()
+    expect(afterItems?.type).toBe("string")
+    expect(afterLines?.description).toBe("Replacement or inserted lines. null/[] deletes with replace")
   })
 })
