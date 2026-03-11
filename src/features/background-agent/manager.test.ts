@@ -3422,7 +3422,7 @@ describe("BackgroundManager.pruneStaleTasksAndNotifications - removes pruned tas
     manager.shutdown()
   })
 
-  test("removes stale task from toast manager", () => {
+  test("removes stale task from toast manager", async () => {
     //#given
     const { removeTaskCalls, resetToastManager } = createToastRemoveTaskTracker()
     const manager = createBackgroundManager()
@@ -3437,8 +3437,56 @@ describe("BackgroundManager.pruneStaleTasksAndNotifications - removes pruned tas
 
     //#when
     pruneStaleTasksAndNotificationsForTest(manager)
+    await flushBackgroundNotifications()
 
     //#then
+    expect(removeTaskCalls).toContain(staleTask.id)
+
+    manager.shutdown()
+    resetToastManager()
+  })
+
+  test("keeps stale task until notification cleanup after notifying parent", async () => {
+    //#given
+    const notifications: string[] = []
+    const { removeTaskCalls, resetToastManager } = createToastRemoveTaskTracker()
+    const client = {
+      session: {
+        prompt: async () => ({}),
+        promptAsync: async (args: { path: { id: string }; body: Record<string, unknown> & { noReply?: boolean; parts?: unknown[] } }) => {
+          const firstPart = args.body.parts?.[0]
+          if (firstPart && typeof firstPart === "object" && "text" in firstPart && typeof firstPart.text === "string") {
+            notifications.push(firstPart.text)
+          }
+          return {}
+        },
+        abort: async () => ({}),
+        messages: async () => ({ data: [] }),
+      },
+    }
+    const manager = new BackgroundManager({ client, directory: tmpdir() } as unknown as PluginInput)
+    const staleTask = createMockTask({
+      id: "task-stale-notify-cleanup",
+      sessionID: "session-stale-notify-cleanup",
+      parentSessionID: "parent-stale-notify-cleanup",
+      status: "running",
+      startedAt: new Date(Date.now() - 31 * 60 * 1000),
+    })
+    getTaskMap(manager).set(staleTask.id, staleTask)
+    getPendingByParent(manager).set(staleTask.parentSessionID, new Set([staleTask.id]))
+
+    //#when
+    pruneStaleTasksAndNotificationsForTest(manager)
+    await flushBackgroundNotifications()
+
+    //#then
+    const retainedTask = getTaskMap(manager).get(staleTask.id)
+    expect(retainedTask?.status).toBe("error")
+    expect(getTaskMap(manager).has(staleTask.id)).toBe(true)
+    expect(notifications).toHaveLength(1)
+    expect(notifications[0]).toContain("[ALL BACKGROUND TASKS COMPLETE]")
+    expect(notifications[0]).toContain(staleTask.description)
+    expect(getCompletionTimers(manager).has(staleTask.id)).toBe(true)
     expect(removeTaskCalls).toContain(staleTask.id)
 
     manager.shutdown()
