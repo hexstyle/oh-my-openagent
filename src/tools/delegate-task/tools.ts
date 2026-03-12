@@ -100,7 +100,7 @@ export function createDelegateTask(options: DelegateTaskToolOptions): ToolDefini
       load_skills: tool.schema.array(tool.schema.string()).describe("Skill names to inject. REQUIRED - pass [] if no skills needed."),
       description: tool.schema.string().describe("Short task description (3-5 words)"),
       prompt: tool.schema.string().describe("Full detailed prompt for the agent"),
-      run_in_background: tool.schema.boolean().describe("true=async (returns task_id), false=sync (waits). Default: false"),
+      run_in_background: tool.schema.boolean().optional().default(false).describe("true=async (returns task_id), false=sync (waits). Default: false"),
       category: tool.schema.string().optional().describe(`REQUIRED if subagent_type not provided. Do NOT provide both category and subagent_type.`),
       subagent_type: tool.schema.string().optional().describe("REQUIRED if category not provided. Do NOT provide both category and subagent_type."),
       session_id: tool.schema.string().optional().describe("Existing Task session to continue"),
@@ -122,9 +122,6 @@ export function createDelegateTask(options: DelegateTaskToolOptions): ToolDefini
         title: args.description,
       })
 
-      if (args.run_in_background === undefined) {
-        throw new Error(`Invalid arguments: 'run_in_background' parameter is REQUIRED. Use run_in_background=false for task delegation, run_in_background=true only for parallel exploration.`)
-      }
       if (typeof args.load_skills === "string") {
         try {
           const parsed = JSON.parse(args.load_skills)
@@ -140,7 +137,8 @@ export function createDelegateTask(options: DelegateTaskToolOptions): ToolDefini
         throw new Error(`Invalid arguments: load_skills=null is not allowed. Pass [] if no skills needed.`)
       }
 
-      const runInBackground = args.run_in_background === true
+      const runInBackgroundValue = args.run_in_background
+      const runInBackground = runInBackgroundValue === true
 
       const { content: skillContent, contents: skillContents, error: skillError } = await resolveSkillContent(args.load_skills, {
         gitMasterConfig: options.gitMasterConfig,
@@ -200,19 +198,21 @@ export function createDelegateTask(options: DelegateTaskToolOptions): ToolDefini
         fallbackChain = resolution.fallbackChain
         maxPromptTokens = resolution.maxPromptTokens
 
-        const isRunInBackgroundExplicitlyFalse = args.run_in_background === false || args.run_in_background === "false" as unknown as boolean
+        const isRunInBackgroundFalse = runInBackgroundValue === false
+          || runInBackgroundValue === "false" as unknown as boolean
+          || runInBackgroundValue === undefined
 
         log("[task] unstable agent detection", {
           category: args.category,
           actualModel,
           isUnstableAgent,
-          run_in_background_value: args.run_in_background,
-          run_in_background_type: typeof args.run_in_background,
-          isRunInBackgroundExplicitlyFalse,
-          willForceBackground: isUnstableAgent && isRunInBackgroundExplicitlyFalse,
+          run_in_background_value: runInBackgroundValue,
+          run_in_background_type: typeof runInBackgroundValue,
+          isRunInBackgroundFalse,
+          willForceBackground: isUnstableAgent && isRunInBackgroundFalse,
         })
 
-        if (isUnstableAgent && isRunInBackgroundExplicitlyFalse) {
+        if (isUnstableAgent && isRunInBackgroundFalse) {
           const systemContent = buildSystemContent({
             skillContent,
             skillContents,

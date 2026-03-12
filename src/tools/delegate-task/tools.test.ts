@@ -27,6 +27,10 @@ type DelegateTaskArgsWithSerializedSkills = Omit<DelegateTaskArgs, "load_skills"
   load_skills: string
 }
 
+type DelegateTaskArgsWithOptionalBackground = Omit<DelegateTaskArgs, "run_in_background"> & {
+  run_in_background?: boolean
+}
+
 function createTestAvailableModels(): Set<string> {
   return new Set(TEST_AVAILABLE_MODELS)
 }
@@ -399,6 +403,61 @@ describe("sisyphus-task", () => {
       expect(args.load_skills).toEqual([])
       expect(resolveSkillContentSpy).toHaveBeenCalledWith([], expect.any(Object))
     }, { timeout: 10000 })
+  })
+
+  describe("run_in_background parameter", () => {
+    test("defaults to sync mode when run_in_background is omitted", async () => {
+      // given
+      const { createDelegateTask } = require("./tools")
+      const executeSyncTaskSpy = spyOn(executor, "executeSyncTask").mockResolvedValue("sync result")
+      const executeBackgroundTaskSpy = spyOn(executor, "executeBackgroundTask")
+      spyOn(executor, "resolveSkillContent").mockResolvedValue({
+        content: undefined,
+        contents: [],
+        error: null,
+      })
+      spyOn(executor, "resolveParentContext").mockResolvedValue({
+        sessionID: "parent-session",
+        agent: "sisyphus",
+      })
+      spyOn(executor, "resolveCategoryExecution").mockResolvedValue({
+        agentToUse: "Sisyphus-Junior",
+        categoryModel: undefined,
+        categoryPromptAppend: undefined,
+        modelInfo: undefined,
+        actualModel: undefined,
+        isUnstableAgent: false,
+        fallbackChain: undefined,
+        maxPromptTokens: undefined,
+      })
+
+      const tool = createDelegateTask({
+        manager: { launch: async () => ({}) },
+        client: { config: { get: async () => ({}) } },
+      })
+
+      const toolContext = {
+        sessionID: "parent-session",
+        messageID: "parent-message",
+        agent: "sisyphus",
+        abort: new AbortController().signal,
+      }
+
+      const args: DelegateTaskArgsWithOptionalBackground = {
+        description: "Default background flag",
+        prompt: "Handle this task synchronously",
+        category: "quick",
+        load_skills: [],
+      }
+
+      // when
+      const result = await tool.execute(args as DelegateTaskArgs, toolContext)
+
+      // then
+      expect(result).toBe("sync result")
+      expect(executeSyncTaskSpy).toHaveBeenCalled()
+      expect(executeBackgroundTaskSpy).not.toHaveBeenCalled()
+    })
   })
 
   describe("category delegation config validation", () => {
