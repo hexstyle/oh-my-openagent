@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// bin/oh-my-opencode.js
+// bin/oh-my-openagent.js
 // Wrapper script that detects platform and spawns the correct binary
 
 import { spawnSync } from "node:child_process";
