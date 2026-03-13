@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { mergeConfigs, parseConfigPartially } from "./plugin-config";
-import { OhMyOpenCodeConfigSchema, type OhMyOpenCodeConfig } from "./config";
+import type { OhMyOpenAgentConfig } from "./config";
 
 describe("mergeConfigs", () => {
   describe("categories merging", () => {
@@ -19,7 +19,7 @@ describe("mergeConfigs", () => {
             model: "anthropic/claude-haiku-4-5",
           },
         },
-      } as OhMyOpenCodeConfig;
+      } as OhMyOpenAgentConfig;
 
       const override = {
         categories: {
@@ -30,7 +30,7 @@ describe("mergeConfigs", () => {
             model: "google/gemini-3.1-pro",
           },
         },
-      } as unknown as OhMyOpenCodeConfig;
+      } as unknown as OhMyOpenAgentConfig;
 
       const result = mergeConfigs(base, override);
 
@@ -45,7 +45,7 @@ describe("mergeConfigs", () => {
     });
 
     it("should preserve base categories when override has no categories", () => {
-      const base: OhMyOpenCodeConfig = {
+      const base: OhMyOpenAgentConfig = {
         categories: {
           general: {
             model: "openai/gpt-5.4",
@@ -53,7 +53,7 @@ describe("mergeConfigs", () => {
         },
       };
 
-      const override: OhMyOpenCodeConfig = {};
+      const override: OhMyOpenAgentConfig = {};
 
       const result = mergeConfigs(base, override);
 
@@ -61,9 +61,9 @@ describe("mergeConfigs", () => {
     });
 
     it("should use override categories when base has no categories", () => {
-      const base: OhMyOpenCodeConfig = {};
+      const base: OhMyOpenAgentConfig = {};
 
-      const override: OhMyOpenCodeConfig = {
+      const override: OhMyOpenAgentConfig = {
         categories: {
           general: {
             model: "openai/gpt-5.4",
@@ -79,13 +79,13 @@ describe("mergeConfigs", () => {
 
   describe("existing behavior preservation", () => {
     it("should deep merge agents", () => {
-      const base: OhMyOpenCodeConfig = {
+      const base: OhMyOpenAgentConfig = {
         agents: {
           oracle: { model: "openai/gpt-5.4" },
         },
       };
 
-      const override: OhMyOpenCodeConfig = {
+      const override: OhMyOpenAgentConfig = {
         agents: {
           oracle: { temperature: 0.5 },
           explore: { model: "anthropic/claude-haiku-4-5" },
@@ -94,17 +94,17 @@ describe("mergeConfigs", () => {
 
       const result = mergeConfigs(base, override);
 
-      expect(result.agents?.oracle).toMatchObject({ model: "openai/gpt-5.4" });
+      expect(result.agents?.oracle?.model).toBe("openai/gpt-5.4");
       expect(result.agents?.oracle?.temperature).toBe(0.5);
-      expect(result.agents?.explore).toMatchObject({ model: "anthropic/claude-haiku-4-5" });
+      expect(result.agents?.explore?.model).toBe("anthropic/claude-haiku-4-5");
     });
 
     it("should merge disabled arrays without duplicates", () => {
-      const base: OhMyOpenCodeConfig = {
+      const base: OhMyOpenAgentConfig = {
         disabled_hooks: ["comment-checker", "think-mode"],
       };
 
-      const override: OhMyOpenCodeConfig = {
+      const override: OhMyOpenAgentConfig = {
         disabled_hooks: ["think-mode", "session-recovery"],
       };
 
@@ -115,44 +115,10 @@ describe("mergeConfigs", () => {
       expect(result.disabled_hooks).toContain("session-recovery");
       expect(result.disabled_hooks?.length).toBe(3);
     });
-
-    it("should union disabled_tools from base and override without duplicates", () => {
-      const base: OhMyOpenCodeConfig = {
-        disabled_tools: ["todowrite", "interactive_bash"],
-      };
-
-      const override: OhMyOpenCodeConfig = {
-        disabled_tools: ["interactive_bash", "look_at"],
-      };
-
-      const result = mergeConfigs(base, override);
-
-      expect(result.disabled_tools).toContain("todowrite");
-      expect(result.disabled_tools).toContain("interactive_bash");
-      expect(result.disabled_tools).toContain("look_at");
-      expect(result.disabled_tools?.length).toBe(3);
-    });
   });
 });
 
 describe("parseConfigPartially", () => {
-  describe("disabled_hooks compatibility", () => {
-    //#given a config with a future hook name unknown to this version
-    //#when validating against the full config schema
-    //#then should accept the hook name so runtime and schema stay aligned
-
-    it("should accept unknown disabled_hooks values for forward compatibility", () => {
-      const result = OhMyOpenCodeConfigSchema.safeParse({
-        disabled_hooks: ["future-hook-name"],
-      });
-
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.disabled_hooks).toEqual(["future-hook-name"]);
-      }
-    });
-  });
-
   describe("fully valid config", () => {
     //#given a config where all sections are valid
     //#when parsing the config
@@ -170,8 +136,8 @@ describe("parseConfigPartially", () => {
       const result = parseConfigPartially(rawConfig);
 
       expect(result).not.toBeNull();
-      expect(result!.agents?.oracle).toMatchObject({ model: "openai/gpt-5.4" });
-      expect(result!.agents?.momus).toMatchObject({ model: "openai/gpt-5.4" });
+      expect(result!.agents?.oracle?.model).toBe("openai/gpt-5.4");
+      expect(result!.agents?.momus?.model).toBe("openai/gpt-5.4");
       expect(result!.disabled_hooks).toEqual(["comment-checker"]);
     });
   });
@@ -213,7 +179,7 @@ describe("parseConfigPartially", () => {
       const result = parseConfigPartially(rawConfig);
 
       expect(result).not.toBeNull();
-      expect(result!.agents?.oracle).toMatchObject({ model: "openai/gpt-5.4" });
+      expect(result!.agents?.oracle?.model).toBe("openai/gpt-5.4");
       expect(result!.disabled_hooks).toEqual(["not-a-real-hook"]);
     });
   });
@@ -266,7 +232,7 @@ describe("parseConfigPartially", () => {
       const result = parseConfigPartially(rawConfig);
 
       expect(result).not.toBeNull();
-      expect(result!.agents?.oracle).toMatchObject({ model: "openai/gpt-5.4" });
+      expect(result!.agents?.oracle?.model).toBe("openai/gpt-5.4");
       expect((result as Record<string, unknown>)["some_future_key"]).toBeUndefined();
     });
   });

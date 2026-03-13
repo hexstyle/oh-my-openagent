@@ -1,10 +1,10 @@
 /// <reference types="bun-types" />
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "bun:test"
-import type { OhMyOpenCodeConfig } from "../../config"
+import { describe, it, expect } from "bun:test"
+import type { OhMyOpenAgentConfig } from "../../config"
 import { resolveRunAgent, waitForEventProcessorShutdown } from "./runner"
 
-const createConfig = (overrides: Partial<OhMyOpenCodeConfig> = {}): OhMyOpenCodeConfig => ({
+const createConfig = (overrides: Partial<OhMyOpenAgentConfig> = {}): OhMyOpenAgentConfig => ({
   ...overrides,
 })
 
@@ -133,23 +133,16 @@ describe("run with invalid model", () => {
 
     try {
       // when
-      // Note: This will actually try to run - but the issue is that resolveRunModel
-      // is called BEFORE the try block, so it throws an unhandled exception
-      // We're testing the runner's error handling
       const { run } = await import("./runner")
 
-      // This will throw because model "invalid" is invalid format
       try {
         await run({
           message: "test",
           model: "invalid",
         })
       } catch {
-        // Expected to potentially throw due to unhandled model resolution error
       }
     } finally {
-      // then - verify error handling
-      // Currently this will fail because the error is not caught properly
       console.error = originalError
       process.exit = originalExit
     }

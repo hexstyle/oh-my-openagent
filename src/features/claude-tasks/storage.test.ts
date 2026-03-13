@@ -13,7 +13,7 @@ import {
   resolveTaskListId,
   sanitizePathSegment,
 } from "./storage"
-import type { OhMyOpenCodeConfig } from "../../config/schema"
+import type { OhMyOpenAgentConfig } from "../../config/schema"
 
 const TEST_DIR = ".test-claude-tasks"
 const TEST_DIR_ABS = join(process.cwd(), TEST_DIR)
@@ -52,7 +52,7 @@ describe("getTaskDir", () => {
 
   test("returns global config path for default config", () => {
     //#given
-    const config: Partial<OhMyOpenCodeConfig> = {}
+    const config: Partial<OhMyOpenAgentConfig> = {}
     const configDir = getOpenCodeConfigDir({ binary: "opencode" })
     const expectedListId = sanitizePathSegment(basename(process.cwd()))
 
@@ -103,7 +103,7 @@ describe("getTaskDir", () => {
 
   test("returns absolute storage_path without joining cwd", () => {
     //#given
-    const config: Partial<OhMyOpenCodeConfig> = {
+    const config: Partial<OhMyOpenAgentConfig> = {
       sisyphus: {
         tasks: {
           storage_path: "/tmp/custom-task-path",
@@ -121,7 +121,7 @@ describe("getTaskDir", () => {
 
   test("joins relative storage_path with cwd", () => {
     //#given
-    const config: Partial<OhMyOpenCodeConfig> = {
+    const config: Partial<OhMyOpenAgentConfig> = {
       sisyphus: {
         tasks: {
           storage_path: ".custom/tasks",
@@ -263,7 +263,7 @@ describe("listTaskFiles", () => {
 
   test("returns empty array for non-existent directory", () => {
     //#given
-    const config: Partial<OhMyOpenCodeConfig> = {
+    const config: Partial<OhMyOpenAgentConfig> = {
       new_task_system_enabled: false,
       sisyphus: { tasks: { storage_path: TEST_DIR, claude_code_compat: false } }
     }
@@ -277,7 +277,7 @@ describe("listTaskFiles", () => {
 
   test("returns empty array for directory with no task files", () => {
     //#given
-    const config: Partial<OhMyOpenCodeConfig> = {
+    const config: Partial<OhMyOpenAgentConfig> = {
       new_task_system_enabled: false,
       sisyphus: { tasks: { storage_path: TEST_DIR, claude_code_compat: false } }
     }
@@ -293,7 +293,7 @@ describe("listTaskFiles", () => {
 
   test("lists task files with T- prefix and .json extension", () => {
     //#given
-    const config: Partial<OhMyOpenCodeConfig> = {
+    const config: Partial<OhMyOpenAgentConfig> = {
       new_task_system_enabled: false,
       sisyphus: { tasks: { storage_path: TEST_DIR, claude_code_compat: false } }
     }
@@ -314,7 +314,7 @@ describe("listTaskFiles", () => {
 
   test("returns task IDs without .json extension", () => {
     //#given
-    const config: Partial<OhMyOpenCodeConfig> = {
+    const config: Partial<OhMyOpenAgentConfig> = {
       new_task_system_enabled: false,
       sisyphus: { tasks: { storage_path: TEST_DIR, claude_code_compat: false } }
     }

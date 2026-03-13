@@ -1,5 +1,5 @@
 import { log } from "../shared/logger"
-import type { OhMyOpenCodeConfig } from "../config"
+import type { OhMyOpenAgentConfig } from "../config"
 import {
   resolveActualContextLimit,
   type ContextLimitModelCacheState,
@@ -61,7 +61,7 @@ type PluginInput = {
 
 export function createPreemptiveCompactionHook(
   ctx: PluginInput,
-  pluginConfig: OhMyOpenCodeConfig,
+  pluginConfig: OhMyOpenAgentConfig,
   modelCacheState?: ContextLimitModelCacheState,
 ) {
   const compactionInProgress = new Set<string>()

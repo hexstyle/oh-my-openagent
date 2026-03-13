@@ -1,4 +1,4 @@
-import type { RuntimeFallbackConfig, OhMyOpenCodeConfig } from "../../config"
+import type { RuntimeFallbackConfig, OhMyOpenAgentConfig } from "../../config"
 
 export interface RuntimeFallbackInterval {
   unref: () => void
@@ -53,7 +53,7 @@ export interface FallbackResult {
 
 export interface RuntimeFallbackOptions {
   config?: RuntimeFallbackConfig
-  pluginConfig?: OhMyOpenCodeConfig
+  pluginConfig?: OhMyOpenAgentConfig
   session_timeout_ms?: number
 }
 
@@ -67,7 +67,7 @@ export interface HookDeps {
   ctx: RuntimeFallbackPluginInput
   config: Required<RuntimeFallbackConfig>
   options: RuntimeFallbackOptions | undefined
-  pluginConfig: OhMyOpenCodeConfig | undefined
+  pluginConfig: OhMyOpenAgentConfig | undefined
   sessionStates: Map<string, FallbackState>
   sessionLastAccess: Map<string, number>
   sessionRetryInFlight: Set<string>

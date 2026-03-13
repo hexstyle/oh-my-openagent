@@ -1,7 +1,7 @@
 /// <reference types="bun-types" />
 
 import { describe, test, expect, spyOn, beforeEach, afterEach } from "bun:test"
-import type { OhMyOpenCodeConfig } from "../config"
+import type { OhMyOpenAgentConfig } from "../config"
 
 import * as mcpLoader from "../features/claude-code-mcp-loader"
 import * as mcpModule from "../mcp"
@@ -24,12 +24,10 @@ afterEach(() => {
   ;(shared.log as any)?.mockRestore?.()
 })
 
-function createPluginConfig(overrides: Partial<OhMyOpenCodeConfig> = {}): OhMyOpenCodeConfig {
-  return {
-    disabled_mcps: [],
-    ...overrides,
-  } as OhMyOpenCodeConfig
-}
+function createPluginConfig(overrides: Partial<OhMyOpenAgentConfig> = {}): OhMyOpenAgentConfig { return {
+  disabled_mcps: [],
+  ...overrides,
+} as OhMyOpenAgentConfig }
 
 const EMPTY_PLUGIN_COMPONENTS = {
   commands: {},

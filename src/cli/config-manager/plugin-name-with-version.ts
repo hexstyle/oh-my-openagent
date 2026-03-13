@@ -1,6 +1,7 @@
+import { PLUGIN_NAME } from "../../shared/plugin-identity"
 import { fetchNpmDistTags } from "./npm-dist-tags"
 
-const DEFAULT_PACKAGE_NAME = "oh-my-opencode"
+const DEFAULT_PACKAGE_NAME = PLUGIN_NAME
 const PRIORITIZED_TAGS = ["latest", "beta", "next"] as const
 
 function getFallbackEntry(version: string, packageName: string): string {
@@ -17,7 +18,6 @@ export async function getPluginNameWithVersion(
   packageName: string = DEFAULT_PACKAGE_NAME
 ): Promise<string> {
   const distTags = await fetchNpmDistTags(packageName)
-
 
   if (distTags) {
     const allTags = new Set([...PRIORITIZED_TAGS, ...Object.keys(distTags)])

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
 import * as agents from "../agents"
 import * as shared from "../shared"
 import * as sisyphusJunior from "../agents/sisyphus-junior"
-import type { OhMyOpenCodeConfig } from "../config"
+import type { OhMyOpenAgentConfig } from "../config"
 import * as agentLoader from "../features/claude-code-agent-loader"
 import * as skillLoader from "../features/opencode-skill-loader"
 import { getAgentDisplayName } from "../shared/agent-display-names"
@@ -35,13 +35,11 @@ function createBaseConfig(): Record<string, unknown> {
   }
 }
 
-function createPluginConfig(): OhMyOpenCodeConfig {
-  return {
-    sisyphus_agent: {
-      planner_enabled: false,
-    },
-  }
-}
+function createPluginConfig(): OhMyOpenAgentConfig { return {
+  sisyphus_agent: {
+    planner_enabled: false,
+  },
+} }
 
 describe("applyAgentConfig builtin override protection", () => {
   let createBuiltinAgentsSpy: ReturnType<typeof spyOn>

@@ -1,4 +1,4 @@
-import type { OhMyOpenCodeConfig } from "../config"
+import type { OhMyOpenAgentConfig } from "../config"
 import type { AgentOverrides } from "../config/schema/agent-overrides"
 import { getSessionAgent } from "../features/claude-code-session-state"
 import { log } from "../shared"
@@ -58,7 +58,7 @@ function getMessageModel(current: unknown): ModelDescriptor | undefined {
 }
 
 export function resolveUltraworkOverride(
-  pluginConfig: OhMyOpenCodeConfig,
+  pluginConfig: OhMyOpenAgentConfig,
   inputAgentName: string | undefined,
   output: {
     message: Record<string, unknown>
@@ -146,7 +146,7 @@ function applyResolvedUltraworkOverride(args: {
 }
 
 export function applyUltraworkModelOverrideOnMessage(
-  pluginConfig: OhMyOpenCodeConfig,
+  pluginConfig: OhMyOpenAgentConfig,
   inputAgentName: string | undefined,
   output: {
     message: Record<string, unknown>

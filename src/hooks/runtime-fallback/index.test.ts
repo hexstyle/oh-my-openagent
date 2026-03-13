@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeEach, afterEach, spyOn } from "bun:test"
 import { createRuntimeFallbackHook } from "./index"
-import type { RuntimeFallbackConfig, OhMyOpenCodeConfig } from "../../config"
+import type { RuntimeFallbackConfig, OhMyOpenAgentConfig } from "../../config"
 import * as sharedModule from "../../shared"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 
@@ -62,32 +62,26 @@ describe("runtime-fallback", () => {
     }
   }
 
-  function createMockPluginConfigWithCategoryFallback(fallbackModels: string[]): OhMyOpenCodeConfig {
-    return {
-      categories: {
-        test: {
-          fallback_models: fallbackModels,
-        },
+  function createMockPluginConfigWithCategoryFallback(fallbackModels: string[]): OhMyOpenAgentConfig { return {
+    categories: {
+      test: {
+        fallback_models: fallbackModels,
       },
-    }
-  }
+    },
+  } }
 
-  function createMockPluginConfigWithCategoryModel(
-    categoryName: string,
-    model: string,
-    fallbackModels: string[],
-    variant?: string,
-  ): OhMyOpenCodeConfig {
-    return {
-      categories: {
-        [categoryName]: {
-          model,
-          fallback_models: fallbackModels,
-          ...(variant ? { variant } : {}),
-        },
+  function createMockPluginConfigWithCategoryModel(categoryName: string,
+  model: string,
+  fallbackModels: string[],
+  variant?: string,): OhMyOpenAgentConfig { return {
+    categories: {
+      [categoryName]: {
+        model,
+        fallback_models: fallbackModels,
+        ...(variant ? { variant } : {}),
       },
-    }
-  }
+    },
+  } }
 
   describe("session.error handling", () => {
     test("should detect retryable error with status code 429", async () => {
@@ -2297,15 +2291,13 @@ describe("runtime-fallback", () => {
   })
 
   describe("fallback models configuration", () => {
-    function createMockPluginConfigWithAgentFallback(agentName: string, fallbackModels: string[]): OhMyOpenCodeConfig {
-      return {
-        agents: {
-          [agentName]: {
-            fallback_models: fallbackModels,
-          },
+    function createMockPluginConfigWithAgentFallback(agentName: string, fallbackModels: string[]): OhMyOpenAgentConfig { return {
+      agents: {
+        [agentName]: {
+          fallback_models: fallbackModels,
         },
-      }
-    }
+      },
+    } }
 
     test("should use agent-level fallback_models", async () => {
       const input = createMockPluginInput()

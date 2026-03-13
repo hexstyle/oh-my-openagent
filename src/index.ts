@@ -17,7 +17,7 @@ import { startTmuxCheck } from "./tools"
 
 let activePluginDispose: PluginDispose | null = null
 
-const OhMyOpenCodePlugin: Plugin = async (ctx) => {
+const OhMyOpenAgentPlugin: Plugin = async (ctx) => {
   // Initialize config context for plugin runtime (prevents warnings from hooks)
   initConfigContext("opencode", null)
   log("[OhMyOpenCodePlugin] ENTRY - plugin loading", {
@@ -108,10 +108,10 @@ const OhMyOpenCodePlugin: Plugin = async (ctx) => {
   }
 }
 
-export default OhMyOpenCodePlugin
+export default OhMyOpenAgentPlugin
 
 export type {
-  OhMyOpenCodeConfig,
+  OhMyOpenAgentConfig,
   AgentName,
   AgentOverrideConfig,
   AgentOverrides,

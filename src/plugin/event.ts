@@ -1,4 +1,4 @@
-import type { OhMyOpenCodeConfig } from "../config";
+import type { OhMyOpenAgentConfig } from "../config";
 import type { PluginContext } from "./types";
 
 import {
@@ -107,7 +107,7 @@ function applyUserConfiguredFallbackChain(
   sessionID: string,
   agentName: string,
   currentProviderID: string,
-  pluginConfig: OhMyOpenCodeConfig,
+  pluginConfig: OhMyOpenAgentConfig,
 ): void {
   const agentKey = getAgentConfigKey(agentName);
   const configuredFallbackModels = getFallbackModelsForSession(sessionID, agentKey, pluginConfig);
@@ -127,7 +127,7 @@ function isCompactionAgent(agent: string): boolean {
 type EventInput = Parameters<NonNullable<NonNullable<CreatedHooks["writeExistingFileGuard"]>["event"]>>[0];
 export function createEventHandler(args: {
   ctx: PluginContext;
-  pluginConfig: OhMyOpenCodeConfig;
+  pluginConfig: OhMyOpenAgentConfig;
   firstMessageVariantGate: FirstMessageVariantGate;
   managers: Managers;
   hooks: CreatedHooks;

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
-import { OhMyOpenCodeConfigSchema } from "../../../config"
+import { OhMyOpenAgentConfigSchema } from "../../../config"
 import { detectConfigFile, getOpenCodeConfigDir, parseJsonc } from "../../../shared"
 import { CHECK_IDS, CHECK_NAMES, PACKAGE_NAME } from "../constants"
 import type { CheckResult, DoctorIssue } from "../types"
@@ -39,7 +39,7 @@ function validateConfig(): ConfigValidationResult {
   try {
     const content = readFileSync(configPath, "utf-8")
     const rawConfig = parseJsonc<OmoConfig>(content)
-    const schemaResult = OhMyOpenCodeConfigSchema.safeParse(rawConfig)
+    const schemaResult = OhMyOpenAgentConfigSchema.safeParse(rawConfig)
 
     if (!schemaResult.success) {
       return {

@@ -1,9 +1,10 @@
+import { PLUGIN_NAME } from "../../../shared/plugin-identity"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { detectConfigFile, getOpenCodeConfigPaths, parseJsonc } from "../../../shared"
 import type { OmoConfig } from "./model-resolution-types"
 
-const PACKAGE_NAME = "oh-my-opencode"
+const PACKAGE_NAME = PLUGIN_NAME
 const USER_CONFIG_BASE = join(
   getOpenCodeConfigPaths({ binary: "opencode", version: null }).configDir,
   PACKAGE_NAME
