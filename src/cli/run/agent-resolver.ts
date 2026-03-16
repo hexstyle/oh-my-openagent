@@ -5,6 +5,7 @@ import { getAgentConfigKey, getAgentDisplayName } from "../../shared/agent-displ
 
 const CORE_AGENT_ORDER = ["sisyphus", "hephaestus", "prometheus", "atlas"] as const
 const DEFAULT_AGENT = "sisyphus"
+const ENV_AGENT_KEYS = ["OPENCODE_AGENT", "OPENCODE_DEFAULT_AGENT"] as const
 
 type EnvVars = Record<string, string | undefined>
 type CoreAgentKey = (typeof CORE_AGENT_ORDER)[number]
@@ -54,7 +55,9 @@ export const resolveRunAgent = (
   env: EnvVars = process.env
 ): string => {
   const cliAgent = normalizeAgentName(options.agent)
-  const envAgent = normalizeAgentName(env.OPENCODE_DEFAULT_AGENT)
+  const envAgent = ENV_AGENT_KEYS
+    .map((key) => normalizeAgentName(env[key]))
+    .find((agent) => agent !== undefined)
   const configAgent = normalizeAgentName(pluginConfig.default_run_agent)
   const resolved =
     cliAgent ??

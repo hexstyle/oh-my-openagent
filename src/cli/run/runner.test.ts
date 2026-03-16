@@ -37,6 +37,38 @@ describe("resolveRunAgent", () => {
     expect(agent).toBe("Atlas (Plan Executor)")
   })
 
+  it("prefers OPENCODE_AGENT over OPENCODE_DEFAULT_AGENT", () => {
+    // given
+    const config = createConfig({ default_run_agent: "prometheus" })
+    const env = {
+      OPENCODE_AGENT: "oracle",
+      OPENCODE_DEFAULT_AGENT: "Atlas",
+    }
+
+    // when
+    const agent = resolveRunAgent({ message: "test" }, config, env)
+
+    // then
+    expect(agent).toBe("oracle")
+  })
+
+  it("supports specialist agents from env and config inputs", () => {
+    // given
+    const env = { OPENCODE_AGENT: " explore " }
+
+    // when
+    const envAgent = resolveRunAgent({ message: "test" }, createConfig(), env)
+    const configAgent = resolveRunAgent(
+      { message: "test" },
+      createConfig({ default_run_agent: "oracle" }),
+      {}
+    )
+
+    // then
+    expect(envAgent).toBe("explore")
+    expect(configAgent).toBe("oracle")
+  })
+
   it("uses config agent over default", () => {
     // given
     const config = createConfig({ default_run_agent: "Prometheus" })
@@ -76,6 +108,17 @@ describe("resolveRunAgent", () => {
 
     // when
     const agent = resolveRunAgent({ message: "test" }, config, {})
+
+    // then
+    expect(agent).toBe("Sisyphus (Ultraworker)")
+  })
+
+  it("falls back when requested specialist agent is disabled", () => {
+    // given
+    const config = createConfig({ disabled_agents: ["oracle"] })
+
+    // when
+    const agent = resolveRunAgent({ message: "test", agent: "oracle" }, config, {})
 
     // then
     expect(agent).toBe("Sisyphus (Ultraworker)")
