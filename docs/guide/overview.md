@@ -60,10 +60,11 @@ User Request
     ↓
     ├─→ [Prometheus] — Strategic planning (interview mode)
     ├─→ [Atlas] — Todo orchestration and execution
-    ├─→ [Oracle] — Architecture consultation
-    ├─→ [Librarian] — Documentation/code search
-    ├─→ [Explore] — Fast codebase grep
-    └─→ [Category-based agents] — Specialized by task type
+    ├─→ [Specialist Subagents]
+    │     ├─→ [Oracle] — Architecture consultation
+    │     ├─→ [Librarian] — Documentation/code search
+    │     └─→ [Explore] — Fast codebase grep
+    └─→ [Sisyphus-Junior] — Category-based executor
 ```
 
 When Sisyphus delegates to a subagent, it doesn't pick a model name. It picks a **category** — `visual-engineering`, `ultrabrain`, `quick`, `deep`. The category automatically maps to the right model. You touch nothing.
@@ -116,17 +117,20 @@ Atlas executes Prometheus plans. Distributes tasks to specialized subagents. Acc
 
 Run `/start-work` to activate Atlas on your latest plan.
 
-### Oracle: The Consultant
+### Sisyphus-Junior: The Specialist
 
-Read-only high-IQ consultant for architecture decisions and complex debugging. Consult Oracle when facing unfamiliar patterns, security concerns, or multi-system tradeoffs.
+When Sisyphus delegates a task via a specific **Category** (like `visual-engineering` or `deep`), **Sisyphus-Junior** is the agent that performs it. It is optimized for focused execution within a specific domain and cannot re-delegate, preventing infinite loops.
 
-### Supporting Cast
+### Specialist Subagents
 
+These agents are primarily designed to be called by other agents or for specific queries, rather than managing a full workflow.
+
+- **Oracle** — Read-only high-IQ consultant for architecture decisions and complex debugging.
+- **Librarian** — Documentation and OSS code search. Stays current on library APIs and best practices.
+- **Explore** — Fast codebase grep. Uses speed-focused models for pattern discovery.
+- **Multimodal Looker** — Vision and screenshot analysis.
 - **Metis** — Gap analyzer. Catches what Prometheus missed before plans are finalized.
 - **Momus** — Ruthless reviewer. Validates plans against clarity, verification, and context criteria.
-- **Explore** — Fast codebase grep. Uses speed-focused models for pattern discovery.
-- **Librarian** — Documentation and OSS code search. Stays current on library APIs and best practices.
-- **Multimodal Looker** — Vision and screenshot analysis.
 
 ---
 

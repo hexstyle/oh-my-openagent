@@ -344,8 +344,8 @@ These agents do search, grep, and retrieval. They intentionally use fast, cheap 
 | Agent                 | Role               | Default Chain                                                          | Design Rationale                                               |
 | --------------------- | ------------------ | ---------------------------------------------------------------------- | -------------------------------------------------------------- |
 | **Explore**           | Fast codebase grep | MiniMax M2.5 Free → Grok Code Fast → MiniMax M2.5 → Haiku → GPT-5-Nano | Speed is everything. Grok is blazing fast for grep.            |
-| **Librarian**         | Docs/code search   | MiniMax M2.5 Free → Gemini Flash → Big Pickle                          | Entirely free-tier. Doc retrieval doesn't need deep reasoning. |
-| **Multimodal Looker** | Vision/screenshots | Kimi K2.5 → Kimi Free → Gemini Flash → GPT-5.4 → GLM-4.6v              | Kimi excels at multimodal understanding.                       |
+| **Librarian**         | Docs/code search   | MiniMax M2.5 → MiniMax Free → Haiku → Nano                     | Fast, cheap models for search.                                 |
+| **Multimodal Looker** | Vision/screenshots | GPT-5.4 → Kimi K2.5 → GLM-4.6v → GPT-5-Nano                    | Strong vision capabilities.                                    |
 
 #### Why Different Models Need Different Prompts
 

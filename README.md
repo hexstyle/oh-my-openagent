@@ -158,6 +158,10 @@ Even only with following subscriptions, ultrawork will work well (this project i
 
 **Prometheus** (`claude-opus-4-6` / **`kimi-k2.5`** / **`glm-5`** ) is your strategic planner. Interview mode: it questions, identifies scope, and builds a detailed plan before a single line of code is touched.
 
+**Atlas** (`claude-sonnet-4-6`) is the executor. He takes the plan from Prometheus and drives it to completion, managing the todo list and coordinating subagents.
+
+**Sisyphus-Junior** is the dedicated executor for category-based tasks.
+
 Every agent is tuned to its model's specific strengths. No manual model-juggling. [Learn more →](docs/guide/overview.md)
 
 > Anthropic [blocked OpenCode because of us.](https://x.com/thdxr/status/2010149530486911014) That's why Hephaestus is called "The Legitimate Craftsman." The irony is intentional.
@@ -296,7 +300,8 @@ Features you'll think should've always existed. Once you use them, you can't go 
 See full [Features Documentation](docs/reference/features.md).
 
 **Quick Overview:**
-- **Agents**: Sisyphus (the main agent), Prometheus (planner), Oracle (architecture/debugging), Librarian (docs/code search), Explore (fast codebase grep), Multimodal Looker
+- **Primary Agents**: Sisyphus (the main agent), Hephaestus (deep worker), Prometheus (planner), Atlas (executor), Sisyphus-Junior (category executor)
+- **Specialist Subagents**: Oracle (architecture/debugging), Librarian (docs/code search), Explore (fast codebase grep), Multimodal Looker (vision)
 - **Background Agents**: Run multiple agents in parallel like a real dev team
 - **LSP & AST Tools**: Refactoring, rename, diagnostics, AST-aware code search
 - **Hash-anchored Edit Tool**: `LINE#ID` references validate content before applying every change. Surgical edits, zero stale-line errors

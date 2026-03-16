@@ -4,31 +4,26 @@
 
 Oh-My-OpenCode provides 11 specialized AI agents. Each has distinct expertise, optimized models, and tool permissions.
 
-### Core Agents
+### Primary Agents
 
 | Agent                 | Model              | Purpose                                                                                                                                                                                                                                                                                                                                                          |
 | --------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Sisyphus**          | `claude-opus-4-6`  | The default orchestrator. Plans, delegates, and executes complex tasks using specialized subagents with aggressive parallel execution. Todo-driven workflow with extended thinking (32k budget). Fallback: `glm-5` → `big-pickle`.                                                                                                                               |
-| **Hephaestus**        | `gpt-5.3-codex`    | The Legitimate Craftsman. Autonomous deep worker inspired by AmpCode's deep mode. Goal-oriented execution with thorough research before action. Explores codebase patterns, completes tasks end-to-end without premature stopping. Named after the Greek god of forge and craftsmanship. Fallback: `gpt-5.4` on GitHub Copilot. Requires a GPT-capable provider. |
-| **Oracle**            | `gpt-5.4`          | Architecture decisions, code review, debugging. Read-only consultation with stellar logical reasoning and deep analysis. Inspired by AmpCode. Fallback: `gemini-3.1-pro` → `claude-opus-4-6`.                                                                                                                                                                    |
-| **Librarian**         | `gemini-3-flash`   | Multi-repo analysis, documentation lookup, OSS implementation examples. Deep codebase understanding with evidence-based answers. Fallback: `minimax-m2.5-free` → `big-pickle`.                                                                                                                                                                                   |
-| **Explore**           | `grok-code-fast-1` | Fast codebase exploration and contextual grep. Fallback: `minimax-m2.5-free` → `claude-haiku-4-5` → `gpt-5-nano`.                                                                                                                                                                                                                                                |
-| **Multimodal-Looker** | `gpt-5.3-codex`    | Visual content specialist. Analyzes PDFs, images, diagrams to extract information. Fallback: `k2p5` → `gemini-3-flash` → `glm-4.6v` → `gpt-5-nano`.                                                                                                                                                                                                              |
+| **Sisyphus**          | `claude-opus-4-6`  | The default orchestrator. Plans, delegates, and executes complex tasks using specialized subagents with aggressive parallel execution. Todo-driven workflow with extended thinking (32k budget). Fallback: `kimi-k2.5` → `glm-5`.                                                                                                                               |
+| **Hephaestus**        | `gpt-5.3-codex`    | The Legitimate Craftsman. Autonomous deep worker. Goal-oriented execution with thorough research before action. Explores codebase patterns, completes tasks end-to-end. Fallback: `gpt-5.4` on GitHub Copilot. Requires a GPT-capable provider. |
+| **Prometheus**        | `claude-opus-4-6`  | Strategic planner with interview mode. Creates detailed work plans through iterative questioning. Fallback: `gpt-5.4` → `gemini-3.1-pro`.          |
+| **Atlas**             | `claude-sonnet-4-6`| Executor. Takes the plan from Prometheus and drives it to completion, managing the todo list and coordinating subagents. Fallback: `gpt-5.4` (medium).                                                     |
+| **Sisyphus-Junior**   | _(category-dependent)_ | Category-spawned executor. Model is selected automatically based on the task category. Used when the main agent delegates work via the `task` tool. |
 
-### Planning Agents
+### Specialist Subagents
 
-| Agent          | Model             | Purpose                                                                                                                                            |
-| -------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Prometheus** | `claude-opus-4-6` | Strategic planner with interview mode. Creates detailed work plans through iterative questioning. Fallback: `gpt-5.4` → `gemini-3.1-pro`.          |
-| **Metis**      | `claude-opus-4-6` | Plan consultant — pre-planning analysis. Identifies hidden intentions, ambiguities, and AI failure points. Fallback: `gpt-5.4` → `gemini-3.1-pro`. |
-| **Momus**      | `gpt-5.4`         | Plan reviewer — validates plans against clarity, verifiability, and completeness standards. Fallback: `claude-opus-4-6` → `gemini-3.1-pro`.        |
-
-### Orchestration Agents
-
-| Agent               | Model                  | Purpose                                                                                                                                                                                     |
-| ------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Atlas**           | `claude-sonnet-4-6`    | Todo-list orchestrator. Executes planned tasks systematically, managing todo items and coordinating work. Fallback: `gpt-5.4` (medium).                                                     |
-| **Sisyphus-Junior** | _(category-dependent)_ | Category-spawned executor. Model is selected automatically based on the task category (visual-engineering, quick, deep, etc.). Used when the main agent delegates work via the `task` tool. |
+| Agent                 | Model              | Purpose                                                                                                                                            |
+| --------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Oracle**            | `gpt-5.4`          | Architecture decisions, code review, debugging. Read-only consultation. Fallback: `gemini-3.1-pro` → `claude-opus-4-6`.                                                                                                                                                                    |
+| **Librarian**         | `minimax-m2.5`     | Multi-repo analysis, documentation lookup, OSS implementation examples. Fallback: `minimax-m2.5-free` → `claude-haiku-4-5` → `gpt-5-nano`.                                                                                                                                                                                   |
+| **Explore**           | `grok-code-fast-1` | Fast codebase exploration and contextual grep. Fallback: `minimax-m2.5` → `minimax-m2.5-free` → `claude-haiku-4-5`.                                                                                                                                                                                  |
+| **Multimodal-Looker** | `gpt-5.4`          | Visual content specialist. Analyzes PDFs, images, diagrams. Fallback: `kimi-k2.5` → `glm-4.6v` → `gpt-5-nano`.                                                                                                                                                                                                              |
+| **Metis**             | `claude-opus-4-6`  | Plan consultant — pre-planning analysis. Identifies hidden intentions, ambiguities, and AI failure points. Fallback: `gpt-5.4` → `gemini-3.1-pro`. |
+| **Momus**             | `gpt-5.4`          | Plan reviewer — validates plans against clarity, verifiability, and completeness standards. Fallback: `claude-opus-4-6` → `gemini-3.1-pro`.        |
 
 ### Invoking Agents
 
