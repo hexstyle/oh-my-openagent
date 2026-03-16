@@ -22,6 +22,7 @@
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun --format esm --external @ast-grep/napi && tsc --emitDeclarationOnly && bun build src/cli/index.ts --outdir dist/cli --target bun --format esm --external @ast-grep/napi && bun run build:schema",
+    "build:sdk": "cd packages/sdk && bun run build",
     "build:all": "bun run build && bun run build:binaries",
     "build:binaries": "bun run script/build-binaries.ts",
     "build:schema": "bun run script/build-schema.ts",
@@ -30,7 +31,9 @@
     "postinstall": "node postinstall.mjs",
     "prepublishOnly": "bun run clean && bun run build",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "typecheck:sdk": "cd packages/sdk && bun run typecheck",
+    "test": "bun test",
+    "test:sdk": "cd packages/sdk && bun run test"
   },
   "keywords": [
     "opencode",

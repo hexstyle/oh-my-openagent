@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "lib": ["ESNext"],
+    "types": ["bun-types"],
+    "rootDir": "../.."
+  },
+  "include": [
+    "src/**/*.ts",
+    "../../src/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "**/*.test.ts",
+    "../../src/**/*.test.ts"
+  ]
+}

@@ -1,5 +1,5 @@
 import pc from "picocolors"
-import type { OpencodeClient } from "./types"
+import type { OpencodeClient, RunLogger } from "./types"
 import { serializeError } from "./events"
 
 const SESSION_CREATE_MAX_RETRIES = 3
@@ -9,8 +9,18 @@ export async function resolveSession(options: {
   client: OpencodeClient
   sessionId?: string
   directory: string
+  questionPermission?: "allow" | "deny"
+  logger?: RunLogger
 }): Promise<string> {
-  const { client, sessionId, directory } = options
+  const {
+    client,
+    sessionId,
+    directory,
+    questionPermission = "deny",
+    logger,
+  } = options
+  const log = logger?.log ?? console.log
+  const error = logger?.error ?? console.error
 
   if (sessionId) {
     const res = await client.session.get({
@@ -27,23 +37,22 @@ export async function resolveSession(options: {
     const res = await client.session.create({
       body: {
         title: "oh-my-opencode run",
-        // In CLI run mode there's no TUI to answer questions.
         permission: [
-          { permission: "question", action: "deny" as const, pattern: "*" },
+          { permission: "question", action: questionPermission, pattern: "*" },
         ],
       } as Record<string, unknown>,
       query: { directory },
     })
 
     if (res.error) {
-      console.error(
+      error(
         pc.yellow(`Session create attempt ${attempt}/${SESSION_CREATE_MAX_RETRIES} failed:`)
       )
-      console.error(pc.dim(`  Error: ${serializeError(res.error)}`))
+      error(pc.dim(`  Error: ${serializeError(res.error)}`))
 
       if (attempt < SESSION_CREATE_MAX_RETRIES) {
         const delay = SESSION_CREATE_RETRY_DELAY_MS * attempt
-        console.log(pc.dim(`  Retrying in ${delay}ms...`))
+        log(pc.dim(`  Retrying in ${delay}ms...`))
         await new Promise((resolve) => setTimeout(resolve, delay))
       }
       continue
@@ -53,7 +62,7 @@ export async function resolveSession(options: {
       return res.data.id
     }
 
-    console.error(
+    error(
       pc.yellow(
         `Session create attempt ${attempt}/${SESSION_CREATE_MAX_RETRIES}: No session ID returned`
       )
@@ -61,7 +70,7 @@ export async function resolveSession(options: {
 
     if (attempt < SESSION_CREATE_MAX_RETRIES) {
       const delay = SESSION_CREATE_RETRY_DELAY_MS * attempt
-      console.log(pc.dim(`  Retrying in ${delay}ms...`))
+      log(pc.dim(`  Retrying in ${delay}ms...`))
       await new Promise((resolve) => setTimeout(resolve, delay))
     }
   }

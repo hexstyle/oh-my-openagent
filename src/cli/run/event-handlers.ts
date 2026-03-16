@@ -51,6 +51,10 @@ function getDeltaMessageId(props?: {
   return props?.messageID
 }
 
+function shouldRender(ctx: RunContext): boolean {
+  return ctx.renderOutput !== false
+}
+
 function renderCompletionMetaLine(state: EventState, messageID: string): void {
   if (state.completionMetaPrintedByMessageId[messageID]) return
 
@@ -95,7 +99,9 @@ export function handleSessionError(ctx: RunContext, payload: EventPayload, state
   if (getSessionId(props) === ctx.sessionID) {
     state.mainSessionError = true
     state.lastError = serializeError(props?.error)
-    console.error(pc.red(`\n[session.error] ${state.lastError}`))
+    if (shouldRender(ctx)) {
+      console.error(pc.red(`\n[session.error] ${state.lastError}`))
+    }
   }
 }
 
@@ -122,6 +128,11 @@ export function handleMessagePartUpdated(ctx: RunContext, payload: EventPayload,
   }
 
   if (part.type === "reasoning") {
+    if (!shouldRender(ctx)) {
+      state.lastReasoningText = part.text ?? ""
+      state.hasReceivedMeaningfulWork = true
+      return
+    }
     ensureThinkBlockOpen(state)
     const reasoningText = part.text ?? ""
     const newText = reasoningText.slice(state.lastReasoningText.length)
@@ -139,15 +150,17 @@ export function handleMessagePartUpdated(ctx: RunContext, payload: EventPayload,
 
   if (part.type === "text" && part.text) {
     const newText = part.text.slice(state.lastPartText.length)
-    if (newText) {
+    if (newText && shouldRender(ctx)) {
       const padded = writePaddedText(newText, state.textAtLineStart)
       process.stdout.write(padded.output)
       state.textAtLineStart = padded.atLineStart
+    }
+    if (newText) {
       state.hasReceivedMeaningfulWork = true
     }
     state.lastPartText = part.text
 
-    if (part.time?.end) {
+    if (part.time?.end && shouldRender(ctx)) {
       const messageID = part.messageID ?? state.currentMessageId
       if (messageID) {
         renderCompletionMetaLine(state, messageID)
@@ -180,6 +193,11 @@ export function handleMessagePartDelta(ctx: RunContext, payload: EventPayload, s
   if (!delta) return
 
   if (partType === "reasoning") {
+    if (!shouldRender(ctx)) {
+      state.lastReasoningText += delta
+      state.hasReceivedMeaningfulWork = true
+      return
+    }
     ensureThinkBlockOpen(state)
     const padded = writePaddedText(delta, state.thinkingAtLineStart)
     process.stdout.write(pc.dim(padded.output))
@@ -191,9 +209,11 @@ export function handleMessagePartDelta(ctx: RunContext, payload: EventPayload, s
 
   closeThinkBlockIfNeeded(state)
 
-  const padded = writePaddedText(delta, state.textAtLineStart)
-  process.stdout.write(padded.output)
-  state.textAtLineStart = padded.atLineStart
+  if (shouldRender(ctx)) {
+    const padded = writePaddedText(delta, state.textAtLineStart)
+    process.stdout.write(padded.output)
+    state.textAtLineStart = padded.atLineStart
+  }
   state.lastPartText += delta
   state.hasReceivedMeaningfulWork = true
 }
@@ -209,16 +229,18 @@ function handleToolPart(
   if (status === "running") {
     if (state.currentTool !== null) return
     state.currentTool = toolName
-    const header = formatToolHeader(toolName, part.state?.input ?? {})
-    const suffix = header.description ? ` ${pc.dim(header.description)}` : ""
     state.hasReceivedMeaningfulWork = true
-    process.stdout.write(`\n  ${pc.cyan(header.icon)} ${pc.bold(header.title)}${suffix}  \n`)
+    if (shouldRender(_ctx)) {
+      const header = formatToolHeader(toolName, part.state?.input ?? {})
+      const suffix = header.description ? ` ${pc.dim(header.description)}` : ""
+      process.stdout.write(`\n  ${pc.cyan(header.icon)} ${pc.bold(header.title)}${suffix}  \n`)
+    }
   }
 
   if (status === "completed" || status === "error") {
     if (state.currentTool === null) return
     const output = part.state?.output || ""
-    if (output.trim()) {
+    if (output.trim() && shouldRender(_ctx)) {
       process.stdout.write(pc.dim(`  ${displayChars.treeEnd} output  \n`))
       const padded = writePaddedText(output, true)
       process.stdout.write(pc.dim(padded.output + (padded.atLineStart ? "" : "  ")))
@@ -271,7 +293,9 @@ export function handleMessageUpdated(ctx: RunContext, payload: EventPayload, sta
     state.currentAgent = agent
     state.currentModel = model
     state.currentVariant = variant
-    renderAgentHeader(agent, model, variant, state.agentColorsByName)
+    if (shouldRender(ctx)) {
+      renderAgentHeader(agent, model, variant, state.agentColorsByName)
+    }
   }
 }
 
@@ -287,11 +311,12 @@ export function handleToolExecute(ctx: RunContext, payload: EventPayload, state:
 
   const toolName = props?.name || "unknown"
   state.currentTool = toolName
-  const header = formatToolHeader(toolName, props?.input ?? {})
-  const suffix = header.description ? ` ${pc.dim(header.description)}` : ""
-
   state.hasReceivedMeaningfulWork = true
-  process.stdout.write(`\n  ${pc.cyan(header.icon)} ${pc.bold(header.title)}${suffix}  \n`)
+  if (shouldRender(ctx)) {
+    const header = formatToolHeader(toolName, props?.input ?? {})
+    const suffix = header.description ? ` ${pc.dim(header.description)}` : ""
+    process.stdout.write(`\n  ${pc.cyan(header.icon)} ${pc.bold(header.title)}${suffix}  \n`)
+  }
 }
 
 export function handleToolResult(ctx: RunContext, payload: EventPayload, state: EventState): void {
@@ -305,7 +330,7 @@ export function handleToolResult(ctx: RunContext, payload: EventPayload, state: 
   if (state.currentTool === null) return
 
   const output = props?.output || ""
-  if (output.trim()) {
+  if (output.trim() && shouldRender(ctx)) {
     process.stdout.write(pc.dim(`  ${displayChars.treeEnd} output  \n`))
     const padded = writePaddedText(output, true)
     process.stdout.write(pc.dim(padded.output + (padded.atLineStart ? "" : "  ")))

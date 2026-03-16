@@ -1,40 +1,23 @@
 import pc from "picocolors"
-import type { RunOptions, RunContext } from "./types"
-import { createEventState, processEvents, serializeError } from "./events"
-import { loadPluginConfig } from "../../plugin-config"
-import { createServerConnection } from "./server-connection"
-import { resolveSession } from "./session-resolver"
+import type { RunOptions } from "./types"
 import { createJsonOutputManager } from "./json-output"
 import { executeOnCompleteHook } from "./on-complete-hook"
-import { resolveRunAgent } from "./agent-resolver"
-import { resolveRunModel } from "./model-resolver"
-import { pollForCompletion } from "./poll-for-completion"
-import { loadAgentProfileColors } from "./agent-profile-colors"
-import { suppressRunInput } from "./stdin-suppression"
+import { createServerConnection } from "./server-connection"
+import {
+  executeRunSession,
+  waitForEventProcessorShutdown,
+} from "./run-engine"
 import { createTimestampedStdoutController } from "./timestamp-output"
+import { serializeError } from "./events"
+import { suppressRunInput } from "./stdin-suppression"
 
-export { resolveRunAgent }
-
-const EVENT_PROCESSOR_SHUTDOWN_TIMEOUT_MS = 2_000
-
-export async function waitForEventProcessorShutdown(
-  eventProcessor: Promise<void>,
-  timeoutMs = EVENT_PROCESSOR_SHUTDOWN_TIMEOUT_MS,
-): Promise<void> {
-  const completed = await Promise.race([
-    eventProcessor.then(() => true),
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), timeoutMs)),
-  ])
-
-  void completed
-}
+export { resolveRunAgent } from "./agent-resolver"
+export { waitForEventProcessorShutdown }
 
 export async function run(options: RunOptions): Promise<number> {
   process.env.OPENCODE_CLI_RUN_MODE = "true"
 
-  const startTime = Date.now()
   const {
-    message,
     directory = process.cwd(),
   } = options
 
@@ -45,25 +28,19 @@ export async function run(options: RunOptions): Promise<number> {
     : createTimestampedStdoutController()
   timestampOutput?.enable()
 
-  const pluginConfig = loadPluginConfig(directory, { command: "run" })
-  const resolvedAgent = resolveRunAgent(options, pluginConfig)
-  const resolvedModel = resolveRunModel(options.model)
   const abortController = new AbortController()
 
   try {
-    const { client, cleanup: serverCleanup } = await createServerConnection({
+    const { client, cleanup } = await createServerConnection({
       port: options.port,
       attach: options.attach,
       signal: abortController.signal,
     })
 
-    const cleanup = () => {
-      serverCleanup()
-    }
-
     const restoreInput = suppressRunInput()
     const handleSigint = () => {
       console.log(pc.yellow("\nInterrupted. Shutting down..."))
+      abortController.abort()
       restoreInput()
       cleanup()
       process.exit(130)
@@ -72,81 +49,38 @@ export async function run(options: RunOptions): Promise<number> {
     process.on("SIGINT", handleSigint)
 
     try {
-      const sessionID = await resolveSession({
+      const { exitCode, result } = await executeRunSession({
         client,
+        message: options.message,
+        directory,
+        agent: options.agent,
+        model: options.model,
         sessionId: options.sessionId,
-        directory,
-      })
-
-      console.log(pc.dim(`Session: ${sessionID}`))
-
-      if (resolvedModel) {
-        console.log(pc.dim(`Model: ${resolvedModel.providerID}/${resolvedModel.modelID}`))
-      }
-
-      const ctx: RunContext = {
-        client,
-        sessionID,
-        directory,
-        abortController,
         verbose: options.verbose ?? false,
-      }
-      const events = await client.event.subscribe({ query: { directory } })
-      const eventState = createEventState()
-      eventState.agentColorsByName = await loadAgentProfileColors(client)
-      const eventProcessor = processEvents(ctx, events.stream, eventState).catch(
-        () => {},
-      )
-
-      await client.session.promptAsync({
-        path: { id: sessionID },
-        body: {
-          agent: resolvedAgent,
-          ...(resolvedModel ? { model: resolvedModel } : {}),
-          tools: {
-            question: false,
-          },
-          parts: [{ type: "text", text: message }],
-        },
-        query: { directory },
+        questionPermission: "deny",
+        questionToolEnabled: false,
+        renderOutput: true,
       })
-      const exitCode = await pollForCompletion(ctx, eventState, abortController)
-
-      // Abort the event stream to stop the processor
-      abortController.abort()
-
-      await waitForEventProcessorShutdown(eventProcessor)
-      cleanup()
-
-      const durationMs = Date.now() - startTime
 
       if (options.onComplete) {
         await executeOnCompleteHook({
           command: options.onComplete,
-          sessionId: sessionID,
+          sessionId: result.sessionId,
           exitCode,
-          durationMs,
-          messageCount: eventState.messageCount,
+          durationMs: result.durationMs,
+          messageCount: result.messageCount,
         })
       }
 
       if (jsonManager) {
-        jsonManager.emitResult({
-          sessionId: sessionID,
-          success: exitCode === 0,
-          durationMs,
-          messageCount: eventState.messageCount,
-          summary: eventState.lastPartText.slice(0, 200) || "Run completed",
-        })
+        jsonManager.emitResult(result)
       }
 
       return exitCode
-    } catch (err) {
-      cleanup()
-      throw err
     } finally {
       process.removeListener("SIGINT", handleSigint)
       restoreInput()
+      cleanup()
     }
   } catch (err) {
     if (jsonManager) jsonManager.restore()

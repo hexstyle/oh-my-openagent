@@ -15,6 +15,11 @@ export interface RunOptions {
   sessionId?: string
 }
 
+export interface RunLogger {
+  log?: (...args: unknown[]) => void
+  error?: (...args: unknown[]) => void
+}
+
 export interface ServerConnection {
   client: OpencodeClient
   cleanup: () => void
@@ -34,6 +39,99 @@ export interface RunContext {
   directory: string
   abortController: AbortController
   verbose?: boolean
+  renderOutput?: boolean
+  logger?: RunLogger
+}
+
+export interface SessionStartedEvent {
+  type: "session.started"
+  sessionId: string
+  agent: string
+  resumed: boolean
+  model?: { providerID: string; modelID: string }
+}
+
+export interface MessageDeltaEvent {
+  type: "message.delta"
+  sessionId: string
+  messageId?: string
+  partId?: string
+  delta: string
+}
+
+export interface MessageCompletedEvent {
+  type: "message.completed"
+  sessionId: string
+  messageId?: string
+  partId?: string
+  text: string
+}
+
+export interface ToolStartedEvent {
+  type: "tool.started"
+  sessionId: string
+  toolName: string
+  input?: unknown
+}
+
+export interface ToolCompletedEvent {
+  type: "tool.completed"
+  sessionId: string
+  toolName: string
+  output?: string
+  status: "completed" | "error"
+}
+
+export interface SessionIdleEvent {
+  type: "session.idle"
+  sessionId: string
+}
+
+export interface SessionQuestionEvent {
+  type: "session.question"
+  sessionId: string
+  toolName: string
+  input?: unknown
+  question?: string
+}
+
+export interface SessionCompletedEvent {
+  type: "session.completed"
+  sessionId: string
+  result: RunResult
+}
+
+export interface SessionErrorEvent {
+  type: "session.error"
+  sessionId: string
+  error: string
+}
+
+export interface RawStreamEvent {
+  type: "raw"
+  sessionId: string
+  payload: EventPayload
+}
+
+export type StreamEvent =
+  | SessionStartedEvent
+  | MessageDeltaEvent
+  | MessageCompletedEvent
+  | ToolStartedEvent
+  | ToolCompletedEvent
+  | SessionIdleEvent
+  | SessionQuestionEvent
+  | SessionCompletedEvent
+  | SessionErrorEvent
+  | RawStreamEvent
+
+export interface RunEventObserver {
+  includeRawEvents?: boolean
+  onEvent?: (event: StreamEvent) => void | Promise<void>
+  onIdle?: (event: SessionIdleEvent) => void | Promise<void>
+  onQuestion?: (event: SessionQuestionEvent) => void | Promise<void>
+  onComplete?: (event: SessionCompletedEvent) => void | Promise<void>
+  onError?: (event: SessionErrorEvent) => void | Promise<void>
 }
 
 export interface Todo {
