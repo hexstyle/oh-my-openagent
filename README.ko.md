@@ -7,18 +7,18 @@
 > [!TIP]
 > 저희와 함께 하세요!
 >
-> | [<img alt="Discord link" src="https://img.shields.io/discord/1452487457085063218?color=5865F2&label=discord&labelColor=black&logo=discord&logoColor=white&style=flat-square" width="156px" />](https://discord.gg/PUwSMR9XNk) | [Discord 커뮤니티](https://discord.gg/PUwSMR9XNk)에 가입하여 기여자 및 다른 `oh-my-opencode` 사용자들과 소통하세요. |
+> | [<img alt="Discord link" src="https://img.shields.io/discord/1452487457085063218?color=5865F2&label=discord&labelColor=black&logo=discord&logoColor=white&style=flat-square" width="156px" />](https://discord.gg/PUwSMR9XNk) | [Discord 커뮤니티](https://discord.gg/PUwSMR9XNk)에 가입하여 기여자 및 다른 `oh-my-openagent` 사용자들과 소통하세요. |
 > | :-----| :----- |
-> | [<img alt="X link" src="https://img.shields.io/badge/Follow-%40justsisyphus-00CED1?style=flat-square&logo=x&labelColor=black" width="156px" />](https://x.com/justsisyphus) | `oh-my-opencode`에 대한 소식과 업데이트는 제 X 계정에 올라왔었지만, <br /> 실수로 정지된 이후에는 [@justsisyphus](https://x.com/justsisyphus)가 대신 업데이트를 게시하고 있습니다. |
+> | [<img alt="X link" src="https://img.shields.io/badge/Follow-%40justsisyphus-00CED1?style=flat-square&logo=x&labelColor=black" width="156px" />](https://x.com/justsisyphus) | `oh-my-openagent`에 대한 소식과 업데이트는 제 X 계정에 올라왔었지만, <br /> 실수로 정지된 이후에는 [@justsisyphus](https://x.com/justsisyphus)가 대신 업데이트를 게시하고 있습니다. |
 > | [<img alt="GitHub Follow" src="https://img.shields.io/github/followers/code-yeongyu?style=flat-square&logo=github&labelColor=black&color=24292f" width="156px" />](https://github.com/code-yeongyu) | 더 많은 프로젝트를 보려면 GitHub에서 [@code-yeongyu](https://github.com/code-yeongyu)를 팔로우하세요. |
 
 <!-- <CENTERED SECTION FOR GITHUB DISPLAY> -->
 
 <div align="center">
 
-[![Oh My OpenCode](./.github/assets/hero.jpg)](https://github.com/code-yeongyu/oh-my-openagent#oh-my-opencode)
+[![Oh My OpenCode](./.github/assets/hero.jpg)](https://github.com/code-yeongyu/oh-my-openagent#oh-my-openagent)
 
-[![Preview](./.github/assets/omo.png)](https://github.com/code-yeongyu/oh-my-openagent#oh-my-opencode)
+[![Preview](./.github/assets/omo.png)](https://github.com/code-yeongyu/oh-my-openagent#oh-my-openagent)
 
 </div>
 
@@ -29,7 +29,7 @@
 <div align="center">
 
 [![GitHub Release](https://img.shields.io/github/v/release/code-yeongyu/oh-my-openagent?color=369eff&labelColor=black&logo=github&style=flat-square)](https://github.com/code-yeongyu/oh-my-openagent/releases)
-[![npm downloads](https://img.shields.io/npm/dt/oh-my-opencode?color=ff6b35&labelColor=black&style=flat-square)](https://www.npmjs.com/package/oh-my-opencode)
+https://www.npmjs.com/package/oh-my-openagent
 [![GitHub Contributors](https://img.shields.io/github/contributors/code-yeongyu/oh-my-openagent?color=c4f042&labelColor=black&style=flat-square)](https://github.com/code-yeongyu/oh-my-openagent/graphs/contributors)
 [![GitHub Forks](https://img.shields.io/github/forks/code-yeongyu/oh-my-openagent?color=8ae8ff&labelColor=black&style=flat-square)](https://github.com/code-yeongyu/oh-my-openagent/network/members)
 [![GitHub Stars](https://img.shields.io/github/stars/code-yeongyu/oh-my-openagent?color=ffcb47&labelColor=black&style=flat-square)](https://github.com/code-yeongyu/oh-my-openagent/stargazers)
@@ -53,7 +53,7 @@
 
 > "Ohmyopencode와 ralph loop를 써서 45k 라인짜리 tauri 앱을 하룻밤 만에 SaaS 웹앱으로 변환했어요. 인터뷰 모드로 시작해서, 제가 쓴 프롬프트에 대해 질문하고 추천을 부탁했죠. 일하는 걸 지켜보는 것도 재밌었고, 아침에 일어났더니 웹사이트가 대부분 돌아가고 있는 걸 보고 경악했습니다!" - [James Hargis](https://x.com/hargabyte/status/2007299688261882202)
 
-> "oh-my-opencode 쓰세요, 다시는 예전으로 못 돌아갑니다." <br/>- [d0t3ch](https://x.com/d0t3ch/status/2001685618200580503)
+> "oh-my-openagent 쓰세요, 다시는 예전으로 못 돌아갑니다." <br/>- [d0t3ch](https://x.com/d0t3ch/status/2001685618200580503)
 
 > "뭐가 이렇게 대단한 건지 아직 정확하게 말로 표현하긴 어려운데, 개발 경험 자체가 완전히 다른 차원에 도달해버렸어요." - [苔硯:こけすずり](https://x.com/kokesuzuri/status/2008532913961529372?s=20)
 
@@ -84,7 +84,7 @@ OmO 설치하고. `ultrawork` 치세요. 끝.
 다음 프롬프트를 복사해서 여러분의 LLM 에이전트(Claude Code, AmpCode, Cursor 등)에 붙여넣으세요:
 
 ```
-Install and configure oh-my-opencode by following the instructions here:
+Install and configure oh-my-openagent by following the instructions here:
 https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/refs/heads/dev/docs/guide/installation.md
 ```
 
@@ -254,19 +254,19 @@ project/
 
 > **비하인드 스토리가 궁금하신가요?** 왜 Sisyphus가 돌을 굴리는지, 왜 Hephaestus가 "진정한 장인"인지, 그리고 [오케스트레이션 가이드](docs/guide/orchestration.md)를 읽어보세요.
 >
-> oh-my-opencode가 처음이신가요? 어떤 모델을 써야 할지 **[설치 가이드](docs/guide/installation.md#step-5-understand-your-model-setup)** 에서 추천 조합을 확인하세요.
+> oh-my-openagent가 처음이신가요? 어떤 모델을 써야 할지 **[설치 가이드](docs/guide/installation.md#step-5-understand-your-model-setup)** 에서 추천 조합을 확인하세요.
 
 ## 제거 (Uninstallation)
 
-oh-my-opencode를 지우려면:
+oh-my-openagent를 지우려면:
 
 1. **OpenCode 설정에서 플러그인 제거**
 
-   `~/.config/opencode/opencode.json` (또는 `opencode.jsonc`)를 열고 `plugin` 배열에서 `"oh-my-opencode"`를 지우세요.
+   `~/.config/opencode/opencode.json` (또는 `opencode.jsonc`)를 열고 `plugin` 배열에서 `"oh-my-openagent"`를 지우세요.
 
    ```bash
    # jq 사용 시
-   jq '.plugin = [.plugin[] | select(. != "oh-my-opencode")]' \
+   jq '.plugin = [.plugin[] | select(. != "oh-my-openagent")]' \
        ~/.config/opencode/opencode.json > /tmp/oc.json && \
        mv /tmp/oc.json ~/.config/opencode/opencode.json
    ```
@@ -275,10 +275,10 @@ oh-my-opencode를 지우려면:
 
    ```bash
    # 사용자 설정 제거
-   rm -f ~/.config/opencode/oh-my-opencode.json ~/.config/opencode/oh-my-opencode.jsonc
+   rm -f ~/.config/opencode/oh-my-openagent.json ~/.config/opencode/oh-my-openagent.jsonc
 
    # 프로젝트 설정 제거 (있는 경우)
-   rm -f .opencode/oh-my-opencode.json .opencode/oh-my-opencode.jsonc
+   rm -f .opencode/oh-my-openagent.json .opencode/oh-my-openagent.jsonc
    ```
 
 3. **제거 확인**

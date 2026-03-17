@@ -90,7 +90,7 @@ When running inside tmux:
 - Each pane shows agent output live
 - Auto-cleanup when agents complete
 
-Customize agent models, prompts, and permissions in `oh-my-opencode.json`.
+Customize agent models, prompts, and permissions in `oh-my-openagent.json`.
 
 ## Category System
 
@@ -129,7 +129,7 @@ task({
 
 ### Custom Categories
 
-You can define custom categories in `oh-my-opencode.json`.
+You can define custom categories in `oh-my-openagent.json`.
 
 #### Category Configuration Schema
 
@@ -848,7 +848,7 @@ When a skill MCP has `oauth` configured:
 Pre-authenticate via CLI:
 
 ```bash
-bunx oh-my-opencode mcp oauth login <server-name> --server-url https://api.example.com
+bunx oh-my-openagent mcp oauth login <server-name> --server-url https://api.example.com
 ```
 
 ## Context Injection

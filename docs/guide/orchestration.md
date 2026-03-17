@@ -475,7 +475,7 @@ Use the `ulw` keyword in Sisyphus when:
 
 ## Configuration
 
-You can control related features in `oh-my-opencode.json`:
+You can control related features in `oh-my-openagent.json`:
 
 ```jsonc
 {
