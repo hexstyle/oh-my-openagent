@@ -1,7 +1,7 @@
 {
-  "name": "oh-my-opencode-darwin-x64",
+  "name": "oh-my-openagent-darwin-x64",
   "version": "3.11.0",
-  "description": "Platform-specific binary for oh-my-opencode (darwin-x64)",
+  "description": "Platform-specific binary for oh-my-openagent (darwin-x64)",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -1,7 +1,7 @@
 {
-  "name": "oh-my-opencode-linux-arm64",
+  "name": "oh-my-openagent-linux-arm64",
   "version": "3.11.0",
-  "description": "Platform-specific binary for oh-my-opencode (linux-arm64)",
+  "description": "Platform-specific binary for oh-my-openagent (linux-arm64)",
   "license": "MIT",
   "repository": {
     "type": "git",
