@@ -69,14 +69,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      # Build local oh-my-opencode
-      - name: Build oh-my-opencode
+      # Build local oh-my-openagent
+      - name: Build oh-my-openagent
         run: |
           bun install
           bun run build
 
       # Install OpenCode + configure local plugin + auth in single step
-      - name: Setup OpenCode with oh-my-opencode
+      - name: Setup OpenCode with oh-my-openagent
         env:
           OPENCODE_AUTH_JSON: ${{ secrets.OPENCODE_AUTH_JSON }}
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
@@ -102,15 +102,14 @@ jobs:
           fi
           opencode --version
 
-          # Run local oh-my-opencode install (uses built dist)
+          # Run local oh-my-openagent install (uses built dist)
           bun run dist/cli/index.js install --no-tui --claude=max20 --openai=no --gemini=no --copilot=no
 
           # Override plugin to use local file reference
           OPENCODE_JSON=~/.config/opencode/opencode.json
           REPO_PATH=$(pwd)
           jq --arg path "file://$REPO_PATH/src/index.ts" '
-            .plugin = [.plugin[] | select(. != "oh-my-opencode")] + [$path]
-          ' "$OPENCODE_JSON" > /tmp/oc.json && mv /tmp/oc.json "$OPENCODE_JSON"
+            .plugin = [.plugin[] | select(. != "oh-my-opencode" and . != "oh-my-openagent")] + [$path]
 
           OPENCODE_JSON=~/.config/opencode/opencode.json
           jq --arg baseURL "$ANTHROPIC_BASE_URL" --arg apiKey "$ANTHROPIC_API_KEY" '
@@ -190,7 +189,7 @@ jobs:
             }
           ' "$OPENCODE_JSON" > /tmp/oc.json && mv /tmp/oc.json "$OPENCODE_JSON"
 
-          OMO_JSON=~/.config/opencode/oh-my-opencode.json
+          OMO_JSON=~/.config/opencode/oh-my-openagent.json
           PROMPT_APPEND=$(cat << 'PROMPT_EOF'
           <ultrawork-mode>
           [CODE RED] Maximum precision required. Ultrathink before acting.
@@ -397,7 +396,7 @@ jobs:
               --add-label "sisyphus: working" || true
           fi
 
-      - name: Run oh-my-opencode
+      - name: Run oh-my-openagent
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           USER_COMMENT: ${{ steps.context.outputs.comment }}

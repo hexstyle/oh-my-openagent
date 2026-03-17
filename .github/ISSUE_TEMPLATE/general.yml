@@ -1,25 +1,21 @@
 name: Question or Discussion
-description: Ask a question or start a discussion about oh-my-opencode
-title: "[Question]: "
+description: Ask a question or start a discussion about oh-my-openagent
 labels: ["question", "needs-triage"]
 body:
   - type: markdown
     attributes:
       value: |
-        **Please write your issue in English.** See our [Language Policy](https://github.com/code-yeongyu/oh-my-opencode/blob/dev/CONTRIBUTING.md#language-policy) for details.
-
+        **Please write your issue in English.** See our [Language Policy](https://github.com/code-yeongyu/oh-my-openagent/blob/dev/CONTRIBUTING.md#language-policy) for details.
   - type: checkboxes
     id: prerequisites
     attributes:
       label: Prerequisites
       description: Please confirm the following before submitting
       options:
-        - label: I will write this issue in English (see our [Language Policy](https://github.com/code-yeongyu/oh-my-opencode/blob/dev/CONTRIBUTING.md#language-policy))
-          required: true
+        - label: I will write this issue in English (see our [Language Policy](https://github.com/code-yeongyu/oh-my-openagent/blob/dev/CONTRIBUTING.md#language-policy))
         - label: I have searched existing issues and discussions
           required: true
-        - label: I have read the [documentation](https://github.com/code-yeongyu/oh-my-opencode#readme) or asked an AI coding agent with this project's GitHub URL loaded and couldn't find the answer
-          required: true
+        - label: I have read the [documentation](https://github.com/code-yeongyu/oh-my-openagent#readme) or asked an AI coding agent with this project's GitHub URL loaded and couldn't find the answer
         - label: This is a question (not a bug report or feature request)
           required: true
 
@@ -53,10 +49,8 @@ body:
     attributes:
       label: Doctor Output (Optional)
       description: |
-        If your question is about configuration or setup, run `bunx oh-my-opencode doctor` and paste the output.
-      placeholder: |
-        Paste the output of: bunx oh-my-opencode doctor
-        (Optional for questions)
+        If your question is about configuration or setup, run `bunx oh-my-openagent doctor` and paste the output.
+        Paste the output of: bunx oh-my-openagent doctor
       render: shell
 
   - type: dropdown
