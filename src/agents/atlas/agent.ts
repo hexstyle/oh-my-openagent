@@ -101,7 +101,7 @@ function buildDynamicOrchestratorPrompt(ctx?: OrchestratorContext): string {
 export function createAtlasAgent(ctx: OrchestratorContext): AgentConfig {
   const baseConfig = {
     description:
-      "Orchestrates work via task() to complete ALL tasks in a todo list until fully done. (Atlas - OhMyOpenCode)",
+      "Orchestrates work via task() to complete ALL tasks in a todo list until fully done. (Atlas - OhMyOpenAgent)",
     mode: MODE,
     ...(ctx.model ? { model: ctx.model } : {}),
     temperature: 0.1,

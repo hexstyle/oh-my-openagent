@@ -105,7 +105,7 @@ export function createSisyphusJuniorAgentWithOverrides(
 
   const base: AgentConfig = {
     description: override?.description ??
-      "Focused task executor. Same discipline, no delegation. (Sisyphus-Junior - OhMyOpenCode)",
+      "Focused task executor. Same discipline, no delegation. (Sisyphus-Junior - OhMyOpenAgent)",
     mode: MODE,
     model,
     temperature,

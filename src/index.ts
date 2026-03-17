@@ -20,7 +20,7 @@ let activePluginDispose: PluginDispose | null = null
 const OhMyOpenAgentPlugin: Plugin = async (ctx) => {
   // Initialize config context for plugin runtime (prevents warnings from hooks)
   initConfigContext("opencode", null)
-  log("[OhMyOpenCodePlugin] ENTRY - plugin loading", {
+  log("[OhMyOpenAgentPlugin] ENTRY - plugin loading", {
     directory: ctx.directory,
   })
 

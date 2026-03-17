@@ -629,7 +629,7 @@ describe("BrowserAutomationConfigSchema", () => {
   })
 })
 
-describe("OhMyOpenCodeConfigSchema - browser_automation_engine", () => {
+describe("OhMyOpenAgentConfigSchema - browser_automation_engine", () => {
   test("accepts browser_automation_engine config", () => {
     // given
     const input = {
@@ -671,7 +671,7 @@ describe("OhMyOpenCodeConfigSchema - browser_automation_engine", () => {
   })
 })
 
-describe("OhMyOpenCodeConfigSchema - hashline_edit", () => {
+describe("OhMyOpenAgentConfigSchema - hashline_edit", () => {
   test("accepts hashline_edit as true", () => {
     //#given
     const input = { hashline_edit: true }
