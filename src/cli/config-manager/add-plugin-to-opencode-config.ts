@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs"
+import { LEGACY_PLUGIN_NAME, PLUGIN_NAME } from "../../shared"
 import type { ConfigMergeResult } from "../types"
-import { PLUGIN_NAME, LEGACY_PLUGIN_NAME } from "../../shared"
 import { getConfigDir } from "./config-context"
 import { ensureConfigDirectoryExists } from "./ensure-config-directory-exists"
 import { formatErrorWithSuggestion } from "./format-error-with-suggestion"
@@ -13,11 +13,11 @@ const PACKAGE_NAME = PLUGIN_NAME
 export async function addPluginToOpenCodeConfig(currentVersion: string): Promise<ConfigMergeResult> {
   try {
     ensureConfigDirectoryExists()
-  } catch (err) {
+  } catch (error) {
     return {
       success: false,
       configPath: getConfigDir(),
-      error: formatErrorWithSuggestion(err, "create config directory"),
+      error: formatErrorWithSuggestion(error, "create config directory"),
     }
   }
 
@@ -42,7 +42,6 @@ export async function addPluginToOpenCodeConfig(currentVersion: string): Promise
 
     const config = parseResult.config
     const plugins = config.plugin ?? []
-
     const currentNameIndex = plugins.findIndex(
       (plugin) => plugin === PLUGIN_NAME || plugin.startsWith(`${PLUGIN_NAME}@`)
     )
@@ -69,7 +68,7 @@ export async function addPluginToOpenCodeConfig(currentVersion: string): Promise
       const match = content.match(pluginArrayRegex)
 
       if (match) {
-        const formattedPlugins = plugins.map((p) => `"${p}"`).join(",\n    ")
+        const formattedPlugins = plugins.map((plugin) => `"${plugin}"`).join(",\n    ")
         const newContent = content.replace(pluginArrayRegex, `"plugin": [\n    ${formattedPlugins}\n  ]`)
         writeFileSync(path, newContent)
       } else {
@@ -81,11 +80,11 @@ export async function addPluginToOpenCodeConfig(currentVersion: string): Promise
     }
 
     return { success: true, configPath: path }
-  } catch (err) {
+  } catch (error) {
     return {
       success: false,
       configPath: path,
-      error: formatErrorWithSuggestion(err, "update opencode config"),
+      error: formatErrorWithSuggestion(error, "update opencode config"),
     }
   }
 }

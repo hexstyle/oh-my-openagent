@@ -36,12 +36,12 @@ function detectProvidersFromOmoConfig(): {
       }
     }
 
-    const configStr = JSON.stringify(omoConfig)
-    const hasOpenAI = configStr.includes('"openai/')
-    const hasOpencodeZen = configStr.includes('"opencode/')
-    const hasZaiCodingPlan = configStr.includes('"zai-coding-plan/')
-    const hasKimiForCoding = configStr.includes('"kimi-for-coding/')
-    const hasOpencodeGo = configStr.includes('"opencode-go/')
+    const configString = JSON.stringify(omoConfig)
+    const hasOpenAI = configString.includes('"openai/')
+    const hasOpencodeZen = configString.includes('"opencode/')
+    const hasZaiCodingPlan = configString.includes('"zai-coding-plan/')
+    const hasKimiForCoding = configString.includes('"kimi-for-coding/')
+    const hasOpencodeGo = configString.includes('"opencode-go/')
 
     return { hasOpenAI, hasOpencodeZen, hasZaiCodingPlan, hasKimiForCoding, hasOpencodeGo }
   } catch {
@@ -56,8 +56,12 @@ function detectProvidersFromOmoConfig(): {
 }
 
 function isOurPlugin(plugin: string): boolean {
-  return plugin === PLUGIN_NAME || plugin.startsWith(`${PLUGIN_NAME}@`) ||
-         plugin === LEGACY_PLUGIN_NAME || plugin.startsWith(`${LEGACY_PLUGIN_NAME}@`)
+  return (
+    plugin === PLUGIN_NAME ||
+    plugin.startsWith(`${PLUGIN_NAME}@`) ||
+    plugin === LEGACY_PLUGIN_NAME ||
+    plugin.startsWith(`${LEGACY_PLUGIN_NAME}@`)
+  )
 }
 
 export function detectCurrentConfig(): DetectedConfig {

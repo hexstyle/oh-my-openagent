@@ -1,14 +1,14 @@
-import { CONFIG_BASENAME } from "./shared/plugin-identity"
+import { CONFIG_BASENAME, LEGACY_CONFIG_BASENAME } from "./shared/plugin-identity"
 import * as fs from "fs";
 import * as path from "path";
 import { OhMyOpenAgentConfigSchema, type OhMyOpenAgentConfig } from "./config";
+import { resolveConfigPathWithLegacyMigration } from "./plugin-config-path";
 import {
   log,
   deepMerge,
   getOpenCodeConfigDir,
   addConfigLoadError,
   parseJsonc,
-  detectConfigFile,
   migrateConfigFile,
 } from "./shared";
 
@@ -161,22 +161,16 @@ export function loadPluginConfig(
   directory: string,
   ctx: unknown
 ): OhMyOpenAgentConfig {
-  // User-level config path - prefer .jsonc over .json
   const configDir = getOpenCodeConfigDir({ binary: "opencode" });
-  const userBasePath = path.join(configDir, CONFIG_BASENAME);
-  const userDetected = detectConfigFile(userBasePath);
-  const userConfigPath =
-    userDetected.format !== "none"
-      ? userDetected.path
-      : userBasePath + ".json";
+  const userConfigPath = resolveConfigPathWithLegacyMigration({
+    preferredBasePath: path.join(configDir, CONFIG_BASENAME),
+    legacyBasePath: path.join(configDir, LEGACY_CONFIG_BASENAME),
+  });
 
-  // Project-level config path - prefer .jsonc over .json
-  const projectBasePath = path.join(directory, ".opencode", CONFIG_BASENAME);
-  const projectDetected = detectConfigFile(projectBasePath);
-  const projectConfigPath =
-    projectDetected.format !== "none"
-      ? projectDetected.path
-      : projectBasePath + ".json";
+  const projectConfigPath = resolveConfigPathWithLegacyMigration({
+    preferredBasePath: path.join(directory, ".opencode", CONFIG_BASENAME),
+    legacyBasePath: path.join(directory, ".opencode", LEGACY_CONFIG_BASENAME),
+  });
 
   // Load user config first (base)
   let config: OhMyOpenAgentConfig =
