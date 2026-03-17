@@ -53,7 +53,7 @@ describe("loadJsonFile", () => {
     }
   }
 }`
-      const userPath = join(tempBase, "oh-my-opencode.jsonc")
+      const userPath = join(tempBase, "oh-my-openagent.jsonc")
       writeFileSync(userPath, userJsonc, "utf-8")
 
       const servers = getMergedServers()
@@ -109,7 +109,7 @@ describe("loadJsonFile", () => {
     }
   }
 }`
-      const projectPath = join(tempProject, ".opencode", "oh-my-opencode.jsonc")
+      const projectPath = join(tempProject, ".opencode", "oh-my-openagent.jsonc")
       writeFileSync(projectPath, projectJsonc, "utf-8")
 
       process.chdir(tempProject)
@@ -146,8 +146,8 @@ describe("loadJsonFile", () => {
     }
   }
 }`
-      writeFileSync(join(tempBase, "oh-my-opencode.json"), jsonContent, "utf-8")
-      writeFileSync(join(tempBase, "oh-my-opencode.jsonc"), jsoncContent, "utf-8")
+      writeFileSync(join(tempBase, "oh-my-openagent.json"), jsonContent, "utf-8")
+      writeFileSync(join(tempBase, "oh-my-openagent.jsonc"), jsoncContent, "utf-8")
 
       const servers = getMergedServers()
       const found = servers.find(s => s.id === "conflict" && s.source === "user")

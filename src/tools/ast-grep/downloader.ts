@@ -47,12 +47,12 @@ export function getCacheDir(): string {
   if (process.platform === "win32") {
     const localAppData = process.env.LOCALAPPDATA || process.env.APPDATA
     const base = localAppData || join(homedir(), "AppData", "Local")
-    return join(base, "oh-my-opencode", "bin")
+    return join(base, "oh-my-openagent", "bin")
   }
 
   const xdgCache = process.env.XDG_CACHE_HOME
   const base = xdgCache || join(homedir(), ".cache")
-  return join(base, "oh-my-opencode", "bin")
+  return join(base, "oh-my-openagent", "bin")
 }
 
 export function getBinaryName(): string {
@@ -63,14 +63,12 @@ export function getCachedBinaryPath(): string | null {
   return getCachedBinaryPathShared(getCacheDir(), getBinaryName())
 }
 
-
-
 export async function downloadAstGrep(version: string = DEFAULT_VERSION): Promise<string | null> {
   const platformKey = `${process.platform}-${process.arch}`
   const platformInfo = PLATFORM_MAP[platformKey]
 
   if (!platformInfo) {
-    log(`[oh-my-opencode] Unsupported platform for ast-grep: ${platformKey}`)
+    log(`[oh-my-openagent] Unsupported platform for ast-grep: ${platformKey}`)
     return null
   }
 
@@ -86,7 +84,7 @@ export async function downloadAstGrep(version: string = DEFAULT_VERSION): Promis
   const assetName = `app-${arch}-${os}.zip`
   const downloadUrl = `https://github.com/${REPO}/releases/download/${version}/${assetName}`
 
-  log(`[oh-my-opencode] Downloading ast-grep binary...`)
+  log(`[oh-my-openagent] Downloading ast-grep binary...`)
 
   try {
     const archivePath = join(cacheDir, assetName)
@@ -96,12 +94,12 @@ export async function downloadAstGrep(version: string = DEFAULT_VERSION): Promis
     cleanupArchive(archivePath)
     ensureExecutable(binaryPath)
 
-    log(`[oh-my-opencode] ast-grep binary ready.`)
+    log(`[oh-my-openagent] ast-grep binary ready.`)
 
     return binaryPath
   } catch (err) {
     log(
-      `[oh-my-opencode] Failed to download ast-grep: ${err instanceof Error ? err.message : err}`
+      `[oh-my-openagent] Failed to download ast-grep: ${err instanceof Error ? err.message : err}`
     )
     return null
   }

@@ -32,7 +32,7 @@ function supportsAvx2() {
     return null;
   }
 
-  if (process.env.OH_MY_OPENCODE_FORCE_BASELINE === "1") {
+  if (process.env.OH_MY_OPENAGENT_FORCE_BASELINE === "1" || process.env.OH_MY_OPENCODE_FORCE_BASELINE === "1") {
     return false;
   }
 
@@ -85,7 +85,7 @@ function main() {
       preferBaseline: avx2Supported === false,
     });
   } catch (error) {
-    console.error(`\noh-my-opencode: ${error.message}\n`);
+    console.error(`\noh-my-openagent: ${error.message}\n`);
     process.exit(1);
   }
 
@@ -100,7 +100,7 @@ function main() {
     .filter((entry) => entry !== null);
 
   if (resolvedBinaries.length === 0) {
-    console.error(`\noh-my-opencode: Platform binary not installed.`);
+    console.error(`\noh-my-openagent: Platform binary not installed.`);
     console.error(`\nYour platform: ${platform}-${arch}${libcFamily === "musl" ? "-musl" : ""}`);
     console.error(`Expected packages (in order): ${packageCandidates.join(", ")}`);
     console.error(`\nTo fix, run:`);
@@ -120,7 +120,7 @@ function main() {
         continue;
       }
 
-      console.error(`\noh-my-opencode: Failed to execute binary.`);
+      console.error(`\noh-my-openagent: Failed to execute binary.`);
       console.error(`Error: ${result.error.message}\n`);
       process.exit(2);
     }

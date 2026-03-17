@@ -43,6 +43,24 @@ describe("external-plugin-detector", () => {
       expect(result.allPlugins).toContain("oh-my-opencode")
     })
 
+    test("should return detected=false when only oh-my-openagent is configured", () => {
+      // given - opencode.json with only oh-my-openagent
+      const opencodeDir = path.join(tempDir, ".opencode")
+      fs.mkdirSync(opencodeDir, { recursive: true })
+      fs.writeFileSync(
+        path.join(opencodeDir, "opencode.json"),
+        JSON.stringify({ plugin: ["oh-my-openagent"] })
+      )
+
+      // when
+      const result = detectExternalNotificationPlugin(tempDir)
+
+      // then
+      expect(result.detected).toBe(false)
+      expect(result.pluginName).toBeNull()
+      expect(result.allPlugins).toContain("oh-my-openagent")
+    })
+
     test("should detect opencode-notifier plugin", () => {
       // given - opencode.json with opencode-notifier
       const opencodeDir = path.join(tempDir, ".opencode")
