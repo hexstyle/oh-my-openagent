@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import type { OhMyOpenCodeConfig } from "../../config"
+import type { OhMyOpenAgentConfig } from "../../config"
 import type { ModelCacheState } from "../../plugin-state"
 import type { PluginContext } from "../types"
 import { createSessionHooks } from "./create-session-hooks"
@@ -22,7 +22,7 @@ const mockModelCacheState = {} as ModelCacheState
 describe("createSessionHooks", () => {
   it("keeps model fallback disabled when config is unset", () => {
     // given
-    const pluginConfig = {} as OhMyOpenCodeConfig
+    const pluginConfig = {} as OhMyOpenAgentConfig
 
     // when
     const result = createSessionHooks({
@@ -39,7 +39,7 @@ describe("createSessionHooks", () => {
 
   it("creates model fallback hook when config explicitly enables it", () => {
     // given
-    const pluginConfig = { model_fallback: true } as OhMyOpenCodeConfig
+    const pluginConfig = { model_fallback: true } as OhMyOpenAgentConfig
 
     // when
     const result = createSessionHooks({
