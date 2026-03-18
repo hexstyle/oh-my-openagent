@@ -37,9 +37,19 @@ export function loadJsonFile<T>(path: string): T | null {
 export function getConfigPaths(): { project: string; user: string; opencode: string } {
   const cwd = process.cwd()
   const configDir = getOpenCodeConfigDir({ binary: "opencode" })
+  const projectDetected = detectConfigFile(join(cwd, ".opencode", "oh-my-opencode"))
+  const projectPath = projectDetected.format !== "none"
+    ? projectDetected.path
+    : detectConfigFile(join(cwd, ".opencode", "oh-my-openagent")).path
+
+  const userDetected = detectConfigFile(join(configDir, "oh-my-opencode"))
+  const userPath = userDetected.format !== "none"
+    ? userDetected.path
+    : detectConfigFile(join(configDir, "oh-my-openagent")).path
+
   return {
-    project: detectConfigFile(join(cwd, ".opencode", "oh-my-opencode")).path,
-    user: detectConfigFile(join(configDir, "oh-my-opencode")).path,
+    project: projectPath,
+    user: userPath,
     opencode: detectConfigFile(join(configDir, "opencode")).path,
   }
 }

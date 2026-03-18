@@ -9,8 +9,11 @@ import { loadAvailableModelsFromCache } from "./model-resolution-cache"
 import { getModelResolutionInfoWithOverrides } from "./model-resolution"
 import type { OmoConfig } from "./model-resolution-types"
 
+const PACKAGE_NAME_ALT = "oh-my-openagent"
 const USER_CONFIG_BASE = join(getOpenCodeConfigDir({ binary: "opencode" }), PACKAGE_NAME)
+const USER_CONFIG_BASE_ALT = join(getOpenCodeConfigDir({ binary: "opencode" }), PACKAGE_NAME_ALT)
 const PROJECT_CONFIG_BASE = join(process.cwd(), ".opencode", PACKAGE_NAME)
+const PROJECT_CONFIG_BASE_ALT = join(process.cwd(), ".opencode", PACKAGE_NAME_ALT)
 
 interface ConfigValidationResult {
   exists: boolean
@@ -24,8 +27,14 @@ function findConfigPath(): string | null {
   const projectConfig = detectConfigFile(PROJECT_CONFIG_BASE)
   if (projectConfig.format !== "none") return projectConfig.path
 
+  const projectConfigAlt = detectConfigFile(PROJECT_CONFIG_BASE_ALT)
+  if (projectConfigAlt.format !== "none") return projectConfigAlt.path
+
   const userConfig = detectConfigFile(USER_CONFIG_BASE)
   if (userConfig.format !== "none") return userConfig.path
+
+  const userConfigAlt = detectConfigFile(USER_CONFIG_BASE_ALT)
+  if (userConfigAlt.format !== "none") return userConfigAlt.path
 
   return null
 }

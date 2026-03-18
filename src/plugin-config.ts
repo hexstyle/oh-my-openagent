@@ -160,18 +160,32 @@ export function loadPluginConfig(
   directory: string,
   ctx: unknown
 ): OhMyOpenCodeConfig {
-  // User-level config path - prefer .jsonc over .json
+  // User-level config path - prefer .jsonc over .json, try oh-my-openagent as fallback
   const configDir = getOpenCodeConfigDir({ binary: "opencode" });
   const userBasePath = path.join(configDir, "oh-my-opencode");
-  const userDetected = detectConfigFile(userBasePath);
+  let userDetected = detectConfigFile(userBasePath);
+  if (userDetected.format === "none") {
+    const altUserBasePath = path.join(configDir, "oh-my-openagent");
+    const altDetected = detectConfigFile(altUserBasePath);
+    if (altDetected.format !== "none") {
+      userDetected = altDetected;
+    }
+  }
   const userConfigPath =
     userDetected.format !== "none"
       ? userDetected.path
       : userBasePath + ".json";
 
-  // Project-level config path - prefer .jsonc over .json
+  // Project-level config path - prefer .jsonc over .json, try oh-my-openagent as fallback
   const projectBasePath = path.join(directory, ".opencode", "oh-my-opencode");
-  const projectDetected = detectConfigFile(projectBasePath);
+  let projectDetected = detectConfigFile(projectBasePath);
+  if (projectDetected.format === "none") {
+    const altProjectBasePath = path.join(directory, ".opencode", "oh-my-openagent");
+    const altDetected = detectConfigFile(altProjectBasePath);
+    if (altDetected.format !== "none") {
+      projectDetected = altDetected;
+    }
+  }
   const projectConfigPath =
     projectDetected.format !== "none"
       ? projectDetected.path

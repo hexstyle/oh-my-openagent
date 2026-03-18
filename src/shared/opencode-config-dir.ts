@@ -84,6 +84,7 @@ export function getOpenCodeConfigPaths(options: OpenCodeConfigDirOptions): OpenC
     configJsonc: join(configDir, "opencode.jsonc"),
     packageJson: join(configDir, "package.json"),
     omoConfig: join(configDir, "oh-my-opencode.json"),
+    omoConfigAlt: join(configDir, "oh-my-openagent.json"),
   }
 }
 
