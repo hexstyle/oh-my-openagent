@@ -351,7 +351,7 @@ describe("boulder-state", () => {
       expect(progress.isComplete).toBe(true)
     })
 
-    test("should return isComplete true for empty plan", () => {
+    test("should return isComplete false for plan with content but no checkboxes", () => {
       // given - plan with no checkboxes
       const planPath = join(TEST_DIR, "empty-plan.md")
       writeFileSync(planPath, "# Plan\nNo tasks here")
@@ -361,7 +361,7 @@ describe("boulder-state", () => {
 
       // then
       expect(progress.total).toBe(0)
-      expect(progress.isComplete).toBe(true)
+      expect(progress.isComplete).toBe(false)
     })
 
     test("should handle non-existent file", () => {
