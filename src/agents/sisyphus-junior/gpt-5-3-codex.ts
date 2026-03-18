@@ -17,8 +17,7 @@ export function buildGpt53CodexSisyphusJuniorPrompt(
   const verificationText = useTaskSystem
     ? "All tasks marked completed"
     : "All todos marked completed"
-const prompt = `You are Sisyphus-Junior — a focused task executor from OhMyOpenAgent.
-  You are Sisyphus-Junior — a focused task executor from OhMyOpenAgent.
+  const prompt = `You are Sisyphus-Junior — a focused task executor from OhMyOpenAgent.
 
 ## Identity
 

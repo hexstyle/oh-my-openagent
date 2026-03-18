@@ -3,14 +3,18 @@ import { join } from "node:path"
 
 import { OhMyOpenAgentConfigSchema } from "../../../config"
 import { detectConfigFile, getOpenCodeConfigDir, parseJsonc } from "../../../shared"
-import { CHECK_IDS, CHECK_NAMES, PACKAGE_NAME } from "../constants"
+import { CHECK_IDS, CHECK_NAMES, PACKAGE_NAMES } from "../constants"
 import type { CheckResult, DoctorIssue } from "../types"
 import { loadAvailableModelsFromCache } from "./model-resolution-cache"
 import { getModelResolutionInfoWithOverrides } from "./model-resolution"
 import type { OmoConfig } from "./model-resolution-types"
 
-const USER_CONFIG_BASE = join(getOpenCodeConfigDir({ binary: "opencode" }), PACKAGE_NAME)
-const PROJECT_CONFIG_BASE = join(process.cwd(), ".opencode", PACKAGE_NAME)
+const USER_CONFIG_BASES = PACKAGE_NAMES.map((packageName) =>
+  join(getOpenCodeConfigDir({ binary: "opencode" }), packageName)
+)
+const PROJECT_CONFIG_BASES = PACKAGE_NAMES.map((packageName) =>
+  join(process.cwd(), ".opencode", packageName)
+)
 
 interface ConfigValidationResult {
   exists: boolean
@@ -21,11 +25,15 @@ interface ConfigValidationResult {
 }
 
 function findConfigPath(): string | null {
-  const projectConfig = detectConfigFile(PROJECT_CONFIG_BASE)
-  if (projectConfig.format !== "none") return projectConfig.path
+  for (const projectConfigBase of PROJECT_CONFIG_BASES) {
+    const projectConfig = detectConfigFile(projectConfigBase)
+    if (projectConfig.format !== "none") return projectConfig.path
+  }
 
-  const userConfig = detectConfigFile(USER_CONFIG_BASE)
-  if (userConfig.format !== "none") return userConfig.path
+  for (const userConfigBase of USER_CONFIG_BASES) {
+    const userConfig = detectConfigFile(userConfigBase)
+    if (userConfig.format !== "none") return userConfig.path
+  }
 
   return null
 }

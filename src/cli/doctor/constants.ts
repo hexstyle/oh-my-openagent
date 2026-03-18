@@ -1,4 +1,4 @@
-import { PLUGIN_NAME } from "../../shared/plugin-identity"
+import { LEGACY_PLUGIN_NAME, PLUGIN_NAME } from "../../shared/plugin-identity"
 import color from "picocolors"
 
 export const SYMBOLS = {
@@ -40,5 +40,6 @@ export const EXIT_CODES = {
 export const MIN_OPENCODE_VERSION = "1.0.150"
 
 export const PACKAGE_NAME = PLUGIN_NAME
+export const PACKAGE_NAMES = [PLUGIN_NAME, LEGACY_PLUGIN_NAME] as const
 
 export const OPENCODE_BINARIES = ["opencode", "opencode-desktop"] as const

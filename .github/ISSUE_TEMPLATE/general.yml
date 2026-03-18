@@ -1,5 +1,6 @@
 name: Question or Discussion
 description: Ask a question or start a discussion about oh-my-openagent
+title: "[Question]: "
 labels: ["question", "needs-triage"]
 body:
   - type: markdown
@@ -52,7 +53,9 @@ body:
       label: Doctor Output (Optional)
       description: |
         If your question is about configuration or setup, run `bunx oh-my-openagent doctor` and paste the output.
+      placeholder: |
         Paste the output of: bunx oh-my-openagent doctor
+        (Optional for questions)
       render: shell
 
   - type: dropdown

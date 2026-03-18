@@ -4,12 +4,24 @@ import { join } from "node:path"
 
 import { getLatestVersion } from "../../../hooks/auto-update-checker/checker"
 import { extractChannel } from "../../../hooks/auto-update-checker"
-import { PACKAGE_NAME } from "../constants"
+import { PACKAGE_NAME, PACKAGE_NAMES } from "../constants"
 import { getOpenCodeCacheDir, getOpenCodeConfigPaths, parseJsonc } from "../../../shared"
 
 interface PackageJsonShape {
   version?: string
   dependencies?: Record<string, string>
+}
+
+interface CandidateLocation {
+  cacheDir: string
+  cachePackagePath: string
+  nodeModulesDir: string
+}
+
+interface CandidateSelection {
+  cacheDir: string
+  cachePackagePath: string
+  installedPackagePath: string
 }
 
 export interface LoadedVersionInfo {
@@ -56,27 +68,44 @@ function normalizeVersion(value: string | undefined): string | null {
 export function getLoadedPluginVersion(): LoadedVersionInfo {
   const configPaths = getOpenCodeConfigPaths({ binary: "opencode" })
   const cacheDir = resolveOpenCodeCacheDir()
-  const candidates = [
+  const candidates: CandidateLocation[] = [
     {
       cacheDir: configPaths.configDir,
       cachePackagePath: configPaths.packageJson,
-      installedPackagePath: join(configPaths.configDir, "node_modules", PACKAGE_NAME, "package.json"),
+      nodeModulesDir: join(configPaths.configDir, "node_modules"),
     },
     {
       cacheDir,
       cachePackagePath: join(cacheDir, "package.json"),
-      installedPackagePath: join(cacheDir, "node_modules", PACKAGE_NAME, "package.json"),
+      nodeModulesDir: join(cacheDir, "node_modules"),
     },
   ]
 
-  const selectedCandidate = candidates.find((candidate) => existsSync(candidate.installedPackagePath)) ?? candidates[0]
+  const resolvedCandidates: CandidateSelection[] = candidates.map((candidate) => {
+    const installedPackagePath =
+      PACKAGE_NAMES.map((packageName) => join(candidate.nodeModulesDir, packageName, "package.json")).find((path) =>
+        existsSync(path)
+      ) ?? join(candidate.nodeModulesDir, PACKAGE_NAME, "package.json")
+
+    return {
+      cacheDir: candidate.cacheDir,
+      cachePackagePath: candidate.cachePackagePath,
+      installedPackagePath,
+    }
+  })
+
+  const selectedCandidate = resolvedCandidates.find((candidate) => existsSync(candidate.installedPackagePath)) ?? resolvedCandidates[0]
 
   const { cacheDir: selectedDir, cachePackagePath, installedPackagePath } = selectedCandidate
 
   const cachePackage = readPackageJson(cachePackagePath)
   const installedPackage = readPackageJson(installedPackagePath)
 
-  const expectedVersion = normalizeVersion(cachePackage?.dependencies?.[PACKAGE_NAME])
+  const expectedVersion = normalizeVersion(
+    PACKAGE_NAMES.map((packageName) => cachePackage?.dependencies?.[packageName]).find(
+      (version): version is string => typeof version === "string"
+    )
+  )
   const loadedVersion = normalizeVersion(installedPackage?.version)
 
   return {
