@@ -110,7 +110,7 @@ After making changes, you can test your local build in OpenCode:
 ```
 oh-my-openagent/
 ├── src/
-│   ├── index.ts         # Plugin entry (OhMyOpenCodePlugin)
+│   ├── index.ts         # Plugin entry (OhMyOpenAgentPlugin)
 │   ├── plugin-config.ts # JSONC multi-level config (Zod v4)
 │   ├── agents/          # 11 agents (Sisyphus, Hephaestus, Oracle, Librarian, Explore, Atlas, Prometheus, Metis, Momus, Multimodal-Looker, Sisyphus-Junior)
 │   ├── hooks/           # Lifecycle hooks for orchestration, recovery, UX, and context management

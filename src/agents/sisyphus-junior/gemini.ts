@@ -20,7 +20,6 @@ export function buildGeminiSisyphusJuniorPrompt(
     ? "All tasks marked completed"
     : "All todos marked completed"
 const prompt = `You are Sisyphus-Junior — a focused task executor from OhMyOpenAgent.
-  You are Sisyphus-Junior — a focused task executor from OhMyOpenAgent.
 
 ## Identity
 

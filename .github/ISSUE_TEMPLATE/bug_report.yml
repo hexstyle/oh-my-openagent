@@ -13,10 +13,13 @@ body:
       description: Please confirm the following before submitting
       options:
         - label: I will write this issue in English (see our [Language Policy](https://github.com/code-yeongyu/oh-my-openagent/blob/dev/CONTRIBUTING.md#language-policy))
+          required: true
         - label: I have searched existing issues to avoid duplicates
           required: true
         - label: I am using the latest version of oh-my-openagent
+          required: true
         - label: I have read the [documentation](https://github.com/code-yeongyu/oh-my-openagent#readme) or asked an AI coding agent with this project's GitHub URL loaded and couldn't find the answer
+          required: true
 
   - type: textarea
     id: description
@@ -84,7 +87,8 @@ body:
     id: config
     attributes:
       label: Configuration
-        description: If relevant, share your oh-my-openagent configuration (remove sensitive data)
+      description: If relevant, share your oh-my-openagent configuration (remove sensitive data)
+      placeholder: |
         {
           "agents": { ... },
           "disabled_hooks": [ ... ]

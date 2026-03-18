@@ -110,6 +110,7 @@ jobs:
           REPO_PATH=$(pwd)
           jq --arg path "file://$REPO_PATH/src/index.ts" '
             .plugin = [.plugin[] | select(. != "oh-my-opencode" and . != "oh-my-openagent")] + [$path]
+          ' "$OPENCODE_JSON" > /tmp/oc.json && mv /tmp/oc.json "$OPENCODE_JSON"
 
           OPENCODE_JSON=~/.config/opencode/opencode.json
           jq --arg baseURL "$ANTHROPIC_BASE_URL" --arg apiKey "$ANTHROPIC_API_KEY" '
