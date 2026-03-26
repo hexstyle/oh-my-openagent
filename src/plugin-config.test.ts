@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { mergeConfigs, parseConfigPartially } from "./plugin-config";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { mergeConfigs, loadConfigFromPath, parseConfigPartially } from "./plugin-config";
+import { parseConfigPartiallyWithIssues } from "./plugin-config-partial";
 import { OhMyOpenCodeConfigSchema, type OhMyOpenCodeConfig } from "./config";
+import { clearConfigLoadErrors, getConfigLoadErrors } from "./shared";
 
 describe("mergeConfigs", () => {
   describe("categories merging", () => {
@@ -136,6 +141,50 @@ describe("mergeConfigs", () => {
 });
 
 describe("parseConfigPartially", () => {
+  describe("athena config", () => {
+    //#given athena config with valid members and model format
+    //#when parsing partially
+    //#then athena section should be preserved
+    it("should preserve valid athena config", () => {
+      const rawConfig = {
+        athena: {
+          model: "openai/gpt-5.4",
+          members: [
+            { name: "Socrates", model: "openai/gpt-5.4" },
+            { name: "Plato", model: "anthropic/claude-sonnet-4-6" },
+          ],
+        },
+      }
+
+      const result = parseConfigPartially(rawConfig)
+
+      expect(result).not.toBeNull()
+      expect(result?.athena?.model).toBe("openai/gpt-5.4")
+      expect(result?.athena?.members).toHaveLength(2)
+    })
+
+    //#given athena config with duplicate member names by case
+    //#when parsing partially
+    //#then athena section should be dropped as invalid
+    it("should drop invalid athena config with case-insensitive duplicate member names", () => {
+      const rawConfig = {
+        athena: {
+          members: [
+            { name: "Socrates", model: "openai/gpt-5.4" },
+            { name: "socrates", model: "anthropic/claude-sonnet-4-6" },
+          ],
+        },
+        disabled_hooks: ["comment-checker"],
+      }
+
+      const result = parseConfigPartially(rawConfig)
+
+      expect(result).not.toBeNull()
+      expect(result?.athena).toBeUndefined()
+      expect(result?.disabled_hooks).toEqual(["comment-checker"])
+    })
+  })
+
   describe("disabled_hooks compatibility", () => {
     //#given a config with a future hook name unknown to this version
     //#when validating against the full config schema
@@ -269,5 +318,70 @@ describe("parseConfigPartially", () => {
       expect(result!.agents?.oracle).toMatchObject({ model: "openai/gpt-5.4" });
       expect((result as Record<string, unknown>)["some_future_key"]).toBeUndefined();
     });
+  });
+});
+
+describe("parseConfigPartiallyWithIssues", () => {
+  it("surfaces athena validation messages while keeping valid sections", () => {
+    // given
+    const rawConfig = {
+      athena: {
+        members: [
+          { name: "Socrates", model: "openai/gpt-5.4" },
+          { name: "socrates", model: "anthropic/claude-sonnet-4-6" },
+        ],
+      },
+      disabled_hooks: ["comment-checker"],
+    };
+
+    // when
+    const result = parseConfigPartiallyWithIssues(rawConfig);
+
+    // then
+    expect(result.config.athena).toBeUndefined();
+    expect(result.config.disabled_hooks).toEqual(["comment-checker"]);
+    expect(result.invalidSections.length).toBeGreaterThan(0);
+    expect(result.invalidSections.join(" ")).toContain("Duplicate member name");
+  });
+});
+
+describe("loadConfigFromPath", () => {
+  it("records actionable error details for invalid athena config", () => {
+    // given
+    clearConfigLoadErrors();
+    const fixtureDir = mkdtempSync(join(tmpdir(), "omo-config-load-"));
+    const configPath = join(fixtureDir, "oh-my-opencode.jsonc");
+    try {
+      writeFileSync(
+        configPath,
+        JSON.stringify(
+          {
+            athena: {
+              members: [
+                { name: "Socrates", model: "openai/gpt-5.4" },
+                { name: "socrates", model: "anthropic/claude-sonnet-4-6" },
+              ],
+            },
+            disabled_hooks: ["comment-checker"],
+          },
+          null,
+          2,
+        ),
+      );
+
+      // when
+      const loaded = loadConfigFromPath(configPath, {});
+      const loadErrors = getConfigLoadErrors();
+
+      // then
+      expect(loaded?.athena).toBeUndefined();
+      expect(loaded?.disabled_hooks).toEqual(["comment-checker"]);
+      expect(loadErrors).toHaveLength(1);
+      expect(loadErrors[0]?.error).toContain("Invalid sections");
+      expect(loadErrors[0]?.error).toContain("Duplicate member name");
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+      clearConfigLoadErrors();
+    }
   });
 });

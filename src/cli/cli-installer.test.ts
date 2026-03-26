@@ -34,6 +34,7 @@ describe("runCliInstaller", () => {
         hasOpencodeZen: false,
         hasZaiCodingPlan: false,
         hasKimiForCoding: false,
+        hasOpencodeGo: false,
       }),
       spyOn(configManager, "isOpenCodeInstalled").mockResolvedValue(true),
       spyOn(configManager, "getOpenCodeVersion").mockResolvedValue("1.0.200"),
@@ -56,6 +57,7 @@ describe("runCliInstaller", () => {
       opencodeZen: "no",
       zaiCodingPlan: "no",
       kimiForCoding: "no",
+      opencodeGo: "no",
     }
 
     //#when
