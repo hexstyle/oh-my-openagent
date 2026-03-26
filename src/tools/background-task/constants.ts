@@ -5,3 +5,5 @@ Use \`background_output\` to get results. Prompts MUST be in English.`
 export const BACKGROUND_OUTPUT_DESCRIPTION = `Get output from background task. Use full_session=true to fetch session messages with filters. System notifies on completion, so block=true rarely needed. - Timeout values are in milliseconds (ms), NOT seconds.`
 
 export const BACKGROUND_CANCEL_DESCRIPTION = `Cancel running background task(s). Use all=true to cancel ALL before final answer.`
+
+export const BACKGROUND_WAIT_DESCRIPTION = `Wait on grouped background tasks with all/any/quorum semantics. Returns structured grouped status for orchestration.`

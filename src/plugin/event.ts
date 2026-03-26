@@ -5,6 +5,7 @@ import {
   clearSessionAgent,
   getMainSessionID,
   getSessionAgent,
+  clearPendingSessionAgentSwitch,
   setMainSession,
   subagentSessions,
   syncSubagentSessions,
@@ -323,6 +324,7 @@ export function createEventHandler(args: {
       if (sessionInfo?.id) {
         const wasSyncSubagentSession = syncSubagentSessions.has(sessionInfo.id);
         clearSessionAgent(sessionInfo.id);
+        clearPendingSessionAgentSwitch(sessionInfo.id);
         lastHandledModelErrorMessageID.delete(sessionInfo.id);
         lastHandledRetryStatusKey.delete(sessionInfo.id);
         lastKnownModelBySession.delete(sessionInfo.id);

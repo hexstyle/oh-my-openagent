@@ -21,10 +21,12 @@ export { sessionExists } from "./session-manager/storage"
 
 export { interactive_bash, startBackgroundCheck as startTmuxCheck } from "./interactive-bash"
 export { createSkillMcpTool } from "./skill-mcp"
+export { createSwitchAgentTool } from "./switch-agent"
 
 import {
   createBackgroundOutput,
   createBackgroundCancel,
+  createBackgroundWait,
   type BackgroundOutputManager,
   type BackgroundCancelClient,
 } from "./background-task"
@@ -51,6 +53,7 @@ export function createBackgroundTools(manager: BackgroundManager, client: Openco
   return {
     background_output: createBackgroundOutput(outputManager, client),
     background_cancel: createBackgroundCancel(manager, cancelClient),
+    background_wait: createBackgroundWait(outputManager),
   }
 }
 

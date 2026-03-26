@@ -9,6 +9,7 @@ import {
   createCompactionContextInjector,
   createCompactionTodoPreserverHook,
   createAtlasHook,
+  createSwitchAgentHook,
 } from "../../hooks"
 import { safeCreateHook } from "../../shared/safe-create-hook"
 import { createUnstableAgentBabysitter } from "../unstable-agent-babysitter"
@@ -21,6 +22,7 @@ export type ContinuationHooks = {
   unstableAgentBabysitter: ReturnType<typeof createUnstableAgentBabysitter> | null
   backgroundNotificationHook: ReturnType<typeof createBackgroundNotificationHook> | null
   atlasHook: ReturnType<typeof createAtlasHook> | null
+  switchAgentHook: ReturnType<typeof createSwitchAgentHook> | null
 }
 
 type SessionRecovery = {
@@ -116,6 +118,10 @@ export function createContinuationHooks(args: {
         }))
     : null
 
+  const switchAgentHook = isHookEnabled("agent-switch")
+    ? safeHook("agent-switch", () => createSwitchAgentHook())
+    : null
+
   return {
     stopContinuationGuard,
     compactionContextInjector,
@@ -124,5 +130,6 @@ export function createContinuationHooks(args: {
     unstableAgentBabysitter,
     backgroundNotificationHook,
     atlasHook,
+    switchAgentHook,
   }
 }

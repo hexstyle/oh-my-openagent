@@ -21,6 +21,49 @@ export interface BackgroundCancelArgs {
   all?: boolean
 }
 
+export interface BackgroundWaitArgs {
+  task_ids: string[]
+  mode?: "all" | "any"
+  quorum?: number
+  block?: boolean
+  timeout?: number
+  poll_interval?: number
+}
+
+export type BackgroundWaitTaskSnapshot = {
+  task_id: string
+  found: boolean
+  status: "pending" | "running" | "completed" | "error" | "cancelled" | "interrupt" | "not_found"
+  agent?: string
+  description?: string
+  session_id?: string
+  started_at?: string
+  completed_at?: string
+}
+
+export type BackgroundWaitResult = {
+  mode: "all" | "any"
+  block: boolean
+  timeout_ms: number
+  waited_ms: number
+  done: boolean
+  reason: "non_blocking" | "waiting" | "quorum_reached" | "timeout"
+  quorum: {
+    target: number
+    reached: number
+    remaining: number
+    progress: number
+  }
+  summary: {
+    total: number
+    terminal: number
+    active: number
+    by_status: Record<string, number>
+  }
+  grouped: Record<string, string[]>
+  tasks: BackgroundWaitTaskSnapshot[]
+}
+
 export type BackgroundOutputMessage = {
   info?: { role?: string; time?: string | { created?: number }; agent?: string }
   parts?: Array<{

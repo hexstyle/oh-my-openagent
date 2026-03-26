@@ -1,3 +1,5 @@
+import { resetPendingSessionAgentSwitchesForTesting } from "./switch-agent-state"
+
 export const subagentSessions = new Set<string>()
 export const syncSubagentSessions = new Set<string>()
 
@@ -17,6 +19,7 @@ export function _resetForTesting(): void {
   subagentSessions.clear()
   syncSubagentSessions.clear()
   sessionAgentMap.clear()
+  resetPendingSessionAgentSwitchesForTesting()
 }
 
 const sessionAgentMap = new Map<string, string>()

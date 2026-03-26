@@ -25,6 +25,7 @@ import {
   createTaskList,
   createTaskUpdateTool,
   createHashlineEditTool,
+  createSwitchAgentTool,
 } from "../tools"
 import { getMainSessionID } from "../features/claude-code-session-state"
 import { filterDisabledTools } from "../shared/disabled-tools"
@@ -144,6 +145,7 @@ export function createToolRegistry(args: {
     interactive_bash,
     ...taskToolsRecord,
     ...hashlineToolsRecord,
+    switch_agent: createSwitchAgentTool(ctx.client, pluginConfig.disabled_agents ?? []),
   }
 
   for (const toolDefinition of Object.values(allTools)) {
