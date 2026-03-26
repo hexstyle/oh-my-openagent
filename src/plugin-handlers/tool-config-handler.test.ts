@@ -67,6 +67,7 @@ describe("applyToolConfig", () => {
 
       it.each([
         "atlas",
+        "athena",
         "sisyphus",
         "hephaestus",
         "prometheus",
@@ -195,6 +196,7 @@ describe("applyToolConfig", () => {
     describe("#when applying tool config", () => {
       it.each([
         "atlas",
+        "athena",
         "sisyphus",
         "hephaestus",
         "prometheus",
@@ -212,6 +214,50 @@ describe("applyToolConfig", () => {
         }
         expect(agent.permission.todowrite).toBeUndefined()
         expect(agent.permission.todoread).toBeUndefined()
+      })
+    })
+  })
+
+  describe("#given council-member agent exists", () => {
+    describe("#when applying tool config", () => {
+      it("#then should enforce read-only and non-delegating permissions", () => {
+        const params = createParams({ agents: ["council-member"] })
+
+        applyToolConfig(params)
+
+        const agent = params.agentResult["council-member"] as {
+          permission: Record<string, unknown>
+        }
+        expect(agent.permission.write).toBe("deny")
+        expect(agent.permission.edit).toBe("deny")
+        expect(agent.permission.apply_patch).toBe("deny")
+        expect(agent.permission.task).toBe("deny")
+        expect(agent.permission["task_*"]).toBe("deny")
+        expect(agent.permission.call_omo_agent).toBe("deny")
+        expect(agent.permission.switch_agent).toBe("deny")
+        expect(agent.permission.teammate).toBe("deny")
+      })
+    })
+  })
+
+  describe("#given dynamic council-member agent exists", () => {
+    describe("#when applying tool config", () => {
+      it("#then should enforce read-only and non-delegating permissions", () => {
+        const params = createParams({ agents: ["council-member-architect"] })
+
+        applyToolConfig(params)
+
+        const agent = params.agentResult["council-member-architect"] as {
+          permission: Record<string, unknown>
+        }
+        expect(agent.permission.write).toBe("deny")
+        expect(agent.permission.edit).toBe("deny")
+        expect(agent.permission.apply_patch).toBe("deny")
+        expect(agent.permission.task).toBe("deny")
+        expect(agent.permission["task_*"]).toBe("deny")
+        expect(agent.permission.call_omo_agent).toBe("deny")
+        expect(agent.permission.switch_agent).toBe("deny")
+        expect(agent.permission.teammate).toBe("deny")
       })
     })
   })

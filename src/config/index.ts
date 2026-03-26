@@ -4,6 +4,7 @@ export {
 
 export type {
   OhMyOpenCodeConfig,
+  AthenaConfig,
   AgentOverrideConfig,
   AgentOverrides,
   McpName,

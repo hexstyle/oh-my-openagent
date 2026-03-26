@@ -39,7 +39,6 @@ export function collectPendingBuiltinAgents(input: {
     browserProvider,
     uiSelectedModel,
     availableModels,
-    isFirstRunNoCache,
     disabledSkills,
     disableOmoEnv = false,
   } = input
@@ -56,8 +55,9 @@ export function collectPendingBuiltinAgents(input: {
     if (agentName === "sisyphus-junior") continue
     if (disabledAgents.some((name) => name.toLowerCase() === agentName.toLowerCase())) continue
 
-    const override = agentOverrides[agentName]
-      ?? Object.entries(agentOverrides).find(([key]) => key.toLowerCase() === agentName.toLowerCase())?.[1]
+    const override = Object.entries(agentOverrides).find(
+      ([key]) => key.toLowerCase() === agentName.toLowerCase(),
+    )?.[1]
     const requirement = AGENT_MODEL_REQUIREMENTS[agentName]
 
     // Check if agent requires a specific model

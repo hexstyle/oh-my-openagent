@@ -62,6 +62,7 @@ export const AgentOverridesSchema = z.object({
   hephaestus: AgentOverrideConfigSchema.extend({
     allow_non_gpt_model: z.boolean().optional(),
   }).optional(),
+  athena: AgentOverrideConfigSchema.optional(),
   "sisyphus-junior": AgentOverrideConfigSchema.optional(),
   "OpenCode-Builder": AgentOverrideConfigSchema.optional(),
   prometheus: AgentOverrideConfigSchema.optional(),

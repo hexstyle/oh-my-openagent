@@ -3,6 +3,22 @@ import { getAgentDisplayName } from "../shared/agent-display-names";
 
 type AgentWithPermission = { permission?: Record<string, unknown> };
 
+const COUNCIL_MEMBER_AGENT_PREFIX = "council-member-"
+
+function applyCouncilMemberRestrictions(agent: AgentWithPermission): void {
+  agent.permission = {
+    ...agent.permission,
+    write: "deny",
+    edit: "deny",
+    apply_patch: "deny",
+    task: "deny",
+    "task_*": "deny",
+    teammate: "deny",
+    call_omo_agent: "deny",
+    switch_agent: "deny",
+  }
+}
+
 function getConfigQuestionPermission(): string | null {
   const configContent = process.env.OPENCODE_CONFIG_CONTENT;
   if (!configContent) return null;
@@ -113,6 +129,30 @@ export function applyToolConfig(params: {
       teammate: "allow",
       ...denyTodoTools,
     };
+  }
+  const athena = agentByKey(params.agentResult, "athena")
+  if (athena) {
+    athena.permission = {
+      ...athena.permission,
+      call_omo_agent: "deny",
+      task: "allow",
+      question: questionPermission,
+      "task_*": "allow",
+      teammate: "allow",
+      ...denyTodoTools,
+    }
+  }
+  const councilMember = agentByKey(params.agentResult, "council-member");
+  if (councilMember) {
+    applyCouncilMemberRestrictions(councilMember)
+  }
+
+  for (const [agentName, agentConfig] of Object.entries(params.agentResult)) {
+    if (!agentName.toLowerCase().startsWith(COUNCIL_MEMBER_AGENT_PREFIX)) {
+      continue
+    }
+
+    applyCouncilMemberRestrictions(agentConfig as AgentWithPermission)
   }
 
   params.config.permission = {

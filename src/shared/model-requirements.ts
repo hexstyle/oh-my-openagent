@@ -55,6 +55,19 @@ export const AGENT_MODEL_REQUIREMENTS: Record<string, ModelRequirement> = {
     ],
     requiresProvider: ["openai", "github-copilot", "venice", "opencode"],
   },
+  athena: {
+    fallbackChain: [
+      {
+        providers: ["anthropic", "github-copilot", "opencode"],
+        model: "claude-sonnet-4-6",
+      },
+      {
+        providers: ["openai", "github-copilot", "opencode"],
+        model: "gpt-5.4",
+        variant: "medium",
+      },
+    ],
+  },
   oracle: {
     fallbackChain: [
       {
@@ -178,6 +191,19 @@ export const AGENT_MODEL_REQUIREMENTS: Record<string, ModelRequirement> = {
       },
       { providers: ["opencode-go"], model: "minimax-m2.7" },
       { providers: ["opencode"], model: "big-pickle" },
+    ],
+  },
+  "council-member": {
+    fallbackChain: [
+      {
+        providers: ["openai", "github-copilot", "opencode"],
+        model: "gpt-5.4",
+        variant: "medium",
+      },
+      {
+        providers: ["anthropic", "github-copilot", "opencode"],
+        model: "claude-sonnet-4-6",
+      },
     ],
   },
 };

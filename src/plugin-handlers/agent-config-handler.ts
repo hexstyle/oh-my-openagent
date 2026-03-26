@@ -21,6 +21,7 @@ import {
 } from "./agent-override-protection";
 import { buildPrometheusAgentConfig } from "./prometheus-agent-config-builder";
 import { buildPlanDemoteConfig } from "./plan-model-inheritance";
+import { applyAthenaCouncilAgentWiring } from "./athena-council-agent-wiring"
 
 type AgentConfigRecord = Record<string, Record<string, unknown> | undefined> & {
   build?: Record<string, unknown>;
@@ -273,6 +274,11 @@ export async function applyAgentConfig(params: {
   }
 
   if (params.config.agent) {
+    applyAthenaCouncilAgentWiring(
+      params.config.agent as Record<string, unknown>,
+      params.pluginConfig.athena,
+    )
+
     params.config.agent = remapAgentKeysToDisplayNames(
       params.config.agent as Record<string, unknown>,
     );

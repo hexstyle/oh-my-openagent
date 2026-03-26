@@ -11,6 +11,32 @@ import * as shared from "../shared"
 const TEST_DEFAULT_MODEL = "anthropic/claude-opus-4-6"
 
 describe("createBuiltinAgents with model overrides", () => {
+  test("registers athena as builtin primary agent", async () => {
+    // #given
+
+    // #when
+    const agents = await createBuiltinAgents([], {}, undefined, TEST_DEFAULT_MODEL)
+
+    // #then
+    expect(agents.athena).toBeDefined()
+    expect(agents.athena.mode).toBe("primary")
+  })
+
+  test("registers council-member as hidden internal subagent", async () => {
+    // #given
+
+    // #when
+    const agents = await createBuiltinAgents([], {}, undefined, TEST_DEFAULT_MODEL)
+
+    // #then
+    expect(agents["council-member"]).toBeDefined()
+    expect(agents["council-member"].mode).toBe("subagent")
+    expect((agents["council-member"] as AgentConfig & { hidden?: boolean }).hidden).toBe(true)
+    expect(agents.sisyphus.prompt).not.toContain("council-member")
+    expect(agents.hephaestus.prompt).not.toContain("council-member")
+    expect(agents.atlas.prompt).not.toContain("council-member")
+  })
+
   test("Sisyphus with default model has thinking config when all models available", async () => {
     // #given
     const fetchSpy = spyOn(shared, "fetchAvailableModels").mockResolvedValue(

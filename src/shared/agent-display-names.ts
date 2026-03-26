@@ -6,6 +6,7 @@
 export const AGENT_DISPLAY_NAMES: Record<string, string> = {
   sisyphus: "Sisyphus (Ultraworker)",
   hephaestus: "Hephaestus (Deep Agent)",
+  athena: "Athena",
   prometheus: "Prometheus (Plan Builder)",
   atlas: "Atlas (Plan Executor)",
   "sisyphus-junior": "Sisyphus-Junior",
@@ -15,6 +16,7 @@ export const AGENT_DISPLAY_NAMES: Record<string, string> = {
   librarian: "librarian",
   explore: "explore",
   "multimodal-looker": "multimodal-looker",
+  "council-member": "council-member",
 }
 
 /**

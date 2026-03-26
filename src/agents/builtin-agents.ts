@@ -12,6 +12,8 @@ import { createMetisAgent, metisPromptMetadata } from "./metis"
 import { createAtlasAgent, atlasPromptMetadata } from "./atlas"
 import { createMomusAgent, momusPromptMetadata } from "./momus"
 import { createHephaestusAgent } from "./hephaestus"
+import { createAthenaAgent } from "./athena"
+import { createCouncilMemberAgent } from "./council-member"
 import { createSisyphusJuniorAgentWithOverrides } from "./sisyphus-junior"
 import type { AvailableCategory } from "./dynamic-agent-prompt-builder"
 import {
@@ -33,6 +35,7 @@ type AgentSource = AgentFactory | AgentConfig
 const agentSources: Record<BuiltinAgentName, AgentSource> = {
   sisyphus: createSisyphusAgent,
   hephaestus: createHephaestusAgent,
+  athena: createAthenaAgent,
   oracle: createOracleAgent,
   librarian: createLibrarianAgent,
   explore: createExploreAgent,
@@ -43,6 +46,7 @@ const agentSources: Record<BuiltinAgentName, AgentSource> = {
   // because it needs OrchestratorContext, not just a model string
   atlas: createAtlasAgent as AgentFactory,
   "sisyphus-junior": createSisyphusJuniorAgentWithOverrides as unknown as AgentFactory,
+  "council-member": createCouncilMemberAgent,
 }
 
 /**
