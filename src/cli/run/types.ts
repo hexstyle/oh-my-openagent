@@ -44,7 +44,7 @@ export interface Todo {
 }
 
 export interface SessionStatus {
-  type: "idle" | "busy" | "retry"
+  type: string
 }
 
 export interface ChildSession {

@@ -68,6 +68,8 @@ export interface BackgroundTask {
   stablePolls?: number
   /** Number of consecutive polls where session was missing from status map */
   consecutiveMissedPolls?: number
+  /** Number of consecutive idle/gone polls where incomplete todos blocked completion */
+  idleTodoStallPolls?: number
 }
 
 export interface LaunchInput {

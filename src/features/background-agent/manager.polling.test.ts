@@ -133,6 +133,27 @@ describe("BackgroundManager pollRunningTasks", () => {
       //#then
       expect(task.status).toBe("completed")
     })
+
+    test("#when idle session keeps incomplete todos after an error #then fails the task instead of waiting forever", async () => {
+      //#given
+      const manager = createManagerWithClient({
+        status: async () => ({ data: { "ses-idle-error": { type: "idle" } } }),
+        todo: async () => ({ data: [{ id: "todo-1", content: "still pending", status: "pending", priority: "high" }] }),
+      })
+      const task = createRunningTask("ses-idle-error")
+      task.error = "Unknown error"
+      injectTask(manager, task)
+
+      //#when
+      const poll = (manager as unknown as { pollRunningTasks: () => Promise<void> }).pollRunningTasks
+      await poll.call(manager)
+      manager.shutdown()
+
+      //#then
+      expect(task.status).toBe("error")
+      expect(task.error).toContain("Background task stopped with incomplete todos after an error")
+      expect(task.completedAt).toBeDefined()
+    })
   })
 
   describe("#given a running task whose session status is busy", () => {
@@ -188,6 +209,32 @@ describe("BackgroundManager pollRunningTasks", () => {
 
       //#then
       expect(task.status).toBe("completed")
+      expect(task.completedAt).toBeDefined()
+    })
+  })
+
+  describe("#given a running task whose idle session never clears incomplete todos", () => {
+    test("#when polling sees the same idle stall repeatedly #then fails after the fallback threshold", async () => {
+      //#given
+      const manager = createManagerWithClient({
+        status: async () => ({ data: { "ses-idle-stall": { type: "idle" } } }),
+        todo: async () => ({ data: [{ id: "todo-1", content: "still pending", status: "pending", priority: "high" }] }),
+      })
+      const task = createRunningTask("ses-idle-stall")
+      injectTask(manager, task)
+
+      //#when
+      const poll = (manager as unknown as { pollRunningTasks: () => Promise<void> }).pollRunningTasks
+      await poll.call(manager)
+      expect(task.status).toBe("running")
+      await poll.call(manager)
+      expect(task.status).toBe("running")
+      await poll.call(manager)
+      manager.shutdown()
+
+      //#then
+      expect(task.status).toBe("error")
+      expect(task.error).toBe("Background task stayed idle with incomplete todos and never resumed. Treating it as failed to avoid indefinite waiting.")
       expect(task.completedAt).toBeDefined()
     })
   })

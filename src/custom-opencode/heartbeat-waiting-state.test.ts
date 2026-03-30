@@ -132,4 +132,62 @@ describe("heartbeat waiting-for-subagents flow", () => {
     expect(afterResumeSnapshot.state).toBe("running")
     expect(afterResumeSnapshot.statusText).toContain("Сейчас возобновляет работу после ответа подагента.")
   })
+
+  it("switches to failed when background_output returns a failed task result", async () => {
+    const { hooks, runtime } = createRuntime()
+
+    await hooks["chat.message"]?.(
+      {
+        sessionID: "ses_failed_wait",
+        agent: "sisyphus",
+      },
+      {
+        message: { role: "user" },
+        parts: [],
+      },
+    )
+
+    await hooks["tool.execute.after"]?.(
+      {
+        sessionID: "ses_failed_wait",
+        callID: "call_task_after_failed",
+        tool: "task",
+        args: {
+          description: "inspect files",
+        },
+      },
+      {
+        title: "Delegated",
+        output: "spawned",
+        metadata: {
+          task_id: "task_failed",
+        },
+      },
+    )
+
+    expect(runtime.getSessionSnapshot("ses_failed_wait").state).toBe("waiting_for_subagents")
+
+    await hooks["tool.execute.after"]?.(
+      {
+        sessionID: "ses_failed_wait",
+        callID: "call_background_after_failed",
+        tool: "background_output",
+        args: {
+          task_id: "task_failed",
+        },
+      },
+      {
+        title: "Background output",
+        output: "# Task Status\n\n| Field | Value |\n|-------|-------|\n| Status | **error** |\n\n> **Failed**: The task encountered an error.\n> **Error:** Unknown error",
+        metadata: {
+          status: "error",
+          error: "Unknown error",
+        },
+      },
+    )
+
+    const failedSnapshot = runtime.getSessionSnapshot("ses_failed_wait")
+    expect(failedSnapshot.state).toBe("failed")
+    expect(failedSnapshot.detailText).toContain("Причина: Unknown error.")
+  })
 })

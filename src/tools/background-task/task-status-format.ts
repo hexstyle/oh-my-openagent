@@ -44,11 +44,13 @@ ${truncated}
    } else if (task.status === "error") {
      statusNote = `
 
-> **Failed**: The task encountered an error. Check the last message for details.`
+> **Failed**: The task encountered an error.${task.error ? `
+> **Error:** ${truncateText(task.error, 300)}` : " Check the last message for details."}`
    } else if (task.status === "interrupt") {
      statusNote = `
 
-> **Interrupted**: The task was interrupted by a prompt error. The session may contain partial results.`
+> **Interrupted**: The task was interrupted by a prompt error.${task.error ? `
+> **Error:** ${truncateText(task.error, 300)}` : " The session may contain partial results."}`
    }
 
   const durationLabel = task.status === "pending" ? "Queued for" : "Duration"
