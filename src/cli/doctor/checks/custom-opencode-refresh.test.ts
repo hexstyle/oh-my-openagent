@@ -81,8 +81,10 @@ exit /b %GLOBAL_DOCTOR_EXIT_CODE%
 }
 
 function runRefresh(targetDir: string, commandDir: string, extraEnv: Record<string, string>): ReturnType<typeof spawnSync> {
+  const powershellPath = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+
   return spawnSync(
-    "powershell",
+    powershellPath,
     [
       "-NoProfile",
       "-ExecutionPolicy",
@@ -99,7 +101,7 @@ function runRefresh(targetDir: string, commandDir: string, extraEnv: Record<stri
       encoding: "utf8",
       env: {
         ...process.env,
-        PATH: `${commandDir};${process.env.PATH ?? ""}`,
+        PATH: commandDir,
         ...extraEnv,
       },
     },
@@ -194,6 +196,36 @@ exit /b 0
     const refreshLogContents = readLatestRefreshLog(targetDir)
     expect(refreshLogContents).toContain("Doctor command resolution: target-package-bin")
     expect(refreshLogContents).toContain("Doctor exit code 1 accepted because only advisory issues were present")
+  })
+
+  windowsOnlyIt("skips doctor platform binary repair in check-only mode", () => {
+    const targetDir = createTempDir("custom-opencode-refresh-target-")
+    const commandDir = createTempDir("custom-opencode-refresh-bin-")
+    const invocationLogPath = join(targetDir, "doctor-invocation.log")
+    const doctorJsonPath = join(targetDir, "doctor-success.json")
+
+    initializeManagedTarget(targetDir)
+    writeSupportCommands(commandDir)
+    writeFileSync(doctorJsonPath, createDoctorResultJson([]))
+
+    writeCommandShim(join(targetDir, "node_modules", ".bin", "oh-my-opencode.cmd"), `@echo off
+>> "%DOCTOR_INVOCATION_LOG%" echo LOCAL %*
+type "%DOCTOR_JSON_PATH%"
+exit /b 0
+`)
+
+    const result = runRefresh(targetDir, commandDir, {
+      DOCTOR_INVOCATION_LOG: invocationLogPath,
+      DOCTOR_JSON_PATH: doctorJsonPath,
+      DOCTOR_EXIT_CODE: "0",
+      GLOBAL_DOCTOR_EXIT_CODE: "94",
+    })
+
+    expect(result.status).toBe(0)
+
+    const refreshLogContents = readLatestRefreshLog(targetDir)
+    expect(refreshLogContents).toContain("Check-only mode, skipping doctor platform binary repair.")
+    expect(refreshLogContents).not.toContain("Installing platform binary package")
   })
 
   windowsOnlyIt("restores the previous target state when doctor reports a non-advisory failure", () => {

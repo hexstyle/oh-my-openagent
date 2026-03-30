@@ -719,7 +719,13 @@ try {
 
   $doctorCommand = Resolve-DoctorCommand -TargetDir $TargetDir -NodeCommand $nodeCommand
   Write-Note "Doctor command resolution: $($doctorCommand.Resolution) -> $($doctorCommand.ResolvedPath)"
-  Ensure-DoctorPlatformBinary -TargetDir $TargetDir -NpmCommand $npmCommand
+
+  if ($CheckOnly) {
+    Write-Note "Check-only mode, skipping doctor platform binary repair."
+  }
+  else {
+    Ensure-DoctorPlatformBinary -TargetDir $TargetDir -NpmCommand $npmCommand
+  }
 
   $syncResult = Invoke-ManagedAssetSync -SourceRoot $AssetRoot -TargetRoot $TargetDir -Timestamp $timestamp -RunId $runId -BunCommand $bunCommand
   Write-Note "Sync strategy: $($syncResult.strategy)"
