@@ -29,7 +29,7 @@ The installed schema and repo sources are the compatibility baseline for this au
 
 - All configured local agent overrides pin to `openai/gpt-5.4` with `variant = xhigh` and `textVerbosity: high`: `sisyphus`, `hephaestus`, `oracle`, `librarian`, `explore`, `multimodal-looker`, `prometheus`, `metis`, `momus`, `atlas`, and `sisyphus-junior`.
 - All configured local category overrides pin to `openai/gpt-5.4` with `variant = xhigh` and `textVerbosity: high`: `visual-engineering`, `ultrabrain`, `deep`, `artistry`, `quick`, `unspecified-low`, `unspecified-high`, and `writing`.
-- The local config adds `prompt_append` additions for `sisyphus`, `hephaestus`, `prometheus`, `atlas`, and `sisyphus-junior`.
+- The local config adds `prompt_append` additions for `sisyphus`, `hephaestus`, `prometheus`, `atlas`, and `sisyphus-junior`, including fork-specific guidance to prefer short operation timeouts, avoid idle waiting, and diagnose unexpectedly long-running steps.
 
 ### Supported runtime knob differences
 
