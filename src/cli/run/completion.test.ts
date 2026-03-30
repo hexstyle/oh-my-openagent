@@ -162,6 +162,44 @@ describe("checkCompletionConditions", () => {
     expect(result).toBe(true)
   })
 
+  it("returns true when child session is interrupted", async () => {
+    // given
+    spyOn(console, "log").mockImplementation(() => {})
+    const ctx = createMockContext({
+      childrenBySession: {
+        "test-session": [{ id: "child-1" }],
+        "child-1": [],
+      },
+      statuses: { "child-1": { type: "interrupted" } },
+    })
+    const { checkCompletionConditions } = await import("./completion")
+
+    // when
+    const result = await checkCompletionConditions(ctx)
+
+    // then
+    expect(result).toBe(true)
+  })
+
+  it("returns true when child session has unknown non-active status", async () => {
+    // given
+    spyOn(console, "log").mockImplementation(() => {})
+    const ctx = createMockContext({
+      childrenBySession: {
+        "test-session": [{ id: "child-1" }],
+        "child-1": [],
+      },
+      statuses: { "child-1": { type: "mystery" } },
+    })
+    const { checkCompletionConditions } = await import("./completion")
+
+    // when
+    const result = await checkCompletionConditions(ctx)
+
+    // then
+    expect(result).toBe(true)
+  })
+
   it("returns false when descendant is busy even if parent status is missing", async () => {
     // given
     spyOn(console, "log").mockImplementation(() => {})

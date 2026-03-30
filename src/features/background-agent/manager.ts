@@ -31,6 +31,8 @@ import {
   TASK_TTL_MS,
 } from "./constants"
 
+const BACKGROUND_STATUS_UPDATE_INTERVAL_MS = 15_000
+
 import { subagentSessions } from "../claude-code-session-state"
 import { getTaskToastManager } from "../task-toast-manager"
 import { formatDuration } from "./duration-formatter"
@@ -70,6 +72,75 @@ import {
 } from "./subagent-spawn-limits"
 
 type OpencodeClient = PluginInput["client"]
+
+function formatFailureSummaryLines(tasks: Array<{ id: string; description: string; status: string; error?: string }>): string {
+  return tasks
+    .map((task) => `- \`${task.id}\`: ${task.description} [${task.status.toUpperCase()}]${task.error ? ` - ${task.error}` : ""}`)
+    .join("\n")
+}
+
+function buildFailureAnalysisHandoff(lines: string, remainingCount: number): string {
+  const remainingText = remainingCount > 0
+    ? remainingCount === 1
+      ? "There is still 1 other background task in progress."
+      : `There are still ${remainingCount} other background tasks in progress.`
+    : "No other background tasks are still running."
+
+  return `
+
+**AUTONOMOUS FAILURE HANDOFF:**
+- A background subtask failed and the parent agent should analyze it immediately.
+- ${remainingText}
+- Analyze the failure details below, adapt the plan or retry strategy, and continue autonomously.
+- Use \`background_output(...)\` only if you need more transcript than the failure details already included here.
+
+**Failure details:**
+${lines}`
+}
+
+function formatElapsedForStatus(task: BackgroundTask, now: Date): string {
+  const from = task.status === "pending"
+    ? task.queuedAt ?? task.startedAt ?? now
+    : task.startedAt ?? task.queuedAt ?? now
+  const label = task.status === "pending" ? "queued" : "running"
+  return `${label} ${formatDuration(from, now)}`
+}
+
+function buildActiveTaskStatusDigest(tasks: BackgroundTask[]): string {
+  return tasks
+    .map((task) => `${task.id}:${task.status}:${task.agent}:${task.sessionID ?? ""}:${task.description}`)
+    .sort()
+    .join("|")
+}
+
+function buildActiveTaskStatusNotification(tasks: BackgroundTask[], now: Date): string {
+  const runningCount = tasks.filter((task) => task.status === "running").length
+  const pendingCount = tasks.filter((task) => task.status === "pending").length
+  const summaryParts: string[] = []
+  if (runningCount > 0) summaryParts.push(`${runningCount} running`)
+  if (pendingCount > 0) summaryParts.push(`${pendingCount} pending`)
+  const summary = summaryParts.join(", ")
+
+  const lines = tasks
+    .slice()
+    .sort((left, right) => {
+      const leftTime = left.startedAt?.getTime() ?? left.queuedAt?.getTime() ?? 0
+      const rightTime = right.startedAt?.getTime() ?? right.queuedAt?.getTime() ?? 0
+      return leftTime - rightTime
+    })
+    .map((task) => `- \`${task.id}\`: ${task.description} [${task.status.toUpperCase()}] @${task.agent} — ${formatElapsedForStatus(task, now)}`)
+    .join("\n")
+
+  return `<system-reminder>
+[BACKGROUND TASK STATUS]
+**Active background tasks:** ${tasks.length}
+**Summary:** ${summary}
+
+${lines}
+
+The current agent can keep working while these run in the background. Wait only if their result is needed for the next decision.
+</system-reminder>`
+}
 
 
 interface MessagePartInfo {
@@ -150,6 +221,7 @@ export class BackgroundManager {
   private completedTaskSummaries: Map<string, Array<{id: string, description: string, status: string, error?: string}>> = new Map()
   private idleDeferralTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
   private notificationQueueByParent: Map<string, Promise<void>> = new Map()
+  private parentStatusReports: Map<string, { lastSentAt: number; lastDigest: string }> = new Map()
   private rootDescendantCounts: Map<string, number>
   private preStartDescendantReservations: Set<string>
   private enableParentSessionNotifications: boolean
@@ -347,6 +419,12 @@ export class BackgroundManager {
       spawnReservation.commit()
       this.markPreStartDescendantReservation(task)
 
+      void this.enqueueNotificationForParent(input.parentSessionID, () =>
+        this.maybeNotifyParentActiveTasks(input.parentSessionID, true),
+      ).catch((error) => {
+        log("[background-agent] Failed to send active-task launch status:", { taskId: task.id, error })
+      })
+
       // Trigger processing (fire-and-forget)
       this.processKey(key)
 
@@ -488,6 +566,12 @@ export class BackgroundManager {
 
     this.taskHistory.record(input.parentSessionID, { id: task.id, sessionID, agent: input.agent, description: input.description, status: "running", category: input.category, startedAt: task.startedAt })
     this.startPolling()
+
+    void this.enqueueNotificationForParent(input.parentSessionID, () =>
+      this.maybeNotifyParentActiveTasks(input.parentSessionID, true),
+    ).catch((error) => {
+      log("[background-agent] Failed to send active-task running status:", { taskId: task.id, error })
+    })
 
     log("[background-agent] Launching task:", { taskId: task.id, sessionID, agent: input.agent })
 
@@ -658,6 +742,11 @@ export class BackgroundManager {
         const pending = this.pendingByParent.get(input.parentSessionID) ?? new Set()
         pending.add(existingTask.id)
         this.pendingByParent.set(input.parentSessionID, pending)
+        void this.enqueueNotificationForParent(input.parentSessionID, () =>
+          this.maybeNotifyParentActiveTasks(input.parentSessionID, true),
+        ).catch((error) => {
+          log("[background-agent] Failed to send external task status:", { taskId: existingTask.id, error })
+        })
       } else if (!parentChanged) {
         // Only clean up if parent didn't change (already cleaned above if it did)
         this.cleanupPendingByParent(existingTask)
@@ -704,6 +793,12 @@ export class BackgroundManager {
       pending.add(task.id)
       this.pendingByParent.set(input.parentSessionID, pending)
     }
+
+    void this.enqueueNotificationForParent(input.parentSessionID, () =>
+      this.maybeNotifyParentActiveTasks(input.parentSessionID, true),
+    ).catch((error) => {
+      log("[background-agent] Failed to send registered external task status:", { taskId: task.id, error })
+    })
 
     log("[background-agent] Registered external task:", { taskId: task.id, sessionID: input.sessionID })
 
@@ -772,6 +867,12 @@ export class BackgroundManager {
       pending.add(existingTask.id)
       this.pendingByParent.set(input.parentSessionID, pending)
     }
+
+    void this.enqueueNotificationForParent(input.parentSessionID, () =>
+      this.maybeNotifyParentActiveTasks(input.parentSessionID, true),
+    ).catch((error) => {
+      log("[background-agent] Failed to send resumed task status:", { taskId: existingTask.id, error })
+    })
 
     const toastManager = getTaskToastManager()
     if (toastManager) {
@@ -876,6 +977,61 @@ export class BackgroundManager {
     }
   }
 
+  private async failTask(task: BackgroundTask, errorMessage: string, source: string): Promise<void> {
+    if (task.status !== "running") {
+      log("[background-agent] Task already terminal while failing:", { taskId: task.id, status: task.status, source })
+      return
+    }
+
+    task.status = "error"
+    task.error = errorMessage
+    task.completedAt = new Date()
+    task.idleTodoStallPolls = 0
+
+    if (task.rootSessionID) {
+      this.unregisterRootDescendant(task.rootSessionID)
+    }
+    this.taskHistory.record(task.parentSessionID, { id: task.id, sessionID: task.sessionID, agent: task.agent, description: task.description, status: "error", category: task.category, startedAt: task.startedAt, completedAt: task.completedAt })
+
+    if (task.concurrencyKey) {
+      this.concurrencyManager.release(task.concurrencyKey)
+      task.concurrencyKey = undefined
+    }
+
+    const completionTimer = this.completionTimers.get(task.id)
+    if (completionTimer) {
+      clearTimeout(completionTimer)
+      this.completionTimers.delete(task.id)
+    }
+
+    const idleTimer = this.idleDeferralTimers.get(task.id)
+    if (idleTimer) {
+      clearTimeout(idleTimer)
+      this.idleDeferralTimers.delete(task.id)
+    }
+
+    this.cleanupPendingByParent(task)
+    this.clearNotificationsForTask(task.id)
+    const toastManager = getTaskToastManager()
+    if (toastManager) {
+      toastManager.removeTask(task.id)
+    }
+    this.scheduleTaskRemoval(task.id)
+    if (task.sessionID) {
+      SessionCategoryRegistry.remove(task.sessionID)
+      await this.client.session.abort({
+        path: { id: task.sessionID },
+      }).catch(() => {})
+    }
+
+    this.markForNotification(task)
+    this.enqueueNotificationForParent(task.parentSessionID, () => this.notifyParentSession(task)).catch(err => {
+      log("[background-agent] Error in notifyParentSession for failed task:", { taskId: task.id, error: err, source })
+    })
+
+    log("[background-agent] Task failed:", { taskId: task.id, source, errorMessage })
+  }
+
   handleEvent(event: Event): void {
     const props = event.properties
 
@@ -897,7 +1053,10 @@ export class BackgroundManager {
         name: extractErrorName(assistantError),
         message: extractErrorMessage(assistantError),
       }
-      this.tryFallbackRetry(task, errorInfo, "message.updated")
+      const retried = this.tryFallbackRetry(task, errorInfo, "message.updated")
+      if (!retried) {
+        task.error = errorInfo.message || errorInfo.name || "Unknown error"
+      }
     }
 
     if (event.type === "message.part.updated" || event.type === "message.part.delta") {
@@ -922,6 +1081,7 @@ export class BackgroundManager {
         }
       }
       task.progress.lastUpdate = new Date()
+      task.idleTodoStallPolls = 0
 
       if (partInfo?.type === "tool" || partInfo?.tool) {
         const countedToolPartIDs = task.progress.countedToolPartIDs ?? new Set<string>()
@@ -995,6 +1155,7 @@ export class BackgroundManager {
         validateSessionHasOutput: (id) => this.validateSessionHasOutput(id),
         checkSessionTodos: (id) => this.checkSessionTodos(id),
         tryCompleteTask: (task, source) => this.tryCompleteTask(task, source),
+        failTask: (task, errorMessage, source) => this.failTask(task, errorMessage, source),
         emitIdleEvent: (sessionID) => this.handleEvent({ type: "session.idle", properties: { sessionID } }),
       })
     }
@@ -1013,60 +1174,8 @@ export class BackgroundManager {
       const errorInfo = { name: errorName, message: errorMessage }
       if (this.tryFallbackRetry(task, errorInfo, "session.error")) return
 
-      // Original error handling (no retry)
       const errorMsg = errorMessage ?? "Session error"
-      const canRetry =
-        shouldRetryError(errorInfo) &&
-        !!task.fallbackChain &&
-        hasMoreFallbacks(task.fallbackChain, task.attemptCount ?? 0)
-      log("[background-agent] Session error - no retry:", {
-        taskId: task.id,
-        errorName,
-        errorMessage: errorMsg?.slice(0, 100),
-        hasFallbackChain: !!task.fallbackChain,
-        canRetry,
-      })
-
-      task.status = "error"
-      task.error = errorMsg
-      task.completedAt = new Date()
-      if (task.rootSessionID) {
-        this.unregisterRootDescendant(task.rootSessionID)
-      }
-      this.taskHistory.record(task.parentSessionID, { id: task.id, sessionID: task.sessionID, agent: task.agent, description: task.description, status: "error", category: task.category, startedAt: task.startedAt, completedAt: task.completedAt })
-
-      if (task.concurrencyKey) {
-        this.concurrencyManager.release(task.concurrencyKey)
-        task.concurrencyKey = undefined
-      }
-
-      const completionTimer = this.completionTimers.get(task.id)
-      if (completionTimer) {
-        clearTimeout(completionTimer)
-        this.completionTimers.delete(task.id)
-      }
-
-      const idleTimer = this.idleDeferralTimers.get(task.id)
-      if (idleTimer) {
-        clearTimeout(idleTimer)
-        this.idleDeferralTimers.delete(task.id)
-      }
-
-      this.cleanupPendingByParent(task)
-      this.clearNotificationsForTask(task.id)
-      const toastManager = getTaskToastManager()
-      if (toastManager) {
-        toastManager.removeTask(task.id)
-      }
-      this.scheduleTaskRemoval(task.id)
-      if (task.sessionID) {
-        SessionCategoryRegistry.remove(task.sessionID)
-      }
-
-      this.markForNotification(task)
-      this.enqueueNotificationForParent(task.parentSessionID, () => this.notifyParentSession(task)).catch(err => {
-        log("[background-agent] Error in notifyParentSession for errored task:", { taskId: task.id, error: err })
-      })
+      void this.failTask(task, errorMsg, "session.error")
     }
 
     if (event.type === "session.deleted") {
@@ -1137,7 +1246,10 @@ export class BackgroundManager {
 
       const errorMessage = typeof status.message === "string" ? status.message : undefined
       const errorInfo = { name: "SessionRetry", message: errorMessage }
-      this.tryFallbackRetry(task, errorInfo, "session.status")
+      const retried = this.tryFallbackRetry(task, errorInfo, "session.status")
+      if (!retried && errorMessage) {
+        task.error = errorMessage
+      }
     }
   }
 
@@ -1294,6 +1406,49 @@ export class BackgroundManager {
     if (this.getTasksByParentSession(parentSessionID).length > 0) return
     this.taskHistory.clearSession(parentSessionID)
     this.completedTaskSummaries.delete(parentSessionID)
+    this.parentStatusReports.delete(parentSessionID)
+  }
+
+  private getActiveTasksByParentSession(parentSessionID: string): BackgroundTask[] {
+    return this.getTasksByParentSession(parentSessionID)
+      .filter((task) => task.status === "running" || task.status === "pending")
+  }
+
+  private async maybeNotifyParentActiveTasks(parentSessionID: string | undefined, force = false): Promise<void> {
+    if (!this.enableParentSessionNotifications || !parentSessionID) {
+      return
+    }
+
+    const activeTasks = this.getActiveTasksByParentSession(parentSessionID)
+    if (activeTasks.length === 0) {
+      this.parentStatusReports.delete(parentSessionID)
+      return
+    }
+
+    const now = Date.now()
+    const digest = buildActiveTaskStatusDigest(activeTasks)
+    const previous = this.parentStatusReports.get(parentSessionID)
+    const digestChanged = previous?.lastDigest !== digest
+    const intervalElapsed = previous === undefined || now - previous.lastSentAt >= BACKGROUND_STATUS_UPDATE_INTERVAL_MS
+
+    if (!force && !digestChanged && !intervalElapsed) {
+      return
+    }
+
+    const notification = buildActiveTaskStatusNotification(activeTasks, new Date(now))
+
+    await this.client.session.promptAsync({
+      path: { id: parentSessionID },
+      body: {
+        noReply: true,
+        parts: [createInternalAgentTextPart(notification)],
+      },
+    })
+
+    this.parentStatusReports.set(parentSessionID, {
+      lastSentAt: now,
+      lastDigest: digest,
+    })
   }
 
   private scheduleTaskRemoval(taskId: string, rescheduleCount = 0): void {
@@ -1604,7 +1759,7 @@ export class BackgroundManager {
           ? succeededTasks.map(t => `- \`${t.id}\`: ${t.description}`).join("\n")
           : ""
         const failedText = failedTasks.length > 0
-          ? failedTasks.map(t => `- \`${t.id}\`: ${t.description} [${t.status.toUpperCase()}]${t.error ? ` - ${t.error}` : ""}`).join("\n")
+          ? formatFailureSummaryLines(failedTasks)
           : ""
 
         const hasFailures = failedTasks.length > 0
@@ -1623,14 +1778,27 @@ export class BackgroundManager {
           body = `- \`${task.id}\`: ${task.description} [${task.status.toUpperCase()}]${task.error ? ` - ${task.error}` : ""}\n`
         }
 
+        const failureHandoff = hasFailures
+          ? buildFailureAnalysisHandoff(failedText, remainingCount)
+          : ""
+
         notification = `<system-reminder>
 ${header}
 
 ${body.trim()}
 
-Use \`background_output(task_id="<id>")\` to retrieve each result.${hasFailures ? `\n\n**ACTION REQUIRED:** ${failedTasks.length} task(s) failed. Check errors above and decide whether to retry or proceed.` : ""}
+Use \`background_output(task_id="<id>")\` to retrieve each result.${hasFailures ? `\n\n**ACTION REQUIRED:** ${failedTasks.length} task(s) failed. Check errors above and decide whether to retry or proceed.${failureHandoff}` : ""}
 </system-reminder>`
     } else {
+      const failureHandoff = task.status === "completed"
+        ? ""
+        : buildFailureAnalysisHandoff(
+            formatFailureSummaryLines([
+              { id: task.id, description: task.description, status: task.status, error: task.error },
+            ]),
+            remainingCount,
+          )
+
       notification = `<system-reminder>
 [BACKGROUND TASK ${statusText}]
 **ID:** \`${task.id}\`
@@ -1638,7 +1806,7 @@ Use \`background_output(task_id="<id>")\` to retrieve each result.${hasFailures 
 **Duration:** ${duration}${errorInfo}
 
 **${remainingCount} task${remainingCount === 1 ? "" : "s"} still in progress.** You WILL be notified when ALL complete.
-${statusText === "COMPLETED" ? "Do NOT poll - continue productive work." : "**ACTION REQUIRED:** This task failed. Check the error and decide whether to retry, cancel remaining tasks, or continue."}
+${statusText === "COMPLETED" ? "Do NOT poll - continue productive work." : `**ACTION REQUIRED:** This task failed. Check the error and decide whether to retry, cancel remaining tasks, or continue.${failureHandoff}`}
 
 Use \`background_output(task_id="${task.id}")\` to retrieve this result when ready.
 </system-reminder>`
@@ -1828,41 +1996,7 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
   }
 
   private async failCrashedTask(task: BackgroundTask, errorMessage: string): Promise<void> {
-    task.status = "error"
-    task.error = errorMessage
-    task.completedAt = new Date()
-    if (task.rootSessionID) {
-      this.unregisterRootDescendant(task.rootSessionID)
-    }
-    this.taskHistory.record(task.parentSessionID, { id: task.id, sessionID: task.sessionID, agent: task.agent, description: task.description, status: "error", category: task.category, startedAt: task.startedAt, completedAt: task.completedAt })
-    if (task.concurrencyKey) {
-      this.concurrencyManager.release(task.concurrencyKey)
-      task.concurrencyKey = undefined
-    }
-
-    const completionTimer = this.completionTimers.get(task.id)
-    if (completionTimer) {
-      clearTimeout(completionTimer)
-      this.completionTimers.delete(task.id)
-    }
-    const idleTimer = this.idleDeferralTimers.get(task.id)
-    if (idleTimer) {
-      clearTimeout(idleTimer)
-      this.idleDeferralTimers.delete(task.id)
-    }
-
-    this.cleanupPendingByParent(task)
-    this.clearNotificationsForTask(task.id)
-    removeTaskToastTracking(task.id)
-    this.scheduleTaskRemoval(task.id)
-    if (task.sessionID) {
-      SessionCategoryRegistry.remove(task.sessionID)
-    }
-
-    this.markForNotification(task)
-    this.enqueueNotificationForParent(task.parentSessionID, () => this.notifyParentSession(task)).catch(err => {
-      log("[background-agent] Error in notifyParentSession for crashed task:", { taskId: task.id, error: err })
-    })
+    await this.failTask(task, errorMessage, "crashed session")
   }
 
   private async pollRunningTasks(): Promise<void> {
@@ -1898,6 +2032,7 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
         // Only skip completion when session status is actively running.
         // Unknown or terminal statuses (like "interrupted") fall through to completion.
         if (sessionStatus && isActiveSessionStatus(sessionStatus.type)) {
+          task.idleTodoStallPolls = 0
           log("[background-agent] Session still running, relying on event-based progress:", {
             taskId: task.id,
             sessionID,
@@ -1932,6 +2067,7 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
           : "polling (session gone from status)"
         const hasValidOutput = await this.validateSessionHasOutput(sessionID)
         if (!hasValidOutput) {
+          task.idleTodoStallPolls = 0
           if (sessionGoneFromStatus) {
             const sessionExists = await this.verifySessionExists(sessionID)
             if (!sessionExists) {
@@ -1949,14 +2085,55 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
 
         const hasIncompleteTodos = await this.checkSessionTodos(sessionID)
         if (hasIncompleteTodos) {
-          log("[background-agent] Task has incomplete todos via polling, waiting:", task.id)
+          task.idleTodoStallPolls = (task.idleTodoStallPolls ?? 0) + 1
+
+          const explicitError = task.error?.trim()
+          if (explicitError) {
+            await this.failTask(
+              task,
+              `Background task stopped with incomplete todos after an error: ${explicitError}`,
+              "polling idle/gone with recorded error",
+            )
+            continue
+          }
+
+          if (task.idleTodoStallPolls >= 3) {
+            await this.failTask(
+              task,
+              "Background task stayed idle with incomplete todos and never resumed. Treating it as failed to avoid indefinite waiting.",
+              "polling idle/gone stall timeout",
+            )
+            continue
+          }
+
+          log("[background-agent] Task has incomplete todos via polling, waiting:", {
+            taskId: task.id,
+            idleTodoStallPolls: task.idleTodoStallPolls,
+          })
           continue
         }
+
+        task.idleTodoStallPolls = 0
 
         await this.tryCompleteTask(task, completionSource)
       } catch (error) {
         log("[background-agent] Poll error for task:", { taskId: task.id, error })
       }
+    }
+
+    const parentSessionIDsWithActiveTasks = new Set<string>()
+    for (const task of this.tasks.values()) {
+      if ((task.status === "running" || task.status === "pending") && task.parentSessionID) {
+        parentSessionIDsWithActiveTasks.add(task.parentSessionID)
+      }
+    }
+
+    for (const parentSessionID of parentSessionIDsWithActiveTasks) {
+      await this.enqueueNotificationForParent(parentSessionID, () =>
+        this.maybeNotifyParentActiveTasks(parentSessionID),
+      ).catch((error) => {
+        log("[background-agent] Failed to send periodic active-task status:", { parentSessionID, error })
+      })
     }
 
     if (!this.hasRunningTasks()) {

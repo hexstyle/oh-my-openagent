@@ -55,6 +55,21 @@ function extractStatusCode(error) {
   return error.statusCode ?? error.status ?? error.data?.statusCode ?? error.error?.statusCode
 }
 
+function extractBackgroundOutputFailure(result) {
+  const metadataStatus = result?.metadata?.status
+  if (metadataStatus === "error" || metadataStatus === "cancelled" || metadataStatus === "interrupt") {
+    return result?.metadata?.error ?? result?.output ?? metadataStatus
+  }
+
+  const output = typeof result?.output === "string" ? result.output : ""
+  if (/Status \| \*\*(error|cancelled|interrupt)\*\*/i.test(output)) {
+    const errorMatch = output.match(/> \*\*Error:\*\*\s*(.+)/i)
+    return errorMatch?.[1]?.trim() || output
+  }
+
+  return undefined
+}
+
 function isHardProviderBlock(error) {
   const statusCode = extractStatusCode(error)
   const message = extractErrorMessage(error)
@@ -685,8 +700,17 @@ export function createHeartbeatStatusRuntime({
         })
       },
 
-      "tool.execute.after": async (input) => {
+      "tool.execute.after": async (input, result) => {
         markActiveSession(input.sessionID)
+
+        if (RESUME_TOOL_NAMES.has(input.tool)) {
+          const failure = extractBackgroundOutputFailure(result)
+          if (failure) {
+            setFailed(input.sessionID, typeof failure === "string" ? { message: failure } : failure)
+            await publishSnapshot(input.sessionID, "failed", "warn")
+            return
+          }
+        }
 
         if (WAITING_TOOL_NAMES.has(input.tool)) {
           setWaitingForSubagents(input.sessionID, getToolAfterSentence(input.tool))
