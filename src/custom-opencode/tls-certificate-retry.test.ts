@@ -246,11 +246,15 @@ describe("tls certificate retry plugin", () => {
   it("prevents duplicate timer scheduling and duplicate dispatch on repeated connectivity errors", async () => {
     const signals: RetrySignal[] = []
     const dispatchDeferred = createDeferred<unknown>()
+    const promptInvoked = createDeferred<void>()
     const { hooks, promptCalls, timers } = createRuntime({
       onStateChange: async (_sessionID, signal) => {
         signals.push(signal)
       },
-      promptAsyncImpl: async () => dispatchDeferred.promise,
+      promptAsyncImpl: async () => {
+        promptInvoked.resolve()
+        return dispatchDeferred.promise
+      },
     })
 
     await hooks["chat.message"]?.(
@@ -283,6 +287,8 @@ describe("tls certificate retry plugin", () => {
     expect(signals.filter((signal) => signal.state === "retrying")).toHaveLength(1)
 
     const retryDispatch = timers.runNext()
+
+    await promptInvoked.promise
 
     expect(promptCalls).toHaveLength(1)
 
