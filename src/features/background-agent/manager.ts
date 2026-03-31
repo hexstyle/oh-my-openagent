@@ -23,6 +23,7 @@ import type { BackgroundTaskConfig, TmuxConfig } from "../../config/schema"
 import { isInsideTmux } from "../../shared/tmux"
 import {
   shouldRetryError,
+  shouldSwitchFallback,
   hasMoreFallbacks,
 } from "../../shared/model-error-classifier"
 import {
@@ -1173,6 +1174,16 @@ export class BackgroundManager {
 
       const errorInfo = { name: errorName, message: errorMessage }
       if (this.tryFallbackRetry(task, errorInfo, "session.error")) return
+
+      // For quota/limit errors: switch to fallback model instead of failing
+      if (shouldSwitchFallback(errorInfo) && task.fallbackChain && hasMoreFallbacks(task.fallbackChain, task.attemptCount ?? 0)) {
+        log("[background-agent] Quota error detected, switching to fallback model", {
+          taskId: task.id,
+          errorName,
+          errorMessage: errorMessage?.slice(0, 100),
+        })
+        if (this.tryFallbackRetry(task, { name: "QuotaExceededError", message: errorMessage }, "session.error.quota")) return
+      }
 
       const errorMsg = errorMessage ?? "Session error"
       void this.failTask(task, errorMsg, "session.error")
