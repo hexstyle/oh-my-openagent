@@ -96,12 +96,60 @@ export function isRetryableModelError(error: ErrorInfo): boolean {
   return RETRYABLE_MESSAGE_PATTERNS.some((pattern) => msg.includes(pattern))
 }
 
+const QUOTA_ERROR_PATTERNS = [
+  "quota",
+  "usage limit",
+  "limit reached",
+  "insufficient",
+  "credit",
+  "balance",
+  "429",
+  "402",
+  "too many requests",
+  "rate limit",
+  "exhausted your capacity",
+  "free usage",
+  "usage exceeded",
+  "out of credits",
+  "payment required",
+  "billing",
+]
+
+const QUOTA_ERROR_NAMES = new Set([
+  "quotaexceedederror",
+  "insufficientcreditserror",
+  "freeusagelimiterror",
+  "ratelimiterror",
+])
+
+/**
+ * Determines if an error indicates quota/limit exhaustion.
+ * These errors should trigger a fallback model switch (not retry).
+ */
+export function isQuotaError(error: ErrorInfo): boolean {
+  if (error.name) {
+    const errorNameLower = error.name.toLowerCase()
+    if (QUOTA_ERROR_NAMES.has(errorNameLower)) return true
+  }
+
+  const msg = error.message?.toLowerCase() ?? ""
+  return QUOTA_ERROR_PATTERNS.some((pattern) => msg.includes(pattern))
+}
+
 /**
  * Determines if an error should trigger a fallback retry.
- * Returns true for deadstop errors that completely halt the action loop.
+ * Returns true for TLS/certificate errors that should be retried.
  */
 export function shouldRetryError(error: ErrorInfo): boolean {
   return isRetryableModelError(error)
+}
+
+/**
+ * Determines if an error should trigger a fallback model switch.
+ * Returns true for quota/limit errors that require switching to a fallback model.
+ */
+export function shouldSwitchFallback(error: ErrorInfo): boolean {
+  return isQuotaError(error)
 }
 
 /**
