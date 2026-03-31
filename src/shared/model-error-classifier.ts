@@ -6,14 +6,10 @@ import { readConnectedProvidersCache } from "./connected-providers-cache"
  * These errors completely halt the action loop and should trigger fallback retry.
  */
 const RETRYABLE_ERROR_NAMES = new Set([
-  "providermodelnotfounderror",
-  "ratelimiterror",
-  "quotaexceedederror",
-  "insufficientcreditserror",
-  "modelunavailableerror",
   "providerconnectionerror",
   "authenticationerror",
-  "freeusagelimiterror",
+  "tlscertificateerror",
+  "sslerror",
 ])
 
 /**
@@ -34,42 +30,22 @@ const NON_RETRYABLE_ERROR_NAMES = new Set([
  * Message patterns that indicate a retryable error even without a known error name.
  */
 const RETRYABLE_MESSAGE_PATTERNS = [
-  "rate_limit",
-  "rate limit",
-  "quota",
-  "quota will reset after",
-  "usage limit has been reached",
-  "all credentials for model",
-  "cooling down",
-  "exhausted your capacity",
-  "not found",
-  "unavailable",
-  "insufficient",
-  "too many requests",
-  "over limit",
-  "overloaded",
-  "bad gateway",
-  "unknown provider",
-  "provider not found",
-  "model_not_supported",
-  "model not supported",
-  "model is not supported",
+  "certificate",
+  "certificate has expired",
+  "unable to verify the first certificate",
+  "self.signed certificate",
+  "self signed certificate",
+  "CERT_HAS_EXPIRED",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "tls",
+  "ssl",
   "connection error",
   "network error",
-  "timeout",
-  "service unavailable",
-  "internal_server_error",
-  "free usage",
-  "usage exceeded",
-  "credit",
-  "balance",
-  "temporarily unavailable",
-  "try again",
-  "503",
-  "502",
-  "504",
-  "429",
-  "529",
+  "socket hang up",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
 ]
 
 const AUTO_RETRY_GATE_PATTERNS = [
