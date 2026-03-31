@@ -80,6 +80,12 @@ function getRawFallbackModelsForSession(
     if (result) return result
   }
 
+  // Fallback to root-level fallback_models when agent/category resolution fails
+  if (pluginConfig.fallback_models) {
+    log(`[${HOOK_NAME}] Using root-level fallback_models for session`, { sessionID, agent })
+    return normalizeFallbackModels(pluginConfig.fallback_models)
+  }
+
   log(`[${HOOK_NAME}] No category/agent fallback models resolved for session`, { sessionID, agent })
 
   return undefined
