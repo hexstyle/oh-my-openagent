@@ -173,4 +173,34 @@ describe("resolveActualContextLimit", () => {
     // then
     expect(actualLimit).toBeNull()
   })
+
+  it("caps GPT-5.4 effective context limit at 250K even when cache reports 1M", () => {
+    // given
+    const modelContextLimitsCache = new Map<string, number>()
+    modelContextLimitsCache.set("openai/gpt-5.4", 1_000_000)
+
+    // when
+    const actualLimit = resolveActualContextLimit("openai", "gpt-5.4", {
+      anthropicContext1MEnabled: false,
+      modelContextLimitsCache,
+    })
+
+    // then
+    expect(actualLimit).toBe(250_000)
+  })
+
+  it("does not raise GPT-5.4 if the cached limit is already below 250K", () => {
+    // given
+    const modelContextLimitsCache = new Map<string, number>()
+    modelContextLimitsCache.set("openai/gpt-5.4", 200_000)
+
+    // when
+    const actualLimit = resolveActualContextLimit("openai", "gpt-5.4", {
+      anthropicContext1MEnabled: false,
+      modelContextLimitsCache,
+    })
+
+    // then
+    expect(actualLimit).toBe(200_000)
+  })
 })
