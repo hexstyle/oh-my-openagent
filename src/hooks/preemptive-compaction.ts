@@ -10,6 +10,8 @@ import { createPostCompactionDegradationMonitor } from "./preemptive-compaction-
 
 const PREEMPTIVE_COMPACTION_TIMEOUT_MS = 120_000
 const PREEMPTIVE_COMPACTION_THRESHOLD = 0.78
+const PREEMPTIVE_COMPACTION_LOW_LIMIT_THRESHOLD = 0.68
+const PREEMPTIVE_COMPACTION_LOW_LIMIT_CUTOFF = 300_000
 const PREEMPTIVE_COMPACTION_COOLDOWN_MS = 60_000
 
 declare function setTimeout(handler: () => void, timeout?: number): unknown
@@ -26,6 +28,12 @@ interface CachedCompactionState {
   providerID: string
   modelID: string
   tokens: TokenInfo
+}
+
+function getPreemptiveCompactionThreshold(actualLimit: number): number {
+  return actualLimit <= PREEMPTIVE_COMPACTION_LOW_LIMIT_CUTOFF
+    ? PREEMPTIVE_COMPACTION_LOW_LIMIT_THRESHOLD
+    : PREEMPTIVE_COMPACTION_THRESHOLD
 }
 
 async function withTimeout<TValue>(
@@ -72,19 +80,7 @@ export function createPreemptiveCompactionHook(
   const lastCompactionTime = new Map<string, number>()
   const tokenCache = new Map<string, CachedCompactionState>()
 
-  const postCompactionMonitor = createPostCompactionDegradationMonitor({
-    client: ctx.client,
-    directory: ctx.directory,
-    pluginConfig,
-    tokenCache,
-    compactionInProgress,
-  })
-
-  const toolExecuteAfter = async (
-    input: { tool: string; sessionID: string; callID: string },
-    _output: { title: string; output: string; metadata: unknown }
-  ) => {
-    const { sessionID } = input
+  const maybeCompactSession = async (sessionID: string): Promise<void> => {
     if (compactedSessions.has(sessionID) || compactionInProgress.has(sessionID)) return
 
     const lastTime = lastCompactionTime.get(sessionID)
@@ -109,7 +105,8 @@ export function createPreemptiveCompactionHook(
 
     const totalInputTokens = (cached.tokens.input ?? 0) + (cached.tokens.cache?.read ?? 0)
     const usageRatio = totalInputTokens / actualLimit
-    if (usageRatio < PREEMPTIVE_COMPACTION_THRESHOLD || !cached.modelID) return
+    const threshold = getPreemptiveCompactionThreshold(actualLimit)
+    if (usageRatio < threshold || !cached.modelID) return
 
     compactionInProgress.add(sessionID)
     lastCompactionTime.set(sessionID, Date.now())
@@ -121,6 +118,16 @@ export function createPreemptiveCompactionHook(
         cached.providerID,
         cached.modelID,
       )
+
+      log("[preemptive-compaction] Triggering preemptive compaction", {
+        sessionID,
+        providerID: cached.providerID,
+        modelID: cached.modelID,
+        totalInputTokens,
+        actualLimit,
+        usageRatio,
+        threshold,
+      })
 
       await withTimeout(
         ctx.client.session.summarize({
@@ -138,6 +145,21 @@ export function createPreemptiveCompactionHook(
     } finally {
       compactionInProgress.delete(sessionID)
     }
+  }
+
+  const postCompactionMonitor = createPostCompactionDegradationMonitor({
+    client: ctx.client,
+    directory: ctx.directory,
+    pluginConfig,
+    tokenCache,
+    compactionInProgress,
+  })
+
+  const toolExecuteAfter = async (
+    input: { tool: string; sessionID: string; callID: string },
+    _output: { title: string; output: string; metadata: unknown }
+  ) => {
+    await maybeCompactSession(input.sessionID)
   }
 
   const eventHandler = async ({ event }: { event: { type: string; properties?: unknown } }) => {
@@ -160,6 +182,15 @@ export function createPreemptiveCompactionHook(
         ?? (props?.info as { id?: string } | undefined)?.id
       if (sessionID) {
         postCompactionMonitor.onSessionCompacted(sessionID)
+      }
+      return
+    }
+
+    if (event.type === "session.idle") {
+      const sessionID = (props?.sessionID as string | undefined)
+        ?? (props?.info as { id?: string } | undefined)?.id
+      if (sessionID) {
+        await maybeCompactSession(sessionID)
       }
       return
     }
