@@ -44,7 +44,7 @@ import {
   getSessionErrorMessage,
   isRecord,
 } from "./error-classifier"
-import { tryFallbackRetry } from "./fallback-retry-handler"
+import { tryFallbackRetry, tryFallbackSwitch } from "./fallback-retry-handler"
 import { registerManagerForCleanup, unregisterManagerForCleanup } from "./process-cleanup"
 import {
   findNearestMessageExcludingCompaction,
@@ -1176,14 +1176,7 @@ export class BackgroundManager {
       if (this.tryFallbackRetry(task, errorInfo, "session.error")) return
 
       // For quota/limit errors: switch to fallback model instead of failing
-      if (shouldSwitchFallback(errorInfo) && task.fallbackChain && hasMoreFallbacks(task.fallbackChain, task.attemptCount ?? 0)) {
-        log("[background-agent] Quota error detected, switching to fallback model", {
-          taskId: task.id,
-          errorName,
-          errorMessage: errorMessage?.slice(0, 100),
-        })
-        if (this.tryFallbackRetry(task, { name: "QuotaExceededError", message: errorMessage }, "session.error.quota")) return
-      }
+      if (this.tryFallbackSwitch(task, errorInfo, "session.error.quota")) return
 
       const errorMsg = errorMessage ?? "Session error"
       void this.failTask(task, errorMsg, "session.error")
@@ -1271,6 +1264,28 @@ export class BackgroundManager {
   ): boolean {
     const previousSessionID = task.sessionID
     const result = tryFallbackRetry({
+      task,
+      errorInfo,
+      source,
+      concurrencyManager: this.concurrencyManager,
+      client: this.client,
+      idleDeferralTimers: this.idleDeferralTimers,
+      queuesByKey: this.queuesByKey,
+      processKey: (key: string) => this.processKey(key),
+    })
+    if (result && previousSessionID) {
+      subagentSessions.delete(previousSessionID)
+    }
+    return result
+  }
+
+  private tryFallbackSwitch(
+    task: BackgroundTask,
+    errorInfo: { name?: string; message?: string },
+    source: string,
+  ): boolean {
+    const previousSessionID = task.sessionID
+    const result = tryFallbackSwitch({
       task,
       errorInfo,
       source,
