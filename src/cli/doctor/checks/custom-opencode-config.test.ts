@@ -46,6 +46,7 @@ const hostConfig = JSON.parse(readFileSync(hostConfigPath, "utf-8")) as {
   $schema?: string
   default_agent?: string
   plugin?: string[]
+  lsp?: Record<string, { command?: string[]; extensions?: string[] }>
 }
 
 const pluginConfigContents = readFileSync(pluginConfigPath, "utf-8")
@@ -85,7 +86,20 @@ const pluginConfig = JSON.parse(pluginConfigContents) as {
 describe("managed custom OpenCode config assets", () => {
   it("keeps explicit package-plugin registration in the host config", () => {
     expect(hostConfig.default_agent).toBe("prometheus")
-    expect(hostConfig.plugin).toEqual(expect.arrayContaining(["oh-my-openagent"]))
+    expect(hostConfig.plugin).toEqual(
+      expect.arrayContaining(["oh-my-openagent", "@ex-machina/opencode-anthropic-auth"])
+    )
+  })
+
+  it("pins managed TypeScript and C# LSP entries in the host config", () => {
+    expect(hostConfig.lsp?.typescript).toEqual({
+      command: ["typescript-language-server", "--stdio"],
+      extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"],
+    })
+    expect(hostConfig.lsp?.csharp).toEqual({
+      command: ["csharp-ls"],
+      extensions: [".cs"],
+    })
   })
 
   it("pins Prometheus to a strong reasoning profile and keeps coding agents on faster models", () => {

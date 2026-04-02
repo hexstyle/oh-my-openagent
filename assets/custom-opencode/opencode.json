@@ -4,5 +4,31 @@
   "plugin": [
     "oh-my-openagent",
     "@ex-machina/opencode-anthropic-auth"
-  ]
+  ],
+  "lsp": {
+    "typescript": {
+      "command": [
+        "typescript-language-server",
+        "--stdio"
+      ],
+      "extensions": [
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+        ".mts",
+        ".cts"
+      ]
+    },
+    "csharp": {
+      "command": [
+        "csharp-ls"
+      ],
+      "extensions": [
+        ".cs"
+      ]
+    }
+  }
 }

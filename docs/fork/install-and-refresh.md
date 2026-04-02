@@ -13,6 +13,10 @@ Run the repo copy of `assets/custom-opencode/refresh-omo.ps1`. That copy owns th
 - `node` and `npm` are on `PATH`.
 - `oh-my-opencode` is installed in the target config directory. The refresh script prefers target-local doctor entry points (`<target>\node_modules\.bin\oh-my-opencode*` first, then the package `bin\oh-my-opencode.js` via Node) and only falls back to a global `oh-my-opencode` on `PATH` if the target-local entry points are unavailable.
 - Bun is optional for the refresh script itself. If Bun is available from the repo checkout, the script runs `script/sync-custom-opencode-assets.ts`. If Bun is missing, the script falls back to a PowerShell sync path that writes the same `.oh-my-openagent-sync` manifest, log, and per-file backups.
+- For full LSP tooling coverage, the managed flow expects:
+  - TypeScript: `typescript-language-server` + `typescript`
+  - C#: `csharp-ls` (dotnet global tool)
+  - The refresh script now bootstraps these automatically in update mode. In `-CheckOnly`, it reports status without installing.
 
 ## What gets synced
 
@@ -52,14 +56,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\assets\custom-opencode\re
 1. Verifies `node`, `npm`, and `opencode`, then resolves `oh-my-opencode` from the target config directory first (`node_modules\.bin` shims, then the package `bin\oh-my-opencode.js` via Node) before considering a global `PATH` entry.
 2. Creates a full pre-refresh backup of the target config surface before any managed files are replaced.
 3. Runs `npm install` if the target has no `node_modules`, otherwise runs `npm update oh-my-openagent @code-yeongyu/comment-checker` inside the target config directory.
-4. Repairs the local Windows platform binary package for `oh-my-opencode` when it is missing, so the target-local doctor command can run from the target `node_modules` tree.
-5. Syncs the managed assets into the target directory.
-6. Runs these live checks against the target directory by setting `OPENCODE_CONFIG_DIR` for the command invocation:
+4. Bootstraps global LSP dependencies for managed TypeScript and C# flows when they are missing:
+   - `npm install -g typescript-language-server typescript`
+   - `dotnet tool update -g csharp-ls` (falls back to `dotnet tool install -g csharp-ls`)
+5. Repairs the local Windows platform binary package for `oh-my-opencode` when it is missing, so the target-local doctor command can run from the target `node_modules` tree.
+6. Syncs the managed assets into the target directory.
+7. Runs these live checks against the target directory by setting `OPENCODE_CONFIG_DIR` for the command invocation:
    - `opencode --version`
    - `opencode debug config`
    - `oh-my-opencode doctor --json`
-7. Accepts refresh completion when doctor reports only these already-documented advisory caveats: the wrapper-file registration false negative from older installed doctor logic, missing `gh`, and missing `@code-yeongyu/comment-checker`.
-8. If any other post-backup step fails, restores the previous target contents automatically and then re-runs `opencode debug config` against the restored target.
+8. Accepts refresh completion when doctor reports only these already-documented advisory caveats: the wrapper-file registration false negative from older installed doctor logic, missing `gh`, and missing `@code-yeongyu/comment-checker`.
+9. If any other post-backup step fails, restores the previous target contents automatically and then re-runs `opencode debug config` against the restored target.
 
 ## Where backups, manifests, and logs go
 

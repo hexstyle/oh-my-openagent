@@ -126,6 +126,100 @@ function Resolve-CommandPath {
   throw "Required command '$Name' was not found in PATH or fallback paths."
 }
 
+function Test-CommandAvailability {
+  param(
+    [string]$Name,
+    [string[]]$FallbackPaths = @()
+  )
+
+  $command = Get-Command $Name -ErrorAction SilentlyContinue
+  if ($command) {
+    return $true
+  }
+
+  foreach ($fallbackPath in $FallbackPaths) {
+    if ($fallbackPath -and (Test-Path -LiteralPath $fallbackPath)) {
+      return $true
+    }
+  }
+
+  return $false
+}
+
+function Get-TypeScriptLspFallbackPaths {
+  $fallbackPaths = [System.Collections.Generic.List[string]]::new()
+
+  if (-not [string]::IsNullOrWhiteSpace($env:APPDATA)) {
+    $fallbackPaths.Add((Join-Path $env:APPDATA "npm\typescript-language-server.cmd")) | Out-Null
+    $fallbackPaths.Add((Join-Path $env:APPDATA "npm\typescript-language-server.ps1")) | Out-Null
+    $fallbackPaths.Add((Join-Path $env:APPDATA "npm\typescript-language-server")) | Out-Null
+  }
+
+  return @($fallbackPaths)
+}
+
+function Get-CSharpLspFallbackPaths {
+  $fallbackPaths = [System.Collections.Generic.List[string]]::new()
+
+  if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+    $fallbackPaths.Add((Join-Path $env:USERPROFILE ".dotnet\tools\csharp-ls.exe")) | Out-Null
+    $fallbackPaths.Add((Join-Path $env:USERPROFILE ".dotnet\tools\csharp-ls")) | Out-Null
+  }
+
+  return @($fallbackPaths)
+}
+
+function Ensure-ManagedLspDependencies {
+  param(
+    [string]$NpmCommand
+  )
+
+  $typescriptCommandName = "typescript-language-server"
+  $typescriptFallbackPaths = Get-TypeScriptLspFallbackPaths
+
+  if (Test-CommandAvailability -Name $typescriptCommandName -FallbackPaths $typescriptFallbackPaths) {
+    Write-Note "TypeScript LSP dependency is already available: $typescriptCommandName"
+  }
+  else {
+    Invoke-LoggedCommand -Executable $NpmCommand -Arguments @("install", "-g", "typescript-language-server", "typescript") -Description "Installing TypeScript LSP dependencies globally" -WorkingDirectory $TargetDir | Out-Null
+
+    if (-not (Test-CommandAvailability -Name $typescriptCommandName -FallbackPaths $typescriptFallbackPaths)) {
+      throw "TypeScript LSP dependency '$typescriptCommandName' is still unavailable after installation. Add your npm global bin directory to PATH and retry."
+    }
+
+    Write-Note "TypeScript LSP bootstrap complete."
+  }
+
+  $csharpCommandName = "csharp-ls"
+  $csharpFallbackPaths = Get-CSharpLspFallbackPaths
+
+  if (Test-CommandAvailability -Name $csharpCommandName -FallbackPaths $csharpFallbackPaths) {
+    Write-Note "C# LSP dependency is already available: $csharpCommandName"
+    return
+  }
+
+  $dotnetCommand = Resolve-CommandPath -Name "dotnet"
+  $updated = $false
+
+  try {
+    Invoke-LoggedCommand -Executable $dotnetCommand -Arguments @("tool", "update", "-g", "csharp-ls") -Description "Updating global csharp-ls dotnet tool" -WorkingDirectory $TargetDir | Out-Null
+    $updated = $true
+  }
+  catch {
+    Write-Note "dotnet tool update -g csharp-ls failed ($($_.Exception.Message)). Trying install."
+  }
+
+  if (-not $updated) {
+    Invoke-LoggedCommand -Executable $dotnetCommand -Arguments @("tool", "install", "-g", "csharp-ls") -Description "Installing global csharp-ls dotnet tool" -WorkingDirectory $TargetDir | Out-Null
+  }
+
+  if (-not (Test-CommandAvailability -Name $csharpCommandName -FallbackPaths $csharpFallbackPaths)) {
+    throw "C# LSP dependency '$csharpCommandName' is still unavailable after dotnet tool bootstrap. Ensure '$env:USERPROFILE\.dotnet\tools' is on PATH and retry."
+  }
+
+  Write-Note "C# LSP bootstrap complete."
+}
+
 function Resolve-DoctorCommand {
   param(
     [string]$TargetDir,
@@ -722,6 +816,13 @@ try {
   }
   else {
     Write-Step "Check-only mode, skipping npm refresh"
+  }
+
+  if ($CheckOnly) {
+    Write-Step "Check-only mode, skipping global LSP dependency bootstrap"
+  }
+  else {
+    Ensure-ManagedLspDependencies -NpmCommand $npmCommand
   }
 
   $doctorCommand = Resolve-DoctorCommand -TargetDir $TargetDir -NodeCommand $nodeCommand
