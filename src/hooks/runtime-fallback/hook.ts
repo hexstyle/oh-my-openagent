@@ -1,5 +1,5 @@
 import type { HookDeps, RuntimeFallbackHook, RuntimeFallbackInterval, RuntimeFallbackOptions, RuntimeFallbackPluginInput, RuntimeFallbackTimeout } from "./types"
-import { DEFAULT_CONFIG, HOOK_NAME } from "./constants"
+import { DEFAULT_CONFIG, HOOK_NAME, MODEL_RECOVERY_INTERVAL_MS } from "./constants"
 import { log } from "../../shared/logger"
 import { loadPluginConfig } from "../../plugin-config"
 import { createAutoRetryHelpers } from "./auto-retry"
@@ -19,6 +19,7 @@ export function createRuntimeFallbackHook(
     enabled: options?.config?.enabled ?? DEFAULT_CONFIG.enabled,
     retry_on_errors: options?.config?.retry_on_errors ?? DEFAULT_CONFIG.retry_on_errors,
     max_fallback_attempts: options?.config?.max_fallback_attempts ?? DEFAULT_CONFIG.max_fallback_attempts,
+    max_full_chain_cycles: options?.config?.max_full_chain_cycles ?? DEFAULT_CONFIG.max_full_chain_cycles,
     cooldown_seconds: options?.config?.cooldown_seconds ?? DEFAULT_CONFIG.cooldown_seconds,
     timeout_seconds: options?.config?.timeout_seconds ?? DEFAULT_CONFIG.timeout_seconds,
     notify_on_fallback: options?.config?.notify_on_fallback ?? DEFAULT_CONFIG.notify_on_fallback,
@@ -53,6 +54,8 @@ export function createRuntimeFallbackHook(
 
   const cleanupInterval = setInterval(helpers.cleanupStaleSessions, 5 * 60 * 1000)
   cleanupInterval.unref()
+  const recoveryInterval = setInterval(helpers.recoverPreferredModels, MODEL_RECOVERY_INTERVAL_MS)
+  recoveryInterval.unref()
 
   const eventHandler = async ({ event }: { event: { type: string; properties?: unknown } }) => {
     if (event.type === "message.updated") {
@@ -66,6 +69,7 @@ export function createRuntimeFallbackHook(
 
   const dispose = () => {
     clearInterval(cleanupInterval)
+    clearInterval(recoveryInterval)
 
     for (const fallbackTimeout of deps.sessionFallbackTimeouts.values()) {
       clearTimeout(fallbackTimeout)

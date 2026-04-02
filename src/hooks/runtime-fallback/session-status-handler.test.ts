@@ -108,4 +108,42 @@ describe("createSessionStatusHandler", () => {
     expect(state.pendingFallbackModel).toBe("google/gemini-2.5-pro")
     SessionCategoryRegistry.clear()
   })
+
+  it("#given an Anthropic extra-usage retry status #when the handler sees it #then it falls back immediately instead of waiting for provider retry", async () => {
+    // given
+    SessionCategoryRegistry.clear()
+    const sessionID = "session-status-extra-usage"
+    SessionCategoryRegistry.register(sessionID, "test")
+
+    const deps = createDeps()
+    const abortCalls: string[] = []
+    const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const state = createFallbackState("anthropic/claude-opus-4-6")
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createSessionStatusHandler(deps, createHelpers(abortCalls, retryCalls), deps.sessionStatusRetryKeys)
+
+    // when
+    await handler({
+      sessionID,
+      model: "anthropic/claude-opus-4-6",
+      status: {
+        type: "retry",
+        attempt: 1,
+        message: "Extra usage is required for long context requests.",
+      },
+    })
+
+    // then
+    expect(abortCalls).toEqual([sessionID])
+    expect(retryCalls).toEqual([
+      {
+        sessionID,
+        model: "openai/gpt-5.4",
+        source: "session.status",
+      },
+    ])
+    expect(state.currentModel).toBe("openai/gpt-5.4")
+    SessionCategoryRegistry.clear()
+  })
 })

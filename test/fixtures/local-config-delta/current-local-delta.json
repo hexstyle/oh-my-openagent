@@ -27,15 +27,27 @@
           "value": "prometheus"
         }
       },
-      {
-        "id": "agent-category-model-pinning-openai-gpt-5-4",
-        "summary": "Configured local agents and categories pin to openai/gpt-5.4 with variant xhigh and textVerbosity high.",
-        "evidence": {
-          "file": "C:\\Users\\RedFox\\.config\\opencode\\oh-my-opencode.json",
-          "model": "openai/gpt-5.4",
-          "variant": "xhigh",
-          "textVerbosity": "high",
-          "agents": [
+    {
+      "id": "agent-category-model-pinning-role-specific",
+      "summary": "Configured local agents and categories use role-specific model pinning: `sisyphus` (kimi-k2.5), `prometheus` (deepseek-ai/deepseek-r1), `librarian` (minimax-m2.7), `atlas` (qwen/qwen-2.5-coder), `metis` (deepseek-ai/deepseek-r1), and the remaining required agents/categories remain pinned to their previous values.",
+      "evidence": {
+        "file": "C:\\Users\\RedFox\\.config\\opencode\\oh-my-opencode.json",
+        "agentModels": {
+          "sisyphus": "kimi-k2.5",
+          "hephaestus": "openai/gpt-5.4",
+          "oracle": "openai/gpt-5.4",
+          "librarian": "minimax-m2.7",
+          "explore": "openai/gpt-5.4",
+          "multimodal-looker": "openai/gpt-5.4",
+          "prometheus": "deepseek-ai/deepseek-r1",
+          "metis": "deepseek-ai/deepseek-r1",
+          "momus": "openai/gpt-5.4",
+          "atlas": "qwen/qwen-2.5-coder",
+          "sisyphus-junior": "openai/gpt-5.4"
+        },
+        "variant": "xhigh",
+        "textVerbosity": "high",
+        "agents": [
             "sisyphus",
             "hephaestus",
             "oracle",

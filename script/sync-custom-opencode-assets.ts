@@ -60,6 +60,11 @@ export interface SyncCustomOpenCodeAssetsResult {
   backupDir: string
 }
 
+interface ManagedAssetTarget {
+  sourcePath: string
+  relativePath: string
+}
+
 function toPortableRelativePath(pathValue: string): string {
   return pathValue.split("\\").join("/")
 }
@@ -156,10 +161,24 @@ export async function syncCustomOpenCodeAssets(
   await ensureDirectory(backupDir, targetDir, createdDirectories)
 
   const assetFiles = await listManagedAssetFiles(assetRoot)
-  const fileRecords: SyncedFileRecord[] = []
+  const assetTargets: ManagedAssetTarget[] = []
 
   for (const sourcePath of assetFiles) {
     const relativePath = toPortableRelativePath(relative(assetRoot, sourcePath))
+    assetTargets.push({ sourcePath, relativePath })
+
+    if (relativePath === "oh-my-opencode.json") {
+      assetTargets.push({
+        sourcePath,
+        relativePath: "oh-my-openagent.json",
+      })
+    }
+  }
+
+  const fileRecords: SyncedFileRecord[] = []
+
+  for (const target of assetTargets) {
+    const { sourcePath, relativePath } = target
     const destinationPath = join(targetDir, relativePath)
     const destinationDir = dirname(destinationPath)
 

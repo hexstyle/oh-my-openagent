@@ -585,7 +585,7 @@ describe("preemptive-compaction", () => {
   })
 
   // #given modelContextLimitsCache has model-specific limit (256k)
-  // #when tokens are above default 78% of 200k but below 78% of 256k
+  // #when tokens are above the 200k threshold but below 68% of 256k
   // #then should NOT trigger compaction
   it("should use model-specific context limit from modelContextLimitsCache", async () => {
     const modelContextLimitsCache = new Map<string, number>()
@@ -597,7 +597,7 @@ describe("preemptive-compaction", () => {
     })
     const sessionID = "ses_kimi_limit"
 
-    // 180k total tokens — above 78% of 200k (156k) but below 78% of 256k (204k)
+    // 170k total tokens -> above 68% of 200k (136k) but below 68% of 256k (~178k)
     await hook.event({
       event: {
         type: "message.updated",
@@ -609,7 +609,7 @@ describe("preemptive-compaction", () => {
             modelID: "kimi-k2.5-free",
             finish: true,
             tokens: {
-              input: 170000,
+              input: 160000,
               output: 0,
               reasoning: 0,
               cache: { read: 10000, write: 0 },
@@ -628,7 +628,7 @@ describe("preemptive-compaction", () => {
   })
 
   // #given modelContextLimitsCache has model-specific limit (256k)
-  // #when tokens exceed 78% of model-specific limit
+  // #when tokens exceed 68% of the model-specific limit
   // #then should trigger compaction
   it("should trigger compaction at model-specific threshold", async () => {
     const modelContextLimitsCache = new Map<string, number>()
@@ -640,7 +640,7 @@ describe("preemptive-compaction", () => {
     })
     const sessionID = "ses_kimi_trigger"
 
-    // 210k total — above 78% of 256k (≈204k)
+    // 210k total -> above 68% of 256k (~178k)
     await hook.event({
       event: {
         type: "message.updated",
@@ -787,6 +787,49 @@ describe("preemptive-compaction", () => {
         properties: { sessionID },
       },
     })
+
+    expect(ctx.client.session.summarize).toHaveBeenCalled()
+  })
+
+  it("should trigger compaction once configured absolute token threshold is reached", async () => {
+    const hook = createPreemptiveCompactionHook(
+      ctx as never,
+      {
+        experimental: {
+          preemptive_compaction_input_tokens: 200000,
+        },
+      } as never,
+      {
+        anthropicContext1MEnabled: false,
+      },
+    )
+    const sessionID = "ses_absolute_threshold"
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            role: "assistant",
+            sessionID,
+            providerID: "openai",
+            modelID: "gpt-5.4",
+            finish: true,
+            tokens: {
+              input: 195000,
+              output: 0,
+              reasoning: 0,
+              cache: { read: 8000, write: 0 },
+            },
+          },
+        },
+      },
+    })
+
+    await hook["tool.execute.after"](
+      { tool: "bash", sessionID, callID: "call_absolute_threshold" },
+      { title: "", output: "test", metadata: null },
+    )
 
     expect(ctx.client.session.summarize).toHaveBeenCalled()
   })

@@ -1,7 +1,7 @@
 import type { HookDeps } from "./types"
 import { HOOK_NAME } from "./constants"
 import { log } from "../../shared/logger"
-import { createFallbackState } from "./fallback-state"
+import { createFallbackState, recoverPreferredModel } from "./fallback-state"
 
 export function createChatMessageHandler(deps: HookDeps) {
   const { config, sessionStates, sessionLastAccess } = deps
@@ -18,6 +18,14 @@ export function createChatMessageHandler(deps: HookDeps) {
     if (!state) return
 
     sessionLastAccess.set(sessionID, Date.now())
+
+    const recoveredModel = recoverPreferredModel(state, config.cooldown_seconds)
+    if (recoveredModel) {
+      log(`[${HOOK_NAME}] Recovered to a higher-priority model before sending the next message`, {
+        sessionID,
+        recoveredModel,
+      })
+    }
 
     const requestedModel = input.model
       ? `${input.model.providerID}/${input.model.modelID}`

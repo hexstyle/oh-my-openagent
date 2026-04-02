@@ -36,6 +36,15 @@ function getPreemptiveCompactionThreshold(actualLimit: number): number {
     : PREEMPTIVE_COMPACTION_THRESHOLD
 }
 
+function getPreemptiveCompactionAbsoluteThreshold(pluginConfig: OhMyOpenCodeConfig): number | null {
+  const configured = pluginConfig.experimental?.preemptive_compaction_input_tokens
+  if (typeof configured !== "number" || !Number.isFinite(configured) || configured <= 0) {
+    return null
+  }
+
+  return Math.floor(configured)
+}
+
 async function withTimeout<TValue>(
   promise: Promise<TValue>,
   timeoutMs: number,
@@ -89,24 +98,34 @@ export function createPreemptiveCompactionHook(
     const cached = tokenCache.get(sessionID)
     if (!cached) return
 
+    const totalInputTokens = (cached.tokens.input ?? 0) + (cached.tokens.cache?.read ?? 0)
+    const absoluteThreshold = getPreemptiveCompactionAbsoluteThreshold(pluginConfig)
+    const reachedAbsoluteThreshold = absoluteThreshold !== null && totalInputTokens >= absoluteThreshold
     const actualLimit = resolveActualContextLimit(
       cached.providerID,
       cached.modelID,
       modelCacheState,
     )
 
-    if (actualLimit === null) {
+    if (actualLimit === null && !reachedAbsoluteThreshold) {
       log("[preemptive-compaction] Skipping preemptive compaction: unknown context limit for model", {
         providerID: cached.providerID,
         modelID: cached.modelID,
+        totalInputTokens,
+        absoluteThreshold,
       })
       return
     }
 
-    const totalInputTokens = (cached.tokens.input ?? 0) + (cached.tokens.cache?.read ?? 0)
-    const usageRatio = totalInputTokens / actualLimit
-    const threshold = getPreemptiveCompactionThreshold(actualLimit)
-    if (usageRatio < threshold || !cached.modelID) return
+    const usageRatio = actualLimit === null ? null : totalInputTokens / actualLimit
+    const threshold = actualLimit === null ? null : getPreemptiveCompactionThreshold(actualLimit)
+
+    if (
+      (!reachedAbsoluteThreshold && usageRatio !== null && threshold !== null && usageRatio < threshold)
+      || !cached.modelID
+    ) {
+      return
+    }
 
     compactionInProgress.add(sessionID)
     lastCompactionTime.set(sessionID, Date.now())
@@ -127,6 +146,8 @@ export function createPreemptiveCompactionHook(
         actualLimit,
         usageRatio,
         threshold,
+        absoluteThreshold,
+        reachedAbsoluteThreshold,
       })
 
       await withTimeout(

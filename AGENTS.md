@@ -40,3 +40,25 @@ node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.jso
 - Keep OpenCode host config (`opencode.json[c]`) separate from OhMyOpenCode plugin config.
 - Require explicit plugin registration through the OpenCode `plugin` array.
 - Do not rename the compatibility surface in phase 1 unless a verified blocker requires it.
+
+## Local workflow rules
+
+- Source of truth for managed OpenCode assets is `assets/custom-opencode/`.
+- When changing agent or fallback configuration, update `assets/custom-opencode/oh-my-opencode.json` first, then sync the same content to live files:
+  - `C:/Users/RedFox/.config/opencode/oh-my-opencode.json`
+  - `C:/Users/RedFox/.config/opencode/oh-my-openagent.json`
+- Keep host runtime registration in `C:/Users/RedFox/.config/opencode/opencode.json` explicit and minimal:
+  - `oh-my-openagent`
+  - `@ex-machina/opencode-anthropic-auth`
+- The live file `C:/Users/RedFox/.config/opencode/plugins/oh-my-openagent.js` is a compat shim only. Do not use it as the primary plugin registration path.
+- When plugin/runtime behavior conflicts with config expectations, compare in this order:
+  1. `assets/custom-opencode/*`
+  2. live files under `C:/Users/RedFox/.config/opencode/*`
+  3. latest OpenCode logs under `C:/Users/RedFox/.local/share/opencode/log/`
+- Required verification after changing fork assets or local runtime config:
+  - `bun run build`
+  - targeted `bun test` for touched runtime/plugin paths
+  - `node bin/oh-my-opencode.js doctor --json`
+  - `opencode debug config` from `E:/projects/datahub`
+- Runtime checks for this fork should be done from `E:/projects/datahub`, because that is the repo where the local OpenCode workflow and failures were reproduced.
+- Do not claim runtime fallback is fixed based only on unit tests. Confirm with a real OpenCode session/log when the scenario is reproducible.

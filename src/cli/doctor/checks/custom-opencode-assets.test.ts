@@ -41,6 +41,7 @@ describe("custom OpenCode asset sync", () => {
     const logPath = join(stateDir, SYNC_LOG_FILENAME)
 
     expect(existsSync(join(targetDir, "oh-my-opencode.json"))).toBe(true)
+    expect(existsSync(join(targetDir, "oh-my-openagent.json"))).toBe(true)
     expect(existsSync(join(targetDir, "opencode.json"))).toBe(true)
     expect(existsSync(join(targetDir, "plugins", "heartbeat-status.js"))).toBe(true)
     expect(existsSync(join(targetDir, "plugins", "oh-my-openagent.js"))).toBe(true)
@@ -54,13 +55,14 @@ describe("custom OpenCode asset sync", () => {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as SyncManifest
     expect(manifest.targetDir).toBe(targetDir)
     expect(manifest.summary).toEqual({
-      created: 6,
+      created: 7,
       updated: 0,
       unchanged: 0,
       backups: 0,
     })
     expect(manifest.files.map((file) => file.relativePath)).toEqual([
       "oh-my-opencode.json",
+      "oh-my-openagent.json",
       "opencode.json",
       "plugins/heartbeat-status.js",
       "plugins/oh-my-openagent.js",
@@ -71,6 +73,7 @@ describe("custom OpenCode asset sync", () => {
     expect(manifest.createdDirectories).toContain("plugins")
 
     const logContents = readFileSync(logPath, "utf-8")
+    expect(logContents).toContain("[CREATED] oh-my-openagent.json")
     expect(logContents).toContain("[CREATED] oh-my-opencode.json")
     expect(logContents).toContain("[CREATED] opencode.json")
     expect(logContents).toContain("[CREATED] plugins/heartbeat-status.js")

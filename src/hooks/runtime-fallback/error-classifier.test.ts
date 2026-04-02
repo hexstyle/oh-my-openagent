@@ -110,6 +110,24 @@ describe("runtime-fallback error classifier", () => {
     //#then
     expect(signal).toBeUndefined()
   })
+
+  test("treats extra usage requirement for long context as retryable but not as provider auto-retry", () => {
+    //#given
+    const info = {
+      status: "Extra usage is required for long context requests.",
+    }
+    const error = { message: "Extra usage is required for long context requests." }
+
+    //#when
+    const signal = extractAutoRetrySignal(info)
+    const errorType = classifyErrorType(error)
+    const retryable = isRetryableError(error, [402, 429, 500, 502, 503, 504, 529])
+
+    //#then
+    expect(signal).toBeUndefined()
+    expect(errorType).toBe("quota_exceeded")
+    expect(retryable).toBe(true)
+  })
 })
 
 describe("extractStatusCode", () => {
