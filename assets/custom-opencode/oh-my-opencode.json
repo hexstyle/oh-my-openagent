@@ -2,26 +2,15 @@
   "$schema": "./node_modules/oh-my-openagent/dist/oh-my-opencode.schema.json",
   "agents": {
     "sisyphus": {
-      "model": "openai/gpt-5.3-codex",
-      "variant": "high",
-      "textVerbosity": "high",
-      "fallback_models": [
-        "openai/gpt-5.3-codex",
-        "anthropic/claude-sonnet-4-6",
-        "openai/gpt-5.3-codex-spark",
-        "opencode/qwen3.6-plus-free",
-        "opencode/nemotron-3-super-free",
-        "opencode/mimo-v2-pro-free",
-        "opencode/minimax-m2.5-free"
-      ],
-      "prompt_append": "Before substantive work in any repository, first check whether the root AGENTS.md exists and matches the current project. If it is missing, outdated, or clearly incomplete, create or refresh it immediately before major edits. Keep it concise and factual. Add nested AGENTS.md files only when the repository is large or conventions differ by subtree. Maintain these files as you learn the repo's structure, commands, tests, conventions, and gotchas. If execution begins via /start-work, an approved Prometheus handoff, or an active boulder, treat that as explicit permission to implement. In execution mode, drive the plan to completion, keep delegating and verifying until all planned work is done, and do not stop at interim summaries or partial progress. Return control early only for destructive or irreversible actions, materially missing information, or hard environment blockers that cannot be solved from the repo. Default to short, task-appropriate timeouts for every operation. Long-running commands are exceptions, not the default. Break work into minimal steps, avoid waiting idle on commands that show no useful progress, and if something runs unexpectedly long, stop to diagnose it before retrying with a larger timeout."
-    },
-    "oracle": {
       "model": "openai/gpt-5.4",
       "variant": "xhigh",
       "textVerbosity": "high",
       "fallback_models": [
-        "openai/gpt-5.4",
+        {
+          "model": "openai/gpt-5.4",
+          "variant": "xhigh",
+          "reasoningEffort": "xhigh"
+        },
         "anthropic/claude-opus-4-6",
         "anthropic/claude-sonnet-4-6",
         "openai/gpt-5.3-codex",
@@ -31,7 +20,28 @@
         "opencode/mimo-v2-pro-free",
         "opencode/minimax-m2.5-free"
       ],
-      "reasoningEffort": "xhigh"
+      "reasoningEffort": "xhigh",
+      "prompt_append": "Before substantive work in any repository, first check whether the root AGENTS.md exists and matches the current project. If it is missing, outdated, or clearly incomplete, create or refresh it immediately before major edits. Keep it concise and factual. Add nested AGENTS.md files only when the repository is large or conventions differ by subtree. Maintain these files as you learn the repo's structure, commands, tests, conventions, and gotchas. If execution begins via /start-work, an approved Prometheus handoff, or an active boulder, treat that as explicit permission to implement. In execution mode, drive the plan to completion, keep delegating and verifying until all planned work is done, and do not stop at interim summaries or partial progress. Return control early only for destructive or irreversible actions, materially missing information, or hard environment blockers that cannot be solved from the repo. Default to short, task-appropriate timeouts for every operation. Long-running commands are exceptions, not the default. Break work into minimal steps, avoid waiting idle on commands that show no useful progress, and if something runs unexpectedly long, stop to diagnose it before retrying with a larger timeout."
+    },
+    "oracle": {
+      "model": "anthropic/claude-opus-4-6",
+      "variant": "max",
+      "textVerbosity": "high",
+      "fallback_models": [
+        "anthropic/claude-opus-4-6",
+        {
+          "model": "openai/gpt-5.4",
+          "variant": "xhigh",
+          "reasoningEffort": "xhigh"
+        },
+        "anthropic/claude-sonnet-4-6",
+        "openai/gpt-5.3-codex",
+        "openai/gpt-5.3-codex-spark",
+        "opencode/qwen3.6-plus-free",
+        "opencode/nemotron-3-super-free",
+        "opencode/mimo-v2-pro-free",
+        "opencode/minimax-m2.5-free"
+      ]
     },
     "librarian": {
       "model": "openai/gpt-5.3-codex",
@@ -76,12 +86,16 @@
       ]
     },
     "prometheus": {
-      "model": "openai/gpt-5.4",
-      "variant": "xhigh",
+      "model": "anthropic/claude-opus-4-6",
+      "variant": "max",
       "textVerbosity": "high",
       "fallback_models": [
-        "openai/gpt-5.4",
         "anthropic/claude-opus-4-6",
+        {
+          "model": "openai/gpt-5.4",
+          "variant": "xhigh",
+          "reasoningEffort": "xhigh"
+        },
         "anthropic/claude-sonnet-4-6",
         "openai/gpt-5.3-codex",
         "openai/gpt-5.3-codex-spark",
@@ -90,16 +104,19 @@
         "opencode/mimo-v2-pro-free",
         "opencode/minimax-m2.5-free"
       ],
-      "prompt_append": "Before substantive work in any repository, first check whether the root AGENTS.md exists and matches the current project. If it is missing, outdated, or clearly incomplete, create or refresh it immediately before major edits. Keep it concise and factual. Add nested AGENTS.md files only when the repository is large or conventions differ by subtree. Maintain these files as you learn the repo's structure, commands, tests, conventions, and gotchas. You are the planning and negotiation front door. Stay in planning mode, resolve scope and tradeoffs with the user, and finish with a concrete executable plan plus /start-work guidance. Do not execute the plan yourself unless the user explicitly overrides this role. Default to short, task-appropriate timeouts for every operation. Long-running commands are exceptions, not the default. Break work into minimal steps, avoid waiting idle on commands that show no useful progress, and if something runs unexpectedly long, stop to diagnose it before retrying with a larger timeout.",
-      "reasoningEffort": "xhigh"
+      "prompt_append": "Before substantive work in any repository, first check whether the root AGENTS.md exists and matches the current project. If it is missing, outdated, or clearly incomplete, create or refresh it immediately before major edits. Keep it concise and factual. Add nested AGENTS.md files only when the repository is large or conventions differ by subtree. Maintain these files as you learn the repo's structure, commands, tests, conventions, and gotchas. You are the planning and negotiation front door. Stay in planning mode, resolve scope and tradeoffs with the user, and finish with a concrete executable plan plus /start-work guidance. Do not execute the plan yourself unless the user explicitly overrides this role. Default to short, task-appropriate timeouts for every operation. Long-running commands are exceptions, not the default. Break work into minimal steps, avoid waiting idle on commands that show no useful progress, and if something runs unexpectedly long, stop to diagnose it before retrying with a larger timeout."
     },
     "metis": {
       "model": "anthropic/claude-opus-4-6",
-      "variant": "xhigh",
+      "variant": "max",
       "textVerbosity": "high",
       "fallback_models": [
-        "openai/gpt-5.4",
         "anthropic/claude-opus-4-6",
+        {
+          "model": "openai/gpt-5.4",
+          "variant": "xhigh",
+          "reasoningEffort": "xhigh"
+        },
         "anthropic/claude-sonnet-4-6",
         "openai/gpt-5.3-codex",
         "openai/gpt-5.3-codex-spark",
@@ -110,12 +127,18 @@
       ]
     },
     "momus": {
-      "model": "openai/gpt-5.3-codex",
-      "variant": "high",
+      "model": "anthropic/claude-opus-4-6",
+      "variant": "max",
       "textVerbosity": "high",
       "fallback_models": [
-        "openai/gpt-5.3-codex",
+        "anthropic/claude-opus-4-6",
+        {
+          "model": "openai/gpt-5.4",
+          "variant": "xhigh",
+          "reasoningEffort": "xhigh"
+        },
         "anthropic/claude-sonnet-4-6",
+        "openai/gpt-5.3-codex",
         "openai/gpt-5.3-codex-spark",
         "opencode/qwen3.6-plus-free",
         "opencode/nemotron-3-super-free",
@@ -125,11 +148,16 @@
     },
     "atlas": {
       "model": "openai/gpt-5.4",
-      "variant": "high",
+      "variant": "xhigh",
       "textVerbosity": "high",
       "fallback_models": [
-        "openai/gpt-5.3-codex",
+        {
+          "model": "openai/gpt-5.4",
+          "variant": "xhigh",
+          "reasoningEffort": "xhigh"
+        },
         "anthropic/claude-sonnet-4-6",
+        "openai/gpt-5.3-codex",
         "openai/gpt-5.3-codex-spark",
         "opencode/qwen3.6-plus-free",
         "opencode/nemotron-3-super-free",
@@ -174,7 +202,11 @@
       "variant": "xhigh",
       "textVerbosity": "high",
       "fallback_models": [
-        "openai/gpt-5.4",
+        {
+          "model": "openai/gpt-5.4",
+          "variant": "xhigh",
+          "reasoningEffort": "xhigh"
+        },
         "anthropic/claude-opus-4-6",
         "anthropic/claude-sonnet-4-6",
         "openai/gpt-5.3-codex",
@@ -188,10 +220,14 @@
     },
     "deep": {
       "model": "openai/gpt-5.4",
-      "variant": "high",
+      "variant": "xhigh",
       "textVerbosity": "high",
       "fallback_models": [
-        "openai/gpt-5.4",
+        {
+          "model": "openai/gpt-5.4",
+          "variant": "xhigh",
+          "reasoningEffort": "xhigh"
+        },
         "anthropic/claude-opus-4-6",
         "anthropic/claude-sonnet-4-6",
         "openai/gpt-5.3-codex",
@@ -201,7 +237,7 @@
         "opencode/mimo-v2-pro-free",
         "opencode/minimax-m2.5-free"
       ],
-      "reasoningEffort": "high"
+      "reasoningEffort": "xhigh"
     },
     "artistry": {
       "model": "anthropic/claude-sonnet-4-6",
@@ -318,7 +354,11 @@
     "force_enable": true
   },
   "fallback_models": [
-    "openai/gpt-5.4",
+    {
+      "model": "openai/gpt-5.4",
+      "variant": "xhigh",
+      "reasoningEffort": "xhigh"
+    },
     "anthropic/claude-opus-4-6",
     "anthropic/claude-sonnet-4-6",
     "openai/gpt-5.3-codex",
@@ -342,10 +382,6 @@
     "notify_on_fallback": true,
     "max_full_chain_cycles": 5
   },
-  "disabled_hooks": [
-    "runtime-fallback",
-    "model-fallback"
-  ],
   "disabled_agents": [
     "hephaestus"
   ]

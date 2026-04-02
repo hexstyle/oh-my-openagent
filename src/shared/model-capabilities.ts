@@ -93,7 +93,14 @@ export type ModelCapabilitiesDiagnostics = {
   modalities: { source: "runtime" | "runtime-snapshot" | "bundled-snapshot" | "none" }
 }
 
-const MODEL_ID_OVERRIDES: Record<string, ModelCapabilityOverride> = {}
+const MODEL_ID_OVERRIDES: Record<string, ModelCapabilityOverride> = {
+  // Some provider metadata feeds still report GPT-5.4 with only low/medium/high variants.
+  // Keep xhigh available so user-configured GPT-5.4 xhigh isn't silently downgraded.
+  "gpt-5.4": {
+    variants: ["low", "medium", "high", "xhigh"],
+    reasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"],
+  },
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -101,6 +108,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeLookupModelID(modelID: string): string {
   return modelID.trim().toLowerCase()
+}
+
+function mergeUniqueVariants(...variantSets: Array<string[] | undefined>): string[] | undefined {
+  const merged: string[] = []
+  for (const variants of variantSets) {
+    if (!variants) continue
+    for (const variant of variants) {
+      if (!merged.includes(variant)) {
+        merged.push(variant)
+      }
+    }
+  }
+  return merged.length > 0 ? merged : undefined
 }
 
 function readBoolean(value: unknown): boolean | undefined {
@@ -174,7 +194,16 @@ function normalizeSnapshot(snapshot: ModelCapabilitiesSnapshot | typeof bundledM
 }
 
 function getOverride(modelID: string): ModelCapabilityOverride | undefined {
-  return MODEL_ID_OVERRIDES[normalizeLookupModelID(modelID)]
+  const normalized = normalizeLookupModelID(modelID)
+  const direct = MODEL_ID_OVERRIDES[normalized]
+  if (direct) return direct
+
+  const slashIndex = normalized.lastIndexOf("/")
+  if (slashIndex >= 0 && slashIndex < normalized.length - 1) {
+    return MODEL_ID_OVERRIDES[normalized.slice(slashIndex + 1)]
+  }
+
+  return undefined
 }
 
 function readRuntimeModelCapabilities(runtimeModel: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
@@ -320,7 +349,7 @@ export function getModelCapabilities(input: GetModelCapabilitiesInput): ModelCap
   const canonicalization = resolveModelIDAlias(input.modelID)
   const requestedModelID = canonicalization.requestedModelID
   const canonicalModelID = canonicalization.canonicalModelID
-  const override = getOverride(input.modelID)
+  const override = getOverride(input.modelID) ?? getOverride(canonicalModelID)
   const runtimeModel = readRuntimeModel(
     input.runtimeModel ?? findProviderModelMetadata(input.providerID, input.modelID),
   )
@@ -329,6 +358,9 @@ export function getModelCapabilities(input: GetModelCapabilitiesInput): ModelCap
   const snapshotEntry = runtimeSnapshot?.models?.[canonicalModelID] ?? bundledSnapshot.models[canonicalModelID]
   const heuristicFamily = detectHeuristicModelFamily(canonicalModelID)
   const runtimeVariants = readRuntimeModelVariants(runtimeModel)
+  const mergedVariants = runtimeVariants
+    ? mergeUniqueVariants(runtimeVariants, override?.variants)
+    : undefined
   const snapshotSource: ModelCapabilitiesDiagnostics["snapshot"]["source"] =
     runtimeSnapshot?.models?.[canonicalModelID]
       ? "runtime-snapshot"
@@ -416,7 +448,7 @@ export function getModelCapabilities(input: GetModelCapabilitiesInput): ModelCap
     requestedModelID,
     canonicalModelID,
     family: snapshotEntry?.family ?? heuristicFamily?.family,
-    variants: runtimeVariants ?? override?.variants ?? heuristicFamily?.variants,
+    variants: mergedVariants ?? override?.variants ?? heuristicFamily?.variants,
     reasoningEfforts: override?.reasoningEfforts ?? heuristicFamily?.reasoningEfforts,
     reasoning: readRuntimeModelReasoningSupport(runtimeModel) ?? snapshotEntry?.reasoning,
     supportsThinking:

@@ -45,16 +45,16 @@ node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.jso
 
 - Source of truth for managed OpenCode assets is `assets/custom-opencode/`.
 - When changing agent or fallback configuration, update `assets/custom-opencode/oh-my-opencode.json` first, then sync the same content to live files:
-  - `C:/Users/RedFox/.config/opencode/oh-my-opencode.json`
-  - `C:/Users/RedFox/.config/opencode/oh-my-openagent.json`
-- Keep host runtime registration in `C:/Users/RedFox/.config/opencode/opencode.json` explicit and minimal:
+  - `<opencode-config-dir>/oh-my-opencode.json`
+  - `<opencode-config-dir>/oh-my-openagent.json`
+- Keep host runtime registration in `<opencode-config-dir>/opencode.json` explicit and minimal:
   - `oh-my-openagent`
   - `@ex-machina/opencode-anthropic-auth`
-- The live file `C:/Users/RedFox/.config/opencode/plugins/oh-my-openagent.js` is a compat shim only. Do not use it as the primary plugin registration path.
+- The live file `<opencode-config-dir>/plugins/oh-my-openagent.js` is a compat shim only. Do not use it as the primary plugin registration path.
 - When plugin/runtime behavior conflicts with config expectations, compare in this order:
   1. `assets/custom-opencode/*`
-  2. live files under `C:/Users/RedFox/.config/opencode/*`
-  3. latest OpenCode logs under `C:/Users/RedFox/.local/share/opencode/log/`
+  2. live files under `<opencode-config-dir>/*`
+  3. latest OpenCode logs under `<opencode-data-dir>/log/`
 - Required verification after changing fork assets or local runtime config:
   - `bun run build`
   - targeted `bun test` for touched runtime/plugin paths

@@ -175,6 +175,21 @@ describe("getModelCapabilities", () => {
     expect(result.variants).toEqual(["low", "medium", "high", "xhigh"])
   })
 
+  test("keeps GPT-5.4 xhigh available when runtime metadata only reports up to high", () => {
+    const result = getModelCapabilities({
+      providerID: "openai",
+      modelID: "gpt-5.4",
+      runtimeModel: {
+        variants: ["low", "medium", "high"],
+      },
+      bundledSnapshot,
+    })
+
+    expect(result.variants).toEqual(["low", "medium", "high", "xhigh"])
+    expect(result.reasoningEfforts).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
+    expect(result.diagnostics.variants.source).toBe("runtime")
+  })
+
   test("normalizes the legacy Claude Opus thinking alias before snapshot lookup", () => {
     const result = getModelCapabilities({
       providerID: "anthropic",

@@ -12,6 +12,29 @@ import {
 } from "../../shared/model-error-classifier"
 import { transformModelForProvider } from "../../shared/provider-model-id-transform"
 
+function isSameResolvedModel(task: BackgroundTask, providerID: string, modelID: string): boolean {
+  const current = task.model
+  if (!current) return false
+  return current.providerID.toLowerCase() === providerID.toLowerCase()
+    && current.modelID.toLowerCase() === modelID.toLowerCase()
+}
+
+function buildFallbackTaskModel(task: BackgroundTask, providerID: string, transformedModelId: string, nextFallback: FallbackEntry) {
+  const preserveExistingSettings = isSameResolvedModel(task, providerID, transformedModelId)
+  const currentModel = task.model
+
+  return {
+    providerID,
+    modelID: transformedModelId,
+    variant: nextFallback.variant ?? (preserveExistingSettings ? currentModel?.variant : undefined),
+    reasoningEffort: nextFallback.reasoningEffort ?? (preserveExistingSettings ? currentModel?.reasoningEffort : undefined),
+    temperature: nextFallback.temperature ?? (preserveExistingSettings ? currentModel?.temperature : undefined),
+    top_p: nextFallback.top_p ?? (preserveExistingSettings ? currentModel?.top_p : undefined),
+    maxTokens: nextFallback.maxTokens ?? (preserveExistingSettings ? currentModel?.maxTokens : undefined),
+    thinking: nextFallback.thinking ?? (preserveExistingSettings ? currentModel?.thinking : undefined),
+  }
+}
+
 export function tryFallbackRetry(args: {
   task: BackgroundTask
   errorInfo: { name?: string; message?: string }
@@ -97,11 +120,7 @@ export function tryFallbackRetry(args: {
 
   task.attemptCount = selectedAttemptCount
   const transformedModelId = transformModelForProvider(providerID, nextFallback.model)
-  task.model = {
-    providerID,
-    modelID: transformedModelId,
-    variant: nextFallback.variant,
-  }
+  task.model = buildFallbackTaskModel(task, providerID, transformedModelId, nextFallback)
   task.status = "pending"
   task.sessionID = undefined
   task.startedAt = undefined
@@ -215,11 +234,7 @@ export function tryFallbackSwitch(args: {
 
   task.attemptCount = selectedAttemptCount
   const transformedModelId = transformModelForProvider(providerID, nextFallback.model)
-  task.model = {
-    providerID,
-    modelID: transformedModelId,
-    variant: nextFallback.variant,
-  }
+  task.model = buildFallbackTaskModel(task, providerID, transformedModelId, nextFallback)
   task.status = "pending"
   task.sessionID = undefined
   task.startedAt = undefined

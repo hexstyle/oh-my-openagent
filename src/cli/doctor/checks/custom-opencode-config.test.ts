@@ -20,7 +20,14 @@ const FREE_MODELS = [
   "opencode/minimax-m2.5-free",
 ] as const
 
-function assertPaidSparkFreeOrdering(chain: string[]) {
+type FallbackModelEntry = string | { model?: string }
+
+function extractModelID(entry: FallbackModelEntry): string {
+  if (typeof entry === "string") return entry
+  return entry.model ?? ""
+}
+
+function assertPaidSparkFreeOrdering(chain: FallbackModelEntry[]) {
   expect(chain.length).toBeGreaterThan(0)
 
   const stageOf = (model: string): 0 | 1 | 2 | 3 => {
@@ -31,15 +38,16 @@ function assertPaidSparkFreeOrdering(chain: string[]) {
   }
 
   let previousStage = 0
-  for (const model of chain) {
+  for (const entry of chain) {
+    const model = extractModelID(entry)
     const stage = stageOf(model)
     expect(stage).not.toBe(3)
     expect(stage).toBeGreaterThanOrEqual(previousStage)
     previousStage = stage
   }
 
-  expect(chain.some((model) => SPARK_MODELS.includes(model as (typeof SPARK_MODELS)[number]))).toBe(true)
-  expect(chain.some((model) => FREE_MODELS.includes(model as (typeof FREE_MODELS)[number]))).toBe(true)
+  expect(chain.some((entry) => SPARK_MODELS.includes(extractModelID(entry) as (typeof SPARK_MODELS)[number]))).toBe(true)
+  expect(chain.some((entry) => FREE_MODELS.includes(extractModelID(entry) as (typeof FREE_MODELS)[number]))).toBe(true)
 }
 
 const hostConfig = JSON.parse(readFileSync(hostConfigPath, "utf-8")) as {
@@ -54,7 +62,7 @@ const pluginConfig = JSON.parse(pluginConfigContents) as {
   $schema?: string
   agents?: Record<string, Record<string, unknown>>
   categories?: Record<string, Record<string, unknown>>
-  fallback_models?: string[]
+  fallback_models?: FallbackModelEntry[]
   runtime_fallback?: {
     enabled?: boolean
     max_fallback_attempts?: number
@@ -102,18 +110,22 @@ describe("managed custom OpenCode config assets", () => {
     })
   })
 
-  it("pins Prometheus to a strong reasoning profile and keeps coding agents on faster models", () => {
+  it("pins architecture/review agents to Opus and keeps Sisyphus on GPT-5.4 xhigh", () => {
     const prometheus = pluginConfig.agents?.prometheus
-    expect(prometheus?.model).toBe("openai/gpt-5.4")
-    expect(prometheus?.variant).toBe("xhigh")
-    expect(prometheus?.reasoningEffort).toBe("xhigh")
+    expect(prometheus?.model).toBe("anthropic/claude-opus-4-6")
+    expect(prometheus?.variant).toBe("max")
     expect(prometheus?.textVerbosity).toBe("high")
 
-    for (const codingAgentName of ["sisyphus", "sisyphus-junior"] as const) {
-      const codingAgent = pluginConfig.agents?.[codingAgentName]
-      expect(codingAgent?.model).toBe("openai/gpt-5.3-codex")
+    for (const reviewAgentName of ["oracle", "momus", "metis"] as const) {
+      const reviewAgent = pluginConfig.agents?.[reviewAgentName]
+      expect(reviewAgent?.model).toBe("anthropic/claude-opus-4-6")
     }
+
+    expect(pluginConfig.agents?.sisyphus?.model).toBe("openai/gpt-5.4")
+    expect(pluginConfig.agents?.sisyphus?.variant).toBe("xhigh")
     expect(pluginConfig.agents?.atlas?.model).toBe("openai/gpt-5.4")
+    expect(pluginConfig.agents?.atlas?.variant).toBe("xhigh")
+    expect(pluginConfig.agents?.["sisyphus-junior"]?.model).toBe("openai/gpt-5.3-codex")
 
     expect(pluginConfig.categories?.ultrabrain?.model).toBe("openai/gpt-5.4")
     expect(pluginConfig.categories?.ultrabrain?.reasoningEffort).toBe("xhigh")
@@ -121,9 +133,9 @@ describe("managed custom OpenCode config assets", () => {
 
   it("keeps fallback order as paid -> spark -> free", () => {
     assertPaidSparkFreeOrdering(pluginConfig.fallback_models ?? [])
-    assertPaidSparkFreeOrdering((pluginConfig.agents?.prometheus?.fallback_models as string[] | undefined) ?? [])
-    assertPaidSparkFreeOrdering((pluginConfig.agents?.sisyphus?.fallback_models as string[] | undefined) ?? [])
-    assertPaidSparkFreeOrdering((pluginConfig.categories?.deep?.fallback_models as string[] | undefined) ?? [])
+    assertPaidSparkFreeOrdering((pluginConfig.agents?.prometheus?.fallback_models as FallbackModelEntry[] | undefined) ?? [])
+    assertPaidSparkFreeOrdering((pluginConfig.agents?.sisyphus?.fallback_models as FallbackModelEntry[] | undefined) ?? [])
+    assertPaidSparkFreeOrdering((pluginConfig.categories?.deep?.fallback_models as FallbackModelEntry[] | undefined) ?? [])
   })
 
   it("preserves the audited prompt_append text only for the intended agents", () => {

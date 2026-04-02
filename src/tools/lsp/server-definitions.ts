@@ -15,7 +15,7 @@ export const LSP_INSTALL_HINTS: Record<string, string> = {
   ruff: "pip install ruff",
   "elixir-ls": "See https://github.com/elixir-lsp/elixir-ls",
   zls: "See https://github.com/zigtools/zls",
-  csharp: "dotnet tool install -g csharp-ls",
+  csharp: "dotnet tool install -g csharp-ls (if this fails on .NET 8 use: dotnet tool install -g csharp-ls --version 0.16.0)",
   fsharp: "dotnet tool install -g fsautocomplete",
   "sourcekit-lsp": "Included with Xcode or Swift toolchain",
   rust: "rustup component add rust-analyzer",
