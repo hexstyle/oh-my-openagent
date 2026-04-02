@@ -6,11 +6,11 @@ This document is an inventory-only audit for the local parity fork. It records o
 
 Primary evidence used for this review:
 
-- `C:\Users\RedFox\.config\opencode\opencode.json`
-- `C:\Users\RedFox\.config\opencode\oh-my-opencode.json`
-- `C:\Users\RedFox\.config\opencode\plugins\heartbeat-status.js`
-- `C:\Users\RedFox\.config\opencode\plugins\tls-certificate-retry.js`
-- `C:\Users\RedFox\.config\opencode\node_modules\oh-my-openagent\dist\oh-my-opencode.schema.json`
+- `<opencode-config-dir>/opencode.json`
+- `<opencode-config-dir>/oh-my-opencode.json`
+- `<opencode-config-dir>/plugins/heartbeat-status.js`
+- `<opencode-config-dir>/plugins/tls-certificate-retry.js`
+- `<opencode-config-dir>/node_modules/oh-my-openagent/dist/oh-my-opencode.schema.json`
 - `src/plugin-config.ts`
 - `src/shared/jsonc-parser.ts`
 - `src/cli/config-manager/add-plugin-to-opencode-config.ts`

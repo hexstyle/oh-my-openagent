@@ -1,5 +1,21 @@
 param(
-  [string]$TargetDir = "C:\Users\RedFox\.config\opencode",
+  [string]$TargetDir = $(
+    if (-not [string]::IsNullOrWhiteSpace($env:OPENCODE_CONFIG_DIR)) {
+      $env:OPENCODE_CONFIG_DIR
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($env:XDG_CONFIG_HOME)) {
+      Join-Path $env:XDG_CONFIG_HOME "opencode"
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($env:HOME)) {
+      Join-Path $env:HOME ".config/opencode"
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+      Join-Path $env:USERPROFILE ".config/opencode"
+    }
+    else {
+      Join-Path ([Environment]::GetFolderPath("UserProfile")) ".config/opencode"
+    }
+  ),
   [string]$AssetRoot = $PSScriptRoot,
   [switch]$CheckOnly
 )
@@ -199,25 +215,45 @@ function Ensure-ManagedLspDependencies {
   }
 
   $dotnetCommand = Resolve-CommandPath -Name "dotnet"
-  $updated = $false
+  $knownGoodCsharpLsVersion = "0.16.0"
+  Write-Note "C# LSP bootstrap strategy: latest first, then fallback to csharp-ls $knownGoodCsharpLsVersion."
 
-  try {
-    Invoke-LoggedCommand -Executable $dotnetCommand -Arguments @("tool", "update", "-g", "csharp-ls") -Description "Updating global csharp-ls dotnet tool" -WorkingDirectory $TargetDir | Out-Null
-    $updated = $true
-  }
-  catch {
-    Write-Note "dotnet tool update -g csharp-ls failed ($($_.Exception.Message)). Trying install."
+  $bootstrapAttempts = [System.Collections.Generic.List[object]]::new()
+  $bootstrapAttempts.Add([ordered]@{
+      Description = "Updating global csharp-ls dotnet tool (latest)"
+      Arguments = @("tool", "update", "-g", "csharp-ls")
+    }) | Out-Null
+  $bootstrapAttempts.Add([ordered]@{
+      Description = "Installing global csharp-ls dotnet tool (latest)"
+      Arguments = @("tool", "install", "-g", "csharp-ls")
+    }) | Out-Null
+  $bootstrapAttempts.Add([ordered]@{
+      Description = "Updating global csharp-ls dotnet tool (fallback version $knownGoodCsharpLsVersion)"
+      Arguments = @("tool", "update", "-g", "csharp-ls", "--version", $knownGoodCsharpLsVersion)
+    }) | Out-Null
+  $bootstrapAttempts.Add([ordered]@{
+      Description = "Installing global csharp-ls dotnet tool (fallback version $knownGoodCsharpLsVersion)"
+      Arguments = @("tool", "install", "-g", "csharp-ls", "--version", $knownGoodCsharpLsVersion)
+    }) | Out-Null
+
+  $csharpBootstrapped = $false
+  foreach ($attempt in $bootstrapAttempts) {
+    try {
+      Invoke-LoggedCommand -Executable $dotnetCommand -Arguments $attempt.Arguments -Description $attempt.Description -WorkingDirectory $TargetDir | Out-Null
+      if (Test-CommandAvailability -Name $csharpCommandName -FallbackPaths $csharpFallbackPaths) {
+        $csharpBootstrapped = $true
+        Write-Note "C# LSP bootstrap complete."
+        break
+      }
+    }
+    catch {
+      Write-Note "$($attempt.Description) failed ($($_.Exception.Message))."
+    }
   }
 
-  if (-not $updated) {
-    Invoke-LoggedCommand -Executable $dotnetCommand -Arguments @("tool", "install", "-g", "csharp-ls") -Description "Installing global csharp-ls dotnet tool" -WorkingDirectory $TargetDir | Out-Null
+  if (-not $csharpBootstrapped -and -not (Test-CommandAvailability -Name $csharpCommandName -FallbackPaths $csharpFallbackPaths)) {
+    throw "C# LSP dependency '$csharpCommandName' is still unavailable after dotnet tool bootstrap. Ensure '$env:USERPROFILE\.dotnet\tools' is on PATH and retry. Known working fallback used by this script: csharp-ls $knownGoodCsharpLsVersion."
   }
-
-  if (-not (Test-CommandAvailability -Name $csharpCommandName -FallbackPaths $csharpFallbackPaths)) {
-    throw "C# LSP dependency '$csharpCommandName' is still unavailable after dotnet tool bootstrap. Ensure '$env:USERPROFILE\.dotnet\tools' is on PATH and retry."
-  }
-
-  Write-Note "C# LSP bootstrap complete."
 }
 
 function Resolve-DoctorCommand {

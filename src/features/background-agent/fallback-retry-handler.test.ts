@@ -8,6 +8,7 @@ mock.module("../../shared", () => ({
 
 mock.module("../../shared/model-error-classifier", () => ({
   shouldRetryError: mock(() => true),
+  shouldSwitchFallback: mock(() => true),
   getNextFallback: mock((chain: Array<{ model: string }>, attempt: number) => chain[attempt]),
   hasMoreFallbacks: mock((chain: Array<{ model: string }>, attempt: number) => attempt < chain.length),
   selectFallbackProvider: mock((providers: string[]) => providers[0]),
@@ -17,8 +18,8 @@ mock.module("../../shared/provider-model-id-transform", () => ({
   transformModelForProvider: mock((_provider: string, model: string) => model),
 }))
 
-import { tryFallbackRetry } from "./fallback-retry-handler"
-import { shouldRetryError } from "../../shared/model-error-classifier"
+import { tryFallbackRetry, tryFallbackSwitch } from "./fallback-retry-handler"
+import { shouldRetryError, shouldSwitchFallback } from "../../shared/model-error-classifier"
 import { selectFallbackProvider } from "../../shared/model-error-classifier"
 import { readProviderModelsCache } from "../../shared"
 import type { BackgroundTask } from "./types"
@@ -88,6 +89,7 @@ describe("tryFallbackRetry", () => {
 
   beforeEach(() => {
     ;(shouldRetryError as any).mockImplementation(() => true)
+    ;(shouldSwitchFallback as any).mockImplementation(() => true)
     ;(selectFallbackProvider as any).mockImplementation((providers: string[]) => providers[0])
     ;(readProviderModelsCache as any).mockReturnValue(null)
   })
@@ -294,5 +296,58 @@ describe("tryFallbackRetry", () => {
       expect(args.task.model?.providerID).toBe("provider-a")
       expect(args.task.model?.modelID).toBe("fallback-model-1")
     })
+  })
+
+  describe("#given fallback to same model without explicit settings", () => {
+    test("preserves current variant and model settings", () => {
+      const args = createDefaultArgs({
+        model: {
+          providerID: "provider-a",
+          modelID: "original-model",
+          variant: "xhigh",
+          reasoningEffort: "xhigh",
+          temperature: 0.15,
+          top_p: 0.9,
+          maxTokens: 8192,
+          thinking: { type: "enabled", budgetTokens: 4000 },
+        },
+        fallbackChain: [{ model: "original-model", providers: ["provider-a"] }],
+      })
+
+      tryFallbackRetry(args)
+
+      expect(args.task.model).toEqual({
+        providerID: "provider-a",
+        modelID: "original-model",
+        variant: "xhigh",
+        reasoningEffort: "xhigh",
+        temperature: 0.15,
+        top_p: 0.9,
+        maxTokens: 8192,
+        thinking: { type: "enabled", budgetTokens: 4000 },
+      })
+    })
+  })
+})
+
+describe("tryFallbackSwitch", () => {
+  beforeEach(() => {
+    ;(shouldSwitchFallback as any).mockImplementation(() => true)
+    ;(selectFallbackProvider as any).mockImplementation((providers: string[]) => providers[0])
+    ;(readProviderModelsCache as any).mockReturnValue(null)
+  })
+
+  test("preserves current variant when switching to same model without variant override", () => {
+    const args = createDefaultArgs({
+      model: { providerID: "provider-a", modelID: "original-model", variant: "xhigh" },
+      fallbackChain: [{ model: "original-model", providers: ["provider-a"] }],
+    })
+
+    const result = tryFallbackSwitch(args)
+
+    expect(result).toBe(true)
+    expect(args.task.model?.providerID).toBe("provider-a")
+    expect(args.task.model?.modelID).toBe("original-model")
+    expect(args.task.model?.variant).toBe("xhigh")
   })
 })

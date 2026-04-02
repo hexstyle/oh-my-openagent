@@ -2,14 +2,17 @@
 
 ## Scope
 
-This fork keeps the live OpenCode config under `C:\Users\RedFox\.config\opencode` in sync with the repo-owned assets under `assets/custom-opencode/`.
+This fork keeps the live OpenCode config under the user config dir (`$OPENCODE_CONFIG_DIR` or `~/.config/opencode`) in sync with the repo-owned assets under `assets/custom-opencode/`.
 
 Run the repo copy of `assets/custom-opencode/refresh-omo.ps1`. That copy owns the managed assets and can use the repo Bun sync entry point when Bun is available.
 
 ## Prerequisites
 
 - OpenCode is already installed and `opencode --version` works.
-- The target config directory already exists and has a `package.json`. The current default target is `C:\Users\RedFox\.config\opencode`.
+- The target config directory already exists and has a `package.json`. The script default target is:
+  - `$OPENCODE_CONFIG_DIR` when set
+  - otherwise `$XDG_CONFIG_HOME/opencode`
+  - otherwise `~/.config/opencode`
 - `node` and `npm` are on `PATH`.
 - `oh-my-opencode` is installed in the target config directory. The refresh script prefers target-local doctor entry points (`<target>\node_modules\.bin\oh-my-opencode*` first, then the package `bin\oh-my-opencode.js` via Node) and only falls back to a global `oh-my-opencode` on `PATH` if the target-local entry points are unavailable.
 - Bun is optional for the refresh script itself. If Bun is available from the repo checkout, the script runs `script/sync-custom-opencode-assets.ts`. If Bun is missing, the script falls back to a PowerShell sync path that writes the same `.oh-my-openagent-sync` manifest, log, and per-file backups.
@@ -17,6 +20,7 @@ Run the repo copy of `assets/custom-opencode/refresh-omo.ps1`. That copy owns th
   - TypeScript: `typescript-language-server` + `typescript`
   - C#: `csharp-ls` (dotnet global tool)
   - The refresh script now bootstraps these automatically in update mode. In `-CheckOnly`, it reports status without installing.
+  - For C#, the script now uses a strict two-step bootstrap: latest `csharp-ls` first, then fallback to known working `csharp-ls 0.16.0` if latest fails.
 
 ## What gets synced
 
@@ -58,7 +62,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\assets\custom-opencode\re
 3. Runs `npm install` if the target has no `node_modules`, otherwise runs `npm update oh-my-openagent @code-yeongyu/comment-checker` inside the target config directory.
 4. Bootstraps global LSP dependencies for managed TypeScript and C# flows when they are missing:
    - `npm install -g typescript-language-server typescript`
-   - `dotnet tool update -g csharp-ls` (falls back to `dotnet tool install -g csharp-ls`)
+   - `dotnet tool update -g csharp-ls` / `dotnet tool install -g csharp-ls`
+   - If latest fails, retries with known working fallback: `dotnet tool install -g csharp-ls --version 0.16.0`.
 5. Repairs the local Windows platform binary package for `oh-my-opencode` when it is missing, so the target-local doctor command can run from the target `node_modules` tree.
 6. Syncs the managed assets into the target directory.
 7. Runs these live checks against the target directory by setting `OPENCODE_CONFIG_DIR` for the command invocation:
@@ -85,7 +90,7 @@ The refresh backup is broader than the sync backup. It captures the target confi
 If you need to restore manually, copy the latest refresh backup back into the target directory and leave `node_modules` in place:
 
 ```powershell
-$target = "C:\Users\RedFox\.config\opencode"
+$target = Join-Path $HOME ".config/opencode"
 $backup = Get-ChildItem -LiteralPath (Join-Path $target ".oh-my-openagent-refresh\backups") | Sort-Object Name -Descending | Select-Object -First 1
 Get-ChildItem -LiteralPath $target -Force | Where-Object { $_.Name -notin @("node_modules", ".oh-my-openagent-refresh") } | Remove-Item -Recurse -Force
 Get-ChildItem -LiteralPath $backup.FullName -Force | ForEach-Object {
