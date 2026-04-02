@@ -37,7 +37,7 @@ describe("system plugin detection", () => {
 
     mockExistsSync.mockImplementation((path: string) => path === "/tmp/opencode.json")
     mockReadFileSync.mockImplementation((_path: string, _encoding: string) => JSON.stringify({
-      plugin: ["./plugins/oh-my-openagent.js"],
+      plugin: ["oh-my-openagent"],
     }))
     mockGetOpenCodeConfigPaths.mockReturnValue({
       configJsonc: "/tmp/opencode.jsonc",
@@ -46,16 +46,16 @@ describe("system plugin detection", () => {
     mockParseJsonc.mockImplementation((content: string) => JSON.parse(content) as { plugin?: string[] })
   })
 
-  it("accepts the managed wrapper file entry as a registered plugin", async () => {
+  it("accepts the canonical package entry as a registered plugin", async () => {
     const { findPluginEntry, getPluginInfo } = await importFreshSystemPluginModule()
 
-    expect(findPluginEntry(["./plugins/oh-my-openagent.js"]))
-      .toEqual({ entry: "./plugins/oh-my-openagent.js", isLocalDev: false })
+    expect(findPluginEntry(["oh-my-openagent"]))
+      .toEqual({ entry: "oh-my-openagent", isLocalDev: false })
 
     expect(getPluginInfo()).toEqual({
       registered: true,
       configPath: "/tmp/opencode.json",
-      entry: "./plugins/oh-my-openagent.js",
+      entry: "oh-my-openagent",
       isPinned: false,
       pinnedVersion: null,
       isLocalDev: false,

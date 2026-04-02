@@ -39,6 +39,7 @@ export interface FallbackState {
   originalModel: string
   currentModel: string
   fallbackIndex: number
+  fallbackModels: string[]
   failedModels: Map<string, number>
   attemptCount: number
   pendingFallbackModel?: string

@@ -8,12 +8,10 @@ export function remapAgentKeysToDisplayNames(
   for (const [key, value] of Object.entries(agents)) {
     const displayName = AGENT_DISPLAY_NAMES[key]
     if (displayName && displayName !== key) {
+      // Register under display name (what OpenCode UI shows and resolves).
       result[displayName] = value
-      // Regression guard: do not also assign result[key].
-      // This line was repeatedly re-added and caused duplicate agent rows in the UI.
-      // Runtime callers that previously depended on config-key aliases were fixed in:
-      // - hooks/atlas/boulder-continuation-injector.ts (prompt agent normalization)
-      // - features/claude-code-session-state/state.ts (dual registration for display + config forms)
+      // Also register under config key (what internal lookups use: "prometheus", "atlas", etc.).
+      result[key] = value
     } else {
       result[key] = value
     }

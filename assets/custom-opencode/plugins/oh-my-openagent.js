@@ -1,3 +1,3 @@
-import OhMyOpenAgent from "oh-my-openagent"
+const OhMyOpenAgentCompatPlugin = async () => ({})
 
-export const OhMyOpenAgentPlugin = OhMyOpenAgent
+export { OhMyOpenAgentCompatPlugin }

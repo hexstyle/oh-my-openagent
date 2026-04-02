@@ -22,13 +22,9 @@ interface OpenCodeHostConfig {
   [key: string]: unknown
 }
 
-const EXPECTED_WRAPPER_ENTRY = "./plugins/oh-my-openagent.js"
 const EXPECTED_PACKAGE_ENTRY = "oh-my-openagent"
+const EXPECTED_ANTHROPIC_OAUTH_ENTRY = "@ex-machina/opencode-anthropic-auth"
 const hostConfigPath = new URL("../../assets/custom-opencode/opencode.json", import.meta.url)
-const wrapperPluginPath = new URL(
-  "../../assets/custom-opencode/plugins/oh-my-openagent.js",
-  import.meta.url
-)
 const deltaFixturePath = new URL(
   "../../test/fixtures/local-config-delta/current-local-delta.json",
   import.meta.url
@@ -94,15 +90,13 @@ afterEach(() => {
 })
 
 describe("custom OpenCode plugin loading compatibility", () => {
-  it("keeps wrapper-plugin loading explicit and pointed at the preferred plugin identity", () => {
+  it("keeps package-plugin loading explicit and pointed at the preferred plugin identity", () => {
     const hostConfig = JSON.parse(readFileSync(hostConfigPath, "utf-8")) as OpenCodeHostConfig
-    const wrapperPluginContents = readFileSync(wrapperPluginPath, "utf-8")
 
     expect(requirePluginArray(hostConfig, "Managed OpenCode host config")).toEqual([
-      EXPECTED_WRAPPER_ENTRY,
+      EXPECTED_PACKAGE_ENTRY,
+      EXPECTED_ANTHROPIC_OAUTH_ENTRY,
     ])
-    expect(wrapperPluginContents).toContain('import OhMyOpenAgent from "oh-my-openagent"')
-    expect(wrapperPluginContents).toContain("export const OhMyOpenAgentPlugin = OhMyOpenAgent")
   })
 
   it("adds a canonical package entry when host config is missing the plugin array", async () => {

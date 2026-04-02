@@ -10,6 +10,7 @@ const RETRYABLE_ERROR_NAMES = new Set([
   "authenticationerror",
   "tlscertificateerror",
   "sslerror",
+  "unknownerror",
 ])
 
 /**
@@ -46,6 +47,7 @@ const RETRYABLE_MESSAGE_PATTERNS = [
   "ECONNRESET",
   "ECONNREFUSED",
   "ETIMEDOUT",
+  "overloaded",
 ]
 
 const AUTO_RETRY_GATE_PATTERNS = [

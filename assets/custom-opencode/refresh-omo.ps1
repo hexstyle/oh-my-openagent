@@ -497,49 +497,56 @@ function Invoke-PowerShellManagedAssetSync {
 
   foreach ($sourceFile in Get-ManagedAssetFiles -SourceRoot $SourceRoot) {
     $relativePath = Get-PortableRelativePath -BasePath $SourceRoot -PathValue $sourceFile.FullName
-    $destinationPath = Join-Path $TargetRoot ($relativePath -replace '/', '\\')
-    $destinationDir = Split-Path -Parent $destinationPath
-
-    if (Ensure-Directory $destinationDir) {
-      [void]$createdDirectories.Add((Get-PortableRelativePath -BasePath $TargetRoot -PathValue $destinationDir))
+    $targetRelativePaths = @($relativePath)
+    if ($relativePath -eq "oh-my-opencode.json") {
+      $targetRelativePaths += "oh-my-openagent.json"
     }
 
-    $status = "created"
-    $backupPath = $null
+    foreach ($targetRelativePath in $targetRelativePaths) {
+      $destinationPath = Join-Path $TargetRoot ($targetRelativePath -replace '/', '\\')
+      $destinationDir = Split-Path -Parent $destinationPath
 
-    if (Test-Path -LiteralPath $destinationPath) {
-      $destinationItem = Get-Item -LiteralPath $destinationPath
-      if ($destinationItem.PSIsContainer) {
-        throw "Cannot sync file onto non-file path: $destinationPath"
+      if (Ensure-Directory $destinationDir) {
+        [void]$createdDirectories.Add((Get-PortableRelativePath -BasePath $TargetRoot -PathValue $destinationDir))
       }
 
-      if (Test-FileContentsMatch -SourcePath $sourceFile.FullName -DestinationPath $destinationPath) {
-        $status = "unchanged"
-      }
-      else {
-        $backupPath = Join-Path $backupDir ($relativePath -replace '/', '\\')
-        $backupParentDir = Split-Path -Parent $backupPath
-        if (Ensure-Directory $backupParentDir) {
-          [void]$createdDirectories.Add((Get-PortableRelativePath -BasePath $TargetRoot -PathValue $backupParentDir))
+      $status = "created"
+      $backupPath = $null
+
+      if (Test-Path -LiteralPath $destinationPath) {
+        $destinationItem = Get-Item -LiteralPath $destinationPath
+        if ($destinationItem.PSIsContainer) {
+          throw "Cannot sync file onto non-file path: $destinationPath"
         }
 
-        Copy-Item -LiteralPath $destinationPath -Destination $backupPath -Force
-        $status = "updated"
+        if (Test-FileContentsMatch -SourcePath $sourceFile.FullName -DestinationPath $destinationPath) {
+          $status = "unchanged"
+        }
+        else {
+          $backupPath = Join-Path $backupDir ($targetRelativePath -replace '/', '\\')
+          $backupParentDir = Split-Path -Parent $backupPath
+          if (Ensure-Directory $backupParentDir) {
+            [void]$createdDirectories.Add((Get-PortableRelativePath -BasePath $TargetRoot -PathValue $backupParentDir))
+          }
+
+          Copy-Item -LiteralPath $destinationPath -Destination $backupPath -Force
+          $status = "updated"
+        }
       }
-    }
 
-    if ($status -ne "unchanged") {
-      Copy-Item -LiteralPath $sourceFile.FullName -Destination $destinationPath -Force
-    }
+      if ($status -ne "unchanged") {
+        Copy-Item -LiteralPath $sourceFile.FullName -Destination $destinationPath -Force
+      }
 
-    $fileRecords.Add([ordered]@{
-      relativePath = $relativePath
-      sourcePath = $sourceFile.FullName
-      destinationPath = $destinationPath
-      status = $status
-      backupPath = $backupPath
-      bytes = $sourceFile.Length
-    }) | Out-Null
+      $fileRecords.Add([ordered]@{
+        relativePath = $targetRelativePath
+        sourcePath = $sourceFile.FullName
+        destinationPath = $destinationPath
+        status = $status
+        backupPath = $backupPath
+        bytes = $sourceFile.Length
+      }) | Out-Null
+    }
   }
 
   $createdCount = @($fileRecords | Where-Object { $_.status -eq "created" }).Count

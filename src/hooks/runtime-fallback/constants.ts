@@ -13,6 +13,7 @@ export const DEFAULT_CONFIG: Required<RuntimeFallbackConfig> = {
   enabled: false,
   retry_on_errors: [402, 429, 500, 502, 503, 504],
   max_fallback_attempts: 3,
+  max_full_chain_cycles: 5,
   cooldown_seconds: 60,
   timeout_seconds: 30,
   notify_on_fallback: true,
@@ -44,6 +45,7 @@ export const RETRYABLE_ERROR_PATTERNS = [
   /billing.?(?:hard.?)?limit/i,
   /payment.?required/i,
   /out\s+of\s+credits?/i,
+  /extra\s+usage\s+is\s+required\s+for\s+long\s+context\s+requests/i,
   /(?:^|\s)402(?:\s|$)/,
   /(?:^|\s)429(?:\s|$)/,
   /(?:^|\s)503(?:\s|$)/,
@@ -54,3 +56,5 @@ export const RETRYABLE_ERROR_PATTERNS = [
  * Hook name for identification and logging
  */
 export const HOOK_NAME = "runtime-fallback"
+
+export const MODEL_RECOVERY_INTERVAL_MS = 10 * 60 * 1000

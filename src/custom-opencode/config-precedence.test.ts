@@ -108,13 +108,15 @@ describe("custom OpenCode config precedence compatibility", () => {
     })
 
     const config = loadPluginConfig(projectDir, {})
+    const managedPrometheusModel = (managedUserConfig as Record<string, any>).agents?.prometheus?.model
+    const managedWritingCategory = (managedUserConfig as Record<string, any>).categories?.writing
 
     expect(config.hashline_edit).toBe(true)
     expect(config.agents?.prometheus?.prompt_append).toBe("Project-local compatibility override.")
-    expect(config.agents?.prometheus?.model).toBe("openai/gpt-5.4")
+    expect(config.agents?.prometheus?.model).toBe(managedPrometheusModel)
     expect(config.categories?.writing?.model).toBe("anthropic/claude-sonnet-4-6")
-    expect(config.categories?.writing?.variant).toBe("xhigh")
-    expect(config.categories?.writing?.textVerbosity).toBe("high")
+    expect(config.categories?.writing?.variant).toBe(managedWritingCategory?.variant)
+    expect(config.categories?.writing?.textVerbosity).toBe(managedWritingCategory?.textVerbosity)
     expect(config.disabled_tools).toEqual(["bash"])
   })
 })

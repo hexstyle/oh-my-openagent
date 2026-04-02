@@ -4,6 +4,7 @@ import { HOOK_NAME } from "./constants"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, extractAutoRetrySignal, containsErrorContent } from "./error-classifier"
 import { createFallbackState } from "./fallback-state"
+import { markFallbackResponseSuccess } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
@@ -57,8 +58,8 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       sessionStatusRetryKeys.delete(sessionID)
       helpers.clearSessionFallbackTimeout(sessionID)
       const state = sessionStates.get(sessionID)
-      if (state?.pendingFallbackModel) {
-        state.pendingFallbackModel = undefined
+      if (state) {
+        markFallbackResponseSuccess(state)
       }
       log(`[${HOOK_NAME}] Assistant response observed; cleared fallback timeout`, { sessionID, model })
       return

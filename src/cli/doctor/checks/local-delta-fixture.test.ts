@@ -27,7 +27,7 @@ const report = readFileSync(reportPath, "utf-8")
 const REQUIRED_CATEGORY_IDS: Record<DeltaCategoryName, string[]> = {
   config_only_deltas: [
     "host-default-agent-prometheus",
-    "agent-category-model-pinning-openai-gpt-5-4",
+    "agent-category-model-pinning-role-specific",
     "prompt-append-additions",
     "supported-runtime-knob-differences",
   ],
@@ -53,6 +53,11 @@ const REQUIRED_REPORT_SNIPPETS = [
   "## Intended extension points",
   "## Suspicious runtime drift",
   "`default_agent = prometheus`",
+  "`sisyphus`, `kimi-k2.5`",
+  "`prometheus`, `deepseek-ai/deepseek-r1`",
+  "`librarian`, `minimax-m2.7`",
+  "`atlas`, `qwen/qwen-2.5-coder`",
+  "`metis`, `deepseek-ai/deepseek-r1`",
   "`openai/gpt-5.4` with `variant = xhigh` and `textVerbosity: high`",
   "`prompt_append` additions for `sisyphus`, `hephaestus`, `prometheus`, `atlas`, and `sisyphus-junior`",
   "`hashline_edit`",
@@ -110,8 +115,22 @@ describe("local delta fixture regression", () => {
     expect(defaultAgentEntry.evidence?.path).toBe("default_agent")
     expect(defaultAgentEntry.evidence?.value).toBe("prometheus")
 
-    const modelPinningEntry = getEntry("config_only_deltas", "agent-category-model-pinning-openai-gpt-5-4")
-    expect(modelPinningEntry.evidence?.model).toBe("openai/gpt-5.4")
+    const modelPinningEntry = getEntry("config_only_deltas", "agent-category-model-pinning-role-specific")
+    expect(modelPinningEntry.evidence?.agentModels).toEqual(
+      {
+        sisyphus: "kimi-k2.5",
+        hephaestus: "openai/gpt-5.4",
+        oracle: "openai/gpt-5.4",
+        librarian: "minimax-m2.7",
+        explore: "openai/gpt-5.4",
+        "multimodal-looker": "openai/gpt-5.4",
+        prometheus: "deepseek-ai/deepseek-r1",
+        metis: "deepseek-ai/deepseek-r1",
+        momus: "openai/gpt-5.4",
+        atlas: "qwen/qwen-2.5-coder",
+        "sisyphus-junior": "openai/gpt-5.4",
+      }
+    )
     expect(modelPinningEntry.evidence?.variant).toBe("xhigh")
     expect(modelPinningEntry.evidence?.textVerbosity).toBe("high")
     expect(modelPinningEntry.evidence?.agents).toEqual([

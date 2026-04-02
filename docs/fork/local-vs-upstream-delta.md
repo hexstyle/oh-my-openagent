@@ -27,7 +27,13 @@ The installed schema and repo sources are the compatibility baseline for this au
 
 ### Plugin config deltas
 
-- All configured local agent overrides pin to `openai/gpt-5.4` with `variant = xhigh` and `textVerbosity: high`: `sisyphus`, `hephaestus`, `oracle`, `librarian`, `explore`, `multimodal-looker`, `prometheus`, `metis`, `momus`, `atlas`, and `sisyphus-junior`.
+- Agent model pinning is role-specific in local agent overrides:
+  - `sisyphus`, `kimi-k2.5`
+  - `prometheus`, `deepseek-ai/deepseek-r1`
+  - `librarian`, `minimax-m2.7`
+  - `atlas`, `qwen/qwen-2.5-coder`
+  - `metis`, `deepseek-ai/deepseek-r1`
+- The remaining required agents keep `openai/gpt-5.4` with `variant = xhigh` and `textVerbosity: high`: `hephaestus`, `oracle`, `explore`, `multimodal-looker`, `momus`, and `sisyphus-junior`.
 - All configured local category overrides pin to `openai/gpt-5.4` with `variant = xhigh` and `textVerbosity: high`: `visual-engineering`, `ultrabrain`, `deep`, `artistry`, `quick`, `unspecified-low`, `unspecified-high`, and `writing`.
 - The local config adds `prompt_append` additions for `sisyphus`, `hephaestus`, `prometheus`, `atlas`, and `sisyphus-junior`, including fork-specific guidance to prefer short operation timeouts, avoid idle waiting, and diagnose unexpectedly long-running steps.
 
@@ -72,7 +78,7 @@ The inspected `opencode.json` contains only `$schema` and `default_agent`, so th
 
 ## Classification summary
 
-- Config-only deltas: `default_agent = prometheus`, full `openai/gpt-5.4` + `xhigh` + `textVerbosity: high` pinning, the five `prompt_append` additions, and the supported runtime knob differences.
+- Config-only deltas: `default_agent = prometheus`, mixed role-specific agent pinning and shared `openai/gpt-5.4` category pinning at `variant = xhigh` and `textVerbosity: high`, the five `prompt_append` additions, and the supported runtime knob differences.
 - Plugin/code deltas: the local heartbeat-status and TLS certificate retry plugins.
 - Intended extension points: merge semantics, schema-supported overrides, explicit `plugin` array registration, and legacy `oh-my-opencode` compatibility handling.
 - Suspicious runtime drift: missing visible plugin registration in the inspected host config and `sisyphus.tasks.enabled`.
