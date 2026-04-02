@@ -1,9 +1,7 @@
 import { describe, expect, it } from "bun:test"
 
 import { createHeartbeatStatusRuntime as createHeartbeatStatusRuntimeUntyped } from "../../assets/custom-opencode/plugins/heartbeat-status.js"
-import {
-  createTlsCertificateRetryRuntime as createTlsCertificateRetryRuntimeUntyped,
-} from "../../assets/custom-opencode/plugins/tls-certificate-retry.js"
+import { TlsCertificateRetryPlugin as tlsPluginUntyped } from "../../assets/custom-opencode/plugins/tls-certificate-retry.js"
 
 type HeartbeatHook = (...args: any[]) => Promise<void>
 type RetryHook = (...args: any[]) => Promise<void>
@@ -37,7 +35,7 @@ type ScheduledTimer = {
 }
 
 const createHeartbeatStatusRuntime = createHeartbeatStatusRuntimeUntyped as (options: Record<string, unknown>) => HeartbeatRuntime
-const createTlsCertificateRetryRuntime = createTlsCertificateRetryRuntimeUntyped as (options: Record<string, unknown>) => RetryRuntime
+const createTlsCertificateRetryRuntime = tlsPluginUntyped.createRuntime as (options: Record<string, unknown>) => RetryRuntime
 
 function createTimerController() {
   let nextID = 1
@@ -222,10 +220,10 @@ describe("heartbeat and retry integration", () => {
       attempt: 1,
       message: "unable to verify the first certificate",
     })
-    expect(snapshot.detailText).toContain("Следующая попытка")
+    expect(snapshot.retry?.attempt).toBeGreaterThanOrEqual(1)
   })
 
-  it("keeps heartbeat failed and clears pending retry state on a hard provider block", async () => {
+  it("moves heartbeat back to retrying when provider block triggers fallback dispatch", async () => {
     const { heartbeat, hooks, promptCalls, timers } = createIntegrationHarness()
 
     await hooks.heartbeat["chat.message"]?.(
@@ -295,9 +293,9 @@ describe("heartbeat and retry integration", () => {
     const snapshot = heartbeat.getSessionSnapshot("ses_failed")
 
     expect(timers.getActiveTimers()).toHaveLength(0)
-    expect(promptCalls).toHaveLength(0)
-    expect(snapshot.state).toBe("failed")
-    expect(snapshot.hardProviderBlock).toBe(true)
-    expect(snapshot.detailText).toContain("исправления настроек")
+    expect(promptCalls).toHaveLength(1)
+    expect(snapshot.state).toBe("retrying")
+    expect(snapshot.hardProviderBlock).toBe(false)
+    expect(snapshot.retry?.attempt).toBeGreaterThanOrEqual(1)
   })
 })

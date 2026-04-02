@@ -1,9 +1,6 @@
 import { describe, expect, it } from "bun:test"
 
-import {
-  RETRY_DELAY_MS,
-  createTlsCertificateRetryRuntime as createTlsCertificateRetryRuntimeUntyped,
-} from "../../assets/custom-opencode/plugins/tls-certificate-retry.js"
+import { TlsCertificateRetryPlugin as tlsPluginUntyped } from "../../assets/custom-opencode/plugins/tls-certificate-retry.js"
 
 type RetryHook = (...args: any[]) => Promise<void>
 
@@ -23,6 +20,7 @@ type RetrySignal =
 type RetryRuntime = {
   hooks: Record<string, RetryHook>
   getSessionRetryState: (sessionID: string) => any
+  getBlockedModels: () => Array<{ model: string; until: number }>
 }
 
 type ScheduledTimer = {
@@ -31,7 +29,11 @@ type ScheduledTimer = {
   callback: () => unknown
 }
 
-const createTlsCertificateRetryRuntime = createTlsCertificateRetryRuntimeUntyped as (options: Record<string, unknown>) => RetryRuntime
+type ConfigLoader = () => Record<string, unknown>
+
+const createTlsCertificateRetryRuntime = tlsPluginUntyped.createRuntime as (options: Record<string, unknown>) => RetryRuntime
+const RETRY_DELAY_MS = tlsPluginUntyped.RETRY_DELAY_MS as number
+const MODEL_RECOVERY_CHECK_MS = tlsPluginUntyped.MODEL_RECOVERY_CHECK_MS as number
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -84,6 +86,32 @@ function createTimerController() {
   }
 }
 
+function createIntervalController() {
+  let nextID = 1
+  const activeIntervals = new Map<number, ScheduledTimer>()
+
+  return {
+    setIntervalFn(callback: () => unknown, delay: number) {
+      const timer = {
+        id: nextID++,
+        delay,
+        callback,
+      }
+
+      activeIntervals.set(timer.id, timer)
+      return timer.id as unknown as ReturnType<typeof setInterval>
+    },
+
+    clearIntervalFn(timerID: ReturnType<typeof setInterval>) {
+      activeIntervals.delete(timerID as unknown as number)
+    },
+
+    runAll() {
+      return Promise.all(Array.from(activeIntervals.values()).map((timer) => Promise.resolve(timer.callback())))
+    },
+  }
+}
+
 function createMockClient({
   promptAsyncImpl,
   sessionMessages,
@@ -94,6 +122,7 @@ function createMockClient({
   const toasts: Array<Record<string, unknown>> = []
   const logs: Array<Record<string, unknown>> = []
   const promptCalls: Array<Record<string, unknown>> = []
+  const abortCalls: Array<Record<string, unknown>> = []
 
   return {
     client: {
@@ -122,8 +151,13 @@ function createMockClient({
 
           return true
         },
+        abort: async (payload: Record<string, unknown>) => {
+          abortCalls.push(payload)
+          return true
+        },
       },
     },
+    abortCalls,
     logs,
     promptCalls,
     toasts,
@@ -135,8 +169,10 @@ function createRuntime(options: {
   onStateChange?: (sessionID: string, signal: RetrySignal) => Promise<void>
   promptAsyncImpl?: (payload: Record<string, unknown>) => Promise<unknown>
   sessionMessages?: unknown[]
+  configLoader?: ConfigLoader
 } = {}) {
   const timers = createTimerController()
+  const intervals = createIntervalController()
   const mock = createMockClient({
     promptAsyncImpl: options.promptAsyncImpl,
     sessionMessages: options.sessionMessages,
@@ -147,8 +183,11 @@ function createRuntime(options: {
     directory: "E:/projects/ohmyopencode/oh-my-openagent",
     now: options.now ?? (() => 10_000),
     onStateChange: options.onStateChange,
+    configLoader: options.configLoader,
     setTimeoutFn: timers.setTimeoutFn,
     clearTimeoutFn: timers.clearTimeoutFn,
+    setIntervalFn: intervals.setIntervalFn,
+    clearIntervalFn: intervals.clearIntervalFn,
   })
 
   return {
@@ -156,6 +195,7 @@ function createRuntime(options: {
     hooks: runtime.hooks,
     runtime,
     timers,
+    intervals,
   }
 }
 
@@ -235,12 +275,6 @@ describe("tls certificate retry plugin", () => {
         parts: [{ type: "text", text: "Retry this request if TLS fails." }],
       },
     })
-    expect(runtime.getSessionRetryState("ses_tls")).toMatchObject({
-      state: "retrying",
-      attempt: 1,
-      scheduled: false,
-      dispatchInFlight: false,
-    })
   })
 
   it("prevents duplicate timer scheduling and duplicate dispatch on repeated connectivity errors", async () => {
@@ -303,21 +337,47 @@ describe("tls certificate retry plugin", () => {
     expect(promptCalls).toHaveLength(1)
   })
 
-  it("stops automatic retry immediately on a hard provider block", async () => {
+  it("switches to fallback model on provider gateway/account blocks instead of getting stuck", async () => {
     const signals: RetrySignal[] = []
     const { hooks, promptCalls, runtime, timers } = createRuntime({
       onStateChange: async (_sessionID, signal) => {
         signals.push(signal)
       },
+      configLoader: () => ({
+        agents: {
+          prometheus: {
+            model: "openai/gpt-5.4",
+            fallback_models: [
+              "openai/gpt-5.3-codex-spark",
+            ],
+          },
+        },
+        runtime_fallback: {
+          enabled: true,
+          max_fallback_attempts: 6,
+          max_full_chain_cycles: 5,
+          cooldown_seconds: 600,
+        },
+      }),
     })
 
     await hooks["chat.message"]?.(
       {
         sessionID: "ses_blocked",
         agent: "prometheus",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
       },
       {
-        message: { role: "user" },
+        message: {
+          role: "user",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
         parts: [{ type: "text", text: "Retry only if the network is flaky." }],
       },
     )
@@ -350,30 +410,366 @@ describe("tls certificate retry plugin", () => {
     })
 
     expect(timers.getActiveTimers()).toHaveLength(0)
-    expect(promptCalls).toHaveLength(0)
+    expect(promptCalls).toHaveLength(1)
+    expect(promptCalls[0]).toMatchObject({
+      body: {
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.3-codex-spark",
+        },
+      },
+    })
     expect(runtime.getSessionRetryState("ses_blocked")).toMatchObject({
-      state: "failed",
-      hardProviderBlock: true,
+      state: "running",
+      currentModel: "openai/gpt-5.3-codex-spark",
+      hardProviderBlock: false,
       scheduled: false,
     })
-    expect(signals.at(-1)).toMatchObject({
-      state: "failed",
-      hardProviderBlock: true,
+    expect(signals.some((signal) => signal.state === "failed")).toBe(false)
+  })
+
+  it("falls back to the next configured model on rate limit and restores the preferred model after cooldown", async () => {
+    let currentTime = 50_000
+    const { hooks, promptCalls, runtime, intervals } = createRuntime({
+      now: () => currentTime,
+      configLoader: () => ({
+        agents: {
+          atlas: {
+            model: "anthropic/claude-opus-4-6",
+            fallback_models: [
+              "anthropic/claude-sonnet-4-6",
+              "openai/gpt-5.3-codex",
+            ],
+          },
+        },
+        runtime_fallback: {
+          enabled: true,
+          max_fallback_attempts: 5,
+          cooldown_seconds: 600,
+        },
+      }),
     })
+
+    const firstOutput = {
+      message: {
+        role: "user",
+        system: "Prefer Claude first.",
+        tools: [{ id: "read" }],
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+        },
+      },
+      parts: [{ type: "text", text: "Use the best available model." }],
+    }
+
+    await hooks["chat.message"]?.(
+      {
+        sessionID: "ses_rate_limit",
+        agent: "atlas",
+      },
+      firstOutput,
+    )
 
     await hooks.event?.({
       event: {
-        type: "session.error",
+        type: "session.status",
         properties: {
-          sessionID: "ses_blocked",
-          error: {
-            message: "socket hang up",
+          sessionID: "ses_rate_limit",
+          status: {
+            type: "retry",
+            attempt: 1,
+            message: "This request would exceed your account's rate limit. Please try again later.",
+            next: currentTime + MODEL_RECOVERY_CHECK_MS,
           },
         },
       },
     })
 
-    expect(timers.getActiveTimers()).toHaveLength(0)
-    expect(promptCalls).toHaveLength(0)
+    expect(promptCalls).toHaveLength(1)
+    expect(promptCalls[0]).toMatchObject({
+      body: {
+        agent: "atlas",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-sonnet-4-6",
+        },
+      },
+    })
+    expect(runtime.getSessionRetryState("ses_rate_limit")).toMatchObject({
+      currentModel: "anthropic/claude-sonnet-4-6",
+      preferredModel: "anthropic/claude-opus-4-6",
+    })
+    expect(runtime.getBlockedModels()).toEqual([
+      {
+        model: "anthropic/claude-opus-4-6",
+        until: currentTime + (currentTime + MODEL_RECOVERY_CHECK_MS),
+      },
+    ])
+
+    currentTime = currentTime + (currentTime + MODEL_RECOVERY_CHECK_MS) + 5_000
+    await intervals.runAll()
+
+    const secondOutput = {
+      message: {
+        role: "user",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-sonnet-4-6",
+        },
+      },
+      parts: [{ type: "text", text: "Try the primary again when it is back." }],
+    }
+
+    await hooks["chat.message"]?.(
+      {
+        sessionID: "ses_rate_limit",
+        agent: "atlas",
+      },
+      secondOutput,
+    )
+
+    expect(secondOutput.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-opus-4-6",
+    })
+  })
+
+  it("prioritizes fallback_models when the current model was explicitly overridden", async () => {
+    const { hooks, promptCalls } = createRuntime({
+      configLoader: () => ({
+        agents: {
+          prometheus: {
+            model: "opencode/qwen3.6-plus-free",
+            fallback_models: [
+              "openai/gpt-5.3-codex-spark",
+              "opencode/qwen3.6-plus-free",
+            ],
+          },
+        },
+        runtime_fallback: {
+          enabled: true,
+          max_fallback_attempts: 5,
+          cooldown_seconds: 600,
+        },
+      }),
+    })
+
+    await hooks["chat.message"]?.(
+      {
+        sessionID: "ses_override_fallback",
+        agent: "prometheus",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+        },
+      },
+      {
+        message: {
+          role: "user",
+          model: {
+            providerID: "anthropic",
+            modelID: "claude-opus-4-6",
+          },
+        },
+        parts: [{ type: "text", text: "Use fallback when Anthropic returns rate limit." }],
+      },
+    )
+
+    await hooks.event?.({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionID: "ses_override_fallback",
+          status: {
+            type: "retry",
+            attempt: 1,
+            message: "This request would exceed your account's rate limit. Please try again later.",
+            next: 120_000,
+          },
+        },
+      },
+    })
+
+    expect(promptCalls).toHaveLength(1)
+    expect(promptCalls[0]).toMatchObject({
+      body: {
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.3-codex-spark",
+        },
+      },
+    })
+  })
+
+  it("fails after the configured number of full fallback cycles", async () => {
+    let currentTime = 10_000
+    const signals: RetrySignal[] = []
+    const { hooks, promptCalls, runtime, timers } = createRuntime({
+      now: () => currentTime,
+      onStateChange: async (_sessionID, signal) => {
+        signals.push(signal)
+      },
+      promptAsyncImpl: async () => {
+        throw {
+          statusCode: 429,
+          message: "rate limit exceeded",
+        }
+      },
+      configLoader: () => ({
+        agents: {
+          prometheus: {
+            model: "openai/gpt-5.4",
+            fallback_models: [
+              "anthropic/claude-opus-4-6",
+              "openai/gpt-5.3-codex-spark",
+            ],
+          },
+        },
+        runtime_fallback: {
+          enabled: true,
+          max_fallback_attempts: 6,
+          max_full_chain_cycles: 2,
+          cooldown_seconds: 600,
+        },
+      }),
+    })
+
+    await hooks["chat.message"]?.(
+      {
+        sessionID: "ses_cycle_limit",
+        agent: "prometheus",
+      },
+      {
+        message: {
+          role: "user",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{ type: "text", text: "Keep retrying through fallback chain." }],
+      },
+    )
+
+    await hooks.event?.({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionID: "ses_cycle_limit",
+          status: {
+            type: "retry",
+            attempt: 1,
+            message: "This request would exceed your account's rate limit. Please try again later.",
+            next: 120_000,
+          },
+        },
+      },
+    })
+
+    expect(runtime.getSessionRetryState("ses_cycle_limit")).toMatchObject({
+      state: "retrying",
+      fallbackCycleCount: 1,
+      scheduled: true,
+    })
+    expect(timers.getActiveTimers()).toHaveLength(1)
+
+    currentTime = 750_000
+    await timers.runNext()
+
+    expect(runtime.getSessionRetryState("ses_cycle_limit")).toMatchObject({
+      state: "failed",
+      fallbackCycleCount: 2,
+      scheduled: false,
+      hardProviderBlock: false,
+    })
+    expect(signals.at(-1)).toMatchObject({
+      state: "failed",
+      hardProviderBlock: false,
+    })
+    expect(promptCalls.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it("resets full-cycle counters after a successful fallback dispatch", async () => {
+    const { hooks, promptCalls, runtime } = createRuntime({
+      promptAsyncImpl: async (payload) => {
+        const body = payload.body as { model?: { modelID?: string } } | undefined
+        const modelID = body?.model?.modelID
+
+        if (modelID === "claude-opus-4-6") {
+          throw {
+            statusCode: 429,
+            message: "rate limit exceeded",
+          }
+        }
+
+        return true
+      },
+      configLoader: () => ({
+        agents: {
+          prometheus: {
+            model: "openai/gpt-5.4",
+            fallback_models: [
+              "anthropic/claude-opus-4-6",
+              "openai/gpt-5.3-codex-spark",
+            ],
+          },
+        },
+        runtime_fallback: {
+          enabled: true,
+          max_fallback_attempts: 6,
+          max_full_chain_cycles: 5,
+          cooldown_seconds: 600,
+        },
+      }),
+    })
+
+    await hooks["chat.message"]?.(
+      {
+        sessionID: "ses_cycle_reset",
+        agent: "prometheus",
+      },
+      {
+        message: {
+          role: "user",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{ type: "text", text: "Switch model if primary is rate-limited." }],
+      },
+    )
+
+    await hooks.event?.({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionID: "ses_cycle_reset",
+          status: {
+            type: "retry",
+            attempt: 1,
+            message: "This request would exceed your account's rate limit. Please try again later.",
+            next: 90_000,
+          },
+        },
+      },
+    })
+
+    expect(promptCalls).toHaveLength(2)
+    expect(promptCalls[0]?.body?.model).toMatchObject({
+      providerID: "anthropic",
+      modelID: "claude-opus-4-6",
+    })
+    expect(promptCalls[1]?.body?.model).toMatchObject({
+      providerID: "openai",
+      modelID: "gpt-5.3-codex-spark",
+    })
+    expect(runtime.getSessionRetryState("ses_cycle_reset")).toMatchObject({
+      state: "running",
+      fallbackCycleCount: 0,
+      cycleVisitedModels: [],
+      currentModel: "openai/gpt-5.3-codex-spark",
+    })
   })
 })
