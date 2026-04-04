@@ -159,7 +159,7 @@ describe("createChatParamsHandler", () => {
       topK: 1,
       options: {
         existing: true,
-        reasoningEffort: "high",
+        reasoningEffort: "xhigh",
         thinking: { type: "disabled" },
         maxTokens: 4096,
       },
@@ -211,6 +211,7 @@ describe("createChatParamsHandler", () => {
       topP: 1,
       topK: 1,
       options: {
+        reasoningEffort: "xhigh",
         maxTokens: 128_000,
       },
     })
@@ -255,5 +256,61 @@ describe("createChatParamsHandler", () => {
       topK: 1,
       options: {},
     })
+  })
+
+  test("promotes gpt-5.4 default variant and reasoningEffort to xhigh", async () => {
+    //#given
+    const handler = createChatParamsHandler({
+      anthropicEffort: null,
+    })
+
+    const input = {
+      sessionID: "ses_chat_params",
+      agent: { name: "sisyphus" },
+      model: { providerID: "openai", modelID: "gpt-5.4" },
+      provider: { id: "openai" },
+      message: {},
+    }
+
+    const output: ChatParamsOutput = {
+      topP: 1,
+      topK: 1,
+      options: {},
+    }
+
+    //#when
+    await handler(input, output)
+
+    //#then
+    expect(input.message.variant).toBe("xhigh")
+    expect(output.options.reasoningEffort).toBe("xhigh")
+  })
+
+  test("promotes gpt-5.4 high variant and high reasoningEffort to xhigh", async () => {
+    //#given
+    const handler = createChatParamsHandler({
+      anthropicEffort: null,
+    })
+
+    const input = {
+      sessionID: "ses_chat_params",
+      agent: { name: "sisyphus" },
+      model: { providerID: "openai", modelID: "gpt-5.4" },
+      provider: { id: "openai" },
+      message: { variant: "high" },
+    }
+
+    const output: ChatParamsOutput = {
+      topP: 1,
+      topK: 1,
+      options: { reasoningEffort: "high" },
+    }
+
+    //#when
+    await handler(input, output)
+
+    //#then
+    expect(input.message.variant).toBe("xhigh")
+    expect(output.options.reasoningEffort).toBe("xhigh")
   })
 })
