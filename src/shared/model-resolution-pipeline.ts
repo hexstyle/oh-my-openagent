@@ -36,6 +36,74 @@ export type ModelResolutionResult = {
   reason?: string
 }
 
+const DEFAULT_VARIANT_BY_MODEL_ID: Record<string, string> = {
+  "gpt-5.4": "xhigh",
+}
+
+function splitProviderModel(model: string): { provider: string; modelID: string } | null {
+  const slashIndex = model.indexOf("/")
+  if (slashIndex <= 0 || slashIndex >= model.length - 1) {
+    return null
+  }
+
+  return {
+    provider: model.slice(0, slashIndex).toLowerCase(),
+    modelID: model.slice(slashIndex + 1).toLowerCase(),
+  }
+}
+
+function getDefaultVariantForModel(model: string): string | undefined {
+  const parsed = splitProviderModel(model)
+  if (!parsed) {
+    return undefined
+  }
+
+  const mappedVariant = DEFAULT_VARIANT_BY_MODEL_ID[parsed.modelID]
+  if (mappedVariant) {
+    return mappedVariant
+  }
+
+  if (parsed.modelID.includes("claude-opus")) {
+    return "max"
+  }
+
+  return undefined
+}
+
+function inferVariantFromFallbackChain(model: string, fallbackChain: FallbackEntry[] | undefined): string | undefined {
+  if (!fallbackChain || fallbackChain.length === 0) {
+    return undefined
+  }
+
+  const parsedModel = splitProviderModel(model)
+  if (!parsedModel) {
+    return undefined
+  }
+
+  for (const entry of fallbackChain) {
+    const entryModelID = entry.model.toLowerCase()
+    if (entryModelID !== parsedModel.modelID || !entry.variant) {
+      continue
+    }
+
+    if (entry.providers.some((provider) => provider.toLowerCase() === parsedModel.provider)) {
+      return entry.variant
+    }
+  }
+
+  for (const entry of fallbackChain) {
+    if (entry.model.toLowerCase() === parsedModel.modelID && entry.variant) {
+      return entry.variant
+    }
+  }
+
+  return undefined
+}
+
+function resolveImplicitVariant(model: string, fallbackChain: FallbackEntry[] | undefined): string | undefined {
+  return getDefaultVariantForModel(model) ?? inferVariantFromFallbackChain(model, fallbackChain)
+}
+
 
 export function resolveModelPipeline(
   request: ModelResolutionRequest,
@@ -48,14 +116,24 @@ export function resolveModelPipeline(
 
   const normalizedUiModel = normalizeModel(intent?.uiSelectedModel)
   if (normalizedUiModel) {
+    const implicitVariant = resolveImplicitVariant(normalizedUiModel, fallbackChain)
     log("Model resolved via UI selection", { model: normalizedUiModel })
-    return { model: normalizedUiModel, provenance: "override" }
+    return {
+      model: normalizedUiModel,
+      provenance: "override",
+      ...(implicitVariant ? { variant: implicitVariant } : {}),
+    }
   }
 
   const normalizedUserModel = normalizeModel(intent?.userModel)
   if (normalizedUserModel) {
+    const implicitVariant = resolveImplicitVariant(normalizedUserModel, fallbackChain)
     log("Model resolved via config override", { model: normalizedUserModel })
-    return { model: normalizedUserModel, provenance: "override" }
+    return {
+      model: normalizedUserModel,
+      provenance: "override",
+      ...(implicitVariant ? { variant: implicitVariant } : {}),
+    }
   }
 
   const normalizedCategoryDefault = normalizeModel(intent?.categoryDefaultModel)
