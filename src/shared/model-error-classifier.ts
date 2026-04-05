@@ -6,11 +6,20 @@ import { readConnectedProvidersCache } from "./connected-providers-cache"
  * These errors completely halt the action loop and should trigger fallback retry.
  */
 const RETRYABLE_ERROR_NAMES = new Set([
+  "providermodelnotfounderror",
+  "ratelimiterror",
+  "modelunavailableerror",
   "providerconnectionerror",
   "authenticationerror",
   "tlscertificateerror",
   "sslerror",
   "unknownerror",
+])
+
+const STOP_ERROR_NAMES = new Set([
+  "quotaexceedederror",
+  "insufficientcreditserror",
+  "freeusagelimiterror",
 ])
 
 /**
@@ -41,12 +50,43 @@ const RETRYABLE_MESSAGE_PATTERNS = [
   "DEPTH_ZERO_SELF_SIGNED_CERT",
   "tls",
   "ssl",
+  "rate_limit",
+  "rate limit",
+  "quota",
+  "quota will reset after",
+  "usage limit has been reached",
+  "all credentials for model",
+  "cooling down",
+  "exhausted your capacity",
+  "not found",
+  "unavailable",
+  "insufficient",
+  "too many requests",
+  "over limit",
+  "overloaded",
+  "bad gateway",
+  "bad request",
+  "unknown provider",
+  "provider not found",
+  "model_not_supported",
+  "model not supported",
+  "model is not supported",
   "connection error",
   "network error",
   "socket hang up",
   "ECONNRESET",
   "ECONNREFUSED",
   "ETIMEDOUT",
+  "timeout",
+  "service unavailable",
+  "internal_server_error",
+  "temporarily unavailable",
+  "try again",
+  "503",
+  "502",
+  "504",
+  "429",
+  "529",
   "overloaded",
 ]
 
@@ -82,6 +122,9 @@ export function isRetryableModelError(error: ErrorInfo): boolean {
     const errorNameLower = error.name.toLowerCase()
     // Explicit non-retryable takes precedence
     if (NON_RETRYABLE_ERROR_NAMES.has(errorNameLower)) {
+      return false
+    }
+    if (STOP_ERROR_NAMES.has(errorNameLower)) {
       return false
     }
     // Check if it's a known retryable error
