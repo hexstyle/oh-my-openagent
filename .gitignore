@@ -37,3 +37,8 @@ notepad.md
 oauth-success.html
 *.bun-build
 .omx/
+
+# Local runtime/test scratch artifacts
+.tmp-runtime-fallback-recovery-test.mjs
+src/hooks/auto-update-checker/checker/__test-sync-cache__/
+src/hooks/auto-update-checker/hook/__test-workspace-resolution__/

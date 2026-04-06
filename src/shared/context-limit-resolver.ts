@@ -1,6 +1,7 @@
 import process from "node:process"
 
 const DEFAULT_ANTHROPIC_ACTUAL_LIMIT = 200_000
+const GPT_5_4_EFFECTIVE_CONTEXT_LIMIT = 250_000
 export type ContextLimitModelCacheState = {
   anthropicContext1MEnabled: boolean
   modelContextLimitsCache?: Map<string, number>
@@ -23,6 +24,11 @@ function supportsCachedAnthropicLimit(modelID: string): boolean {
   return /^claude-(opus|sonnet)-4(?:-|\.)6(?:-high)?$/.test(modelID)
 }
 
+function isEffectivelyCappedGpt54(modelID: string): boolean {
+  const normalized = modelID.trim().toLowerCase()
+  return normalized === "gpt-5.4" || normalized.endsWith("/gpt-5.4")
+}
+
 export function resolveActualContextLimit(
   providerID: string,
   modelID: string,
@@ -38,5 +44,14 @@ export function resolveActualContextLimit(
     return DEFAULT_ANTHROPIC_ACTUAL_LIMIT
   }
 
-  return modelCacheState?.modelContextLimitsCache?.get(`${providerID}/${modelID}`) ?? null
+  const cachedLimit = modelCacheState?.modelContextLimitsCache?.get(`${providerID}/${modelID}`) ?? null
+  if (cachedLimit === null) {
+    return null
+  }
+
+  if (isEffectivelyCappedGpt54(modelID)) {
+    return Math.min(cachedLimit, GPT_5_4_EFFECTIVE_CONTEXT_LIMIT)
+  }
+
+  return cachedLimit
 }

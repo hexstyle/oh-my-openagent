@@ -5,6 +5,7 @@ import { normalizeAgentName, resolveAgentForSession } from "./agent-resolver"
 import { getSessionAgent } from "../../features/claude-code-session-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { prepareFallback } from "./fallback-state"
+import { recoverPreferredModel } from "./fallback-state"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { buildRetryModelPayload } from "./retry-model-payload"
 import { getLastUserRetryParts } from "./last-user-retry-parts"
@@ -209,6 +210,21 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     }
   }
 
+  const recoverPreferredModels = () => {
+    for (const [sessionID, state] of sessionStates.entries()) {
+      const recoveredModel = recoverPreferredModel(state, config.cooldown_seconds)
+      if (!recoveredModel) {
+        continue
+      }
+
+      sessionLastAccess.set(sessionID, Date.now())
+      log(`[${HOOK_NAME}] Background recovery promoted session back to a higher-priority model`, {
+        sessionID,
+        recoveredModel,
+      })
+    }
+  }
+
   return {
     abortSessionRequest,
     clearSessionFallbackTimeout,
@@ -216,6 +232,7 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     autoRetryWithFallback,
     resolveAgentForSessionFromContext,
     cleanupStaleSessions,
+    recoverPreferredModels,
   }
 }
 

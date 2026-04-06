@@ -10,6 +10,7 @@ import { ClaudeCodeConfigSchema } from "./claude-code"
 import { CommentCheckerConfigSchema } from "./comment-checker"
 import { BuiltinCommandNameSchema } from "./commands"
 import { ExperimentalConfigSchema } from "./experimental"
+import { FallbackModelsSchema } from "./fallback-models"
 import { GitMasterConfigSchema } from "./git-master"
 import { NotificationConfigSchema } from "./notification"
 import { OpenClawConfigSchema } from "./openclaw"
@@ -54,6 +55,7 @@ export const OhMyOpenCodeConfigSchema = z.object({
    * Set to false to disable, or use object for advanced config:
    * { "enabled": true, "retry_on_errors": [400, 429], "timeout_seconds": 30 }
    */
+  fallback_models: FallbackModelsSchema.optional(),
   runtime_fallback: z.union([z.boolean(), RuntimeFallbackConfigSchema]).optional(),
   background_task: BackgroundTaskConfigSchema.optional(),
   notification: NotificationConfigSchema.optional(),

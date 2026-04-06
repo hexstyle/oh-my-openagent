@@ -21,6 +21,15 @@ export type ChatParamsOutput = {
   options: Record<string, unknown>
 }
 
+function isGpt54Model(modelID: string): boolean {
+  const normalized = modelID.trim().toLowerCase()
+  return normalized === "gpt-5.4" || normalized.endsWith("/gpt-5.4")
+}
+
+function shouldPromoteToXhigh(value: string | undefined): boolean {
+  return value === undefined || value.toLowerCase() === "high"
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
@@ -112,16 +121,27 @@ export function createChatParamsHandler(args: {
       modelID: normalizedInput.model.modelID,
     })
 
+    const incomingVariant = typeof normalizedInput.message.variant === "string"
+      ? normalizedInput.message.variant
+      : undefined
+    const incomingReasoningEffort = typeof output.options.reasoningEffort === "string"
+      ? output.options.reasoningEffort
+      : undefined
+    const promoteGpt54Variant = isGpt54Model(normalizedInput.model.modelID)
+
+    const desiredVariant = promoteGpt54Variant && shouldPromoteToXhigh(incomingVariant)
+      ? "xhigh"
+      : incomingVariant
+    const desiredReasoningEffort = promoteGpt54Variant && shouldPromoteToXhigh(incomingReasoningEffort)
+      ? "xhigh"
+      : incomingReasoningEffort
+
     const compatibility = resolveCompatibleModelSettings({
       providerID: normalizedInput.model.providerID,
       modelID: normalizedInput.model.modelID,
       desired: {
-        variant: typeof normalizedInput.message.variant === "string"
-          ? normalizedInput.message.variant
-          : undefined,
-        reasoningEffort: typeof output.options.reasoningEffort === "string"
-          ? output.options.reasoningEffort
-          : undefined,
+        variant: desiredVariant,
+        reasoningEffort: desiredReasoningEffort,
         temperature: typeof output.temperature === "number" ? output.temperature : undefined,
         topP: typeof output.topP === "number" ? output.topP : undefined,
         maxTokens: typeof output.options.maxTokens === "number" ? output.options.maxTokens : undefined,

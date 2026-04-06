@@ -26,7 +26,7 @@ import { resetMessageCursor } from "../shared";
 import { getAgentConfigKey } from "../shared/agent-display-names";
 import { readConnectedProvidersCache } from "../shared/connected-providers-cache";
 import { log } from "../shared/logger";
-import { shouldRetryError } from "../shared/model-error-classifier";
+import { shouldRetryError, shouldSwitchFallback } from "../shared/model-error-classifier"
 import { buildFallbackChainFromModels } from "../shared/fallback-chain-from-models";
 import { extractRetryAttempt, normalizeRetryStatusMessage } from "../shared/retry-status-utils";
 import { clearSessionModel, getSessionModel, setSessionModel } from "../shared/session-model-state";
@@ -429,7 +429,7 @@ export function createEventHandler(args: {
             const errorMessage = extractErrorMessage(assistantError);
             const errorInfo = { name: errorName, message: errorMessage };
 
-            if (shouldRetryError(errorInfo)) {
+            if (shouldRetryError(errorInfo) || shouldSwitchFallback(errorInfo)) {
               // Prefer the agent/model/provider from the assistant message payload.
               let agentName = agent ?? getSessionAgent(sessionID);
               if (!agentName && sessionID === getMainSessionID()) {
@@ -494,7 +494,7 @@ export function createEventHandler(args: {
           lastHandledRetryStatusKey.set(sessionID, retryKey);
 
           const errorInfo = { name: undefined as string | undefined, message: retryMessage };
-          if (shouldRetryError(errorInfo)) {
+          if (shouldRetryError(errorInfo) || shouldSwitchFallback(errorInfo)) {
             let agentName = getSessionAgent(sessionID);
             if (!agentName && sessionID === getMainSessionID()) {
               if (retryMessage.includes("claude-opus") || retryMessage.includes("opus")) {
@@ -577,7 +577,7 @@ export function createEventHandler(args: {
           }
         }
         // Second, try model fallback for model errors (rate limit, quota, provider issues, etc.)
-        else if (sessionID && shouldRetryError(errorInfo) && !isRuntimeFallbackEnabled && isModelFallbackEnabled) {
+        else if (sessionID && (shouldRetryError(errorInfo) || shouldSwitchFallback(errorInfo)) && !isRuntimeFallbackEnabled && isModelFallbackEnabled) {
           let agentName = getSessionAgent(sessionID);
 
           if (!agentName && sessionID === getMainSessionID()) {

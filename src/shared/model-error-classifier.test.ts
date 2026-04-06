@@ -7,7 +7,7 @@ mock.module("./connected-providers-cache", () => ({
   readConnectedProvidersCache: readConnectedProvidersCacheMock,
 }))
 
-import { shouldRetryError, selectFallbackProvider } from "./model-error-classifier"
+import { shouldRetryError, shouldSwitchFallback, selectFallbackProvider } from "./model-error-classifier"
 
 describe("model-error-classifier", () => {
   beforeEach(() => {
@@ -83,23 +83,23 @@ describe("model-error-classifier", () => {
     expect(provider).toBe("provider-x")
   })
 
-  test("treats FreeUsageLimitError (PascalCase name) as retryable by name", () => {
+  test("treats FreeUsageLimitError (PascalCase name) as fallback-switchable by name", () => {
     //#given
     const error = { name: "FreeUsageLimitError" }
 
     //#when
-    const result = shouldRetryError(error)
+    const result = shouldSwitchFallback(error)
 
     //#then
     expect(result).toBe(true)
   })
 
-  test("treats freeusagelimiterror (lowercase name) as retryable by name", () => {
+  test("treats freeusagelimiterror (lowercase name) as fallback-switchable by name", () => {
     //#given
     const error = { name: "freeusagelimiterror" }
 
     //#when
-    const result = shouldRetryError(error)
+    const result = shouldSwitchFallback(error)
 
     //#then
     expect(result).toBe(true)

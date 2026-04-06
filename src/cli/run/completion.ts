@@ -6,6 +6,10 @@ import {
   type ContinuationState,
 } from "./continuation-state"
 
+function isBlockingChildStatus(type: string | undefined): boolean {
+  return type === "busy" || type === "retry" || type === "running"
+}
+
 export async function checkCompletionConditions(ctx: RunContext): Promise<boolean> {
   try {
     const continuationState = getContinuationState(ctx.directory, ctx.sessionID)
@@ -98,7 +102,7 @@ async function areAllDescendantsIdle(
 
   for (const child of children) {
     const status = allStatuses[child.id]
-    if (status && status.type !== "idle") {
+    if (status && isBlockingChildStatus(status.type)) {
       logWaiting(ctx, `session ${child.id.slice(0, 8)}... is ${status.type}`)
       return false
     }

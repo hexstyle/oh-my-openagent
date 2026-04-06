@@ -289,6 +289,34 @@ describe("handleSessionIdleBackgroundEvent", () => {
       expect(tryCompleteTask).not.toHaveBeenCalled()
     })
 
+    it("#when task has incomplete todos after a recorded error #then should fail instead of waiting forever", async () => {
+      //#given
+      const task = createRunningTask({ error: "Unknown error" })
+      const tryCompleteTask = mock(() => Promise.resolve(true))
+      const failTask = mock(() => Promise.resolve())
+
+      //#when
+      handleSessionIdleBackgroundEvent({
+        properties: { sessionID: task.sessionID! },
+        findBySession: () => task,
+        idleDeferralTimers: new Map(),
+        validateSessionHasOutput: () => Promise.resolve(true),
+        checkSessionTodos: () => Promise.resolve(true),
+        tryCompleteTask,
+        failTask,
+        emitIdleEvent: () => {},
+      })
+
+      //#then
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(tryCompleteTask).not.toHaveBeenCalled()
+      expect(failTask).toHaveBeenCalledWith(
+        task,
+        "Subagent became idle with incomplete todos after an error: Unknown error",
+        "session.idle with incomplete todos after error",
+      )
+    })
+
     it("#when task status changes during validation #then should not complete task", async () => {
       //#given
       const task = createRunningTask()

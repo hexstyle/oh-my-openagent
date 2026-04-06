@@ -6,14 +6,11 @@ import { readConnectedProvidersCache } from "./connected-providers-cache"
  * These errors completely halt the action loop and should trigger fallback retry.
  */
 const RETRYABLE_ERROR_NAMES = new Set([
-  "providermodelnotfounderror",
-  "ratelimiterror",
-  "quotaexceedederror",
-  "insufficientcreditserror",
-  "modelunavailableerror",
   "providerconnectionerror",
   "authenticationerror",
-  "freeusagelimiterror",
+  "tlscertificateerror",
+  "sslerror",
+  "unknownerror",
 ])
 
 /**
@@ -34,42 +31,23 @@ const NON_RETRYABLE_ERROR_NAMES = new Set([
  * Message patterns that indicate a retryable error even without a known error name.
  */
 const RETRYABLE_MESSAGE_PATTERNS = [
-  "rate_limit",
-  "rate limit",
-  "quota",
-  "quota will reset after",
-  "usage limit has been reached",
-  "all credentials for model",
-  "cooling down",
-  "exhausted your capacity",
-  "not found",
-  "unavailable",
-  "insufficient",
-  "too many requests",
-  "over limit",
-  "overloaded",
-  "bad gateway",
-  "unknown provider",
-  "provider not found",
-  "model_not_supported",
-  "model not supported",
-  "model is not supported",
+  "certificate",
+  "certificate has expired",
+  "unable to verify the first certificate",
+  "self.signed certificate",
+  "self signed certificate",
+  "CERT_HAS_EXPIRED",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "tls",
+  "ssl",
   "connection error",
   "network error",
-  "timeout",
-  "service unavailable",
-  "internal_server_error",
-  "free usage",
-  "usage exceeded",
-  "credit",
-  "balance",
-  "temporarily unavailable",
-  "try again",
-  "503",
-  "502",
-  "504",
-  "429",
-  "529",
+  "socket hang up",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "overloaded",
 ]
 
 const AUTO_RETRY_GATE_PATTERNS = [
@@ -120,12 +98,60 @@ export function isRetryableModelError(error: ErrorInfo): boolean {
   return RETRYABLE_MESSAGE_PATTERNS.some((pattern) => msg.includes(pattern))
 }
 
+const QUOTA_ERROR_PATTERNS = [
+  "quota",
+  "usage limit",
+  "limit reached",
+  "insufficient",
+  "credit",
+  "balance",
+  "429",
+  "402",
+  "too many requests",
+  "rate limit",
+  "exhausted your capacity",
+  "free usage",
+  "usage exceeded",
+  "out of credits",
+  "payment required",
+  "billing",
+]
+
+const QUOTA_ERROR_NAMES = new Set([
+  "quotaexceedederror",
+  "insufficientcreditserror",
+  "freeusagelimiterror",
+  "ratelimiterror",
+])
+
+/**
+ * Determines if an error indicates quota/limit exhaustion.
+ * These errors should trigger a fallback model switch (not retry).
+ */
+export function isQuotaError(error: ErrorInfo): boolean {
+  if (error.name) {
+    const errorNameLower = error.name.toLowerCase()
+    if (QUOTA_ERROR_NAMES.has(errorNameLower)) return true
+  }
+
+  const msg = error.message?.toLowerCase() ?? ""
+  return QUOTA_ERROR_PATTERNS.some((pattern) => msg.includes(pattern))
+}
+
 /**
  * Determines if an error should trigger a fallback retry.
- * Returns true for deadstop errors that completely halt the action loop.
+ * Returns true for TLS/certificate errors that should be retried.
  */
 export function shouldRetryError(error: ErrorInfo): boolean {
   return isRetryableModelError(error)
+}
+
+/**
+ * Determines if an error should trigger a fallback model switch.
+ * Returns true for quota/limit errors that require switching to a fallback model.
+ */
+export function shouldSwitchFallback(error: ErrorInfo): boolean {
+  return isQuotaError(error)
 }
 
 /**

@@ -128,10 +128,23 @@ export function classifyErrorType(error: unknown): string | undefined {
     /insufficient.?quota/i.test(message) ||
     /billing.?(?:hard.?)?limit/i.test(message) ||
     /exhausted\s+your\s+capacity/i.test(message) ||
+    /extra\s+usage\s+is\s+required\s+for\s+long\s+context\s+requests/i.test(message) ||
     /out\s+of\s+credits?/i.test(message) ||
     /payment.?required/i.test(message)
   ) {
     return "quota_exceeded"
+  }
+  // UnknownError with "Agent not found" is a retryable resolution error
+  if (
+    errorName?.includes("unknownerror") &&
+    /agent\s+not\s+found/i.test(message)
+  ) {
+    return "agent_not_found"
+  }
+
+  // Generic UnknownError is retryable — triggers fallback instead of silent drop
+  if (errorName?.includes("unknownerror")) {
+    return "unknown_error"
   }
 
   return undefined
@@ -203,7 +216,15 @@ export function isRetryableError(error: unknown, retryOnErrors: number[]): boole
     return true
   }
 
-  if (errorType === "quota_exceeded") {
+if (errorType === "quota_exceeded") {
+return true
+  }
+
+  if (errorType === "agent_not_found") {
+    return true
+  }
+
+  if (errorType === "unknown_error") {
     return true
   }
 

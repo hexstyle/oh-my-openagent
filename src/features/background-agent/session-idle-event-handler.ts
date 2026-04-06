@@ -14,6 +14,7 @@ export function handleSessionIdleBackgroundEvent(args: {
   validateSessionHasOutput: (sessionID: string) => Promise<boolean>
   checkSessionTodos: (sessionID: string) => Promise<boolean>
   tryCompleteTask: (task: BackgroundTask, source: string) => Promise<boolean>
+  failTask?: (task: BackgroundTask, errorMessage: string, source: string) => Promise<void>
   emitIdleEvent: (sessionID: string) => void
 }): void {
   const {
@@ -23,6 +24,7 @@ export function handleSessionIdleBackgroundEvent(args: {
     validateSessionHasOutput,
     checkSessionTodos,
     tryCompleteTask,
+    failTask,
     emitIdleEvent,
   } = args
 
@@ -81,6 +83,15 @@ export function handleSessionIdleBackgroundEvent(args: {
       }
 
       if (hasIncompleteTodos) {
+        if (task.error && failTask) {
+          await failTask(
+            task,
+            `Subagent became idle with incomplete todos after an error: ${task.error}`,
+            "session.idle with incomplete todos after error",
+          )
+          return
+        }
+
         log("[background-agent] Task has incomplete todos, waiting for todo-continuation:", task.id)
         return
       }
