@@ -26,6 +26,17 @@ describe("model-error-classifier", () => {
     expect(result).toBe(true)
   })
 
+  test("treats certificate errors as retryable", () => {
+    //#given
+    const error = { message: "tls: unable to verify the first certificate" }
+
+    //#when
+    const result = shouldRetryError(error)
+
+    //#then
+    expect(result).toBe(true)
+  })
+
   test("treats cooling-down auto-retry messages as retryable", () => {
     //#given
     const error = {
@@ -103,6 +114,19 @@ describe("model-error-classifier", () => {
 
     //#then
     expect(result).toBe(true)
+  })
+
+  test("treats free period messages as fallback-switchable, not retryable", () => {
+    //#given
+    const error = { message: "Your free period has ended. Please wait until tomorrow to continue." }
+
+    //#when
+    const retry = shouldRetryError(error)
+    const fallback = shouldSwitchFallback(error)
+
+    //#then
+    expect(retry).toBe(false)
+    expect(fallback).toBe(true)
   })
 
   test("treats 'bad request' message as retryable (GitHub Copilot rolling update)", () => {

@@ -117,6 +117,8 @@ export interface ErrorInfo {
  * Returns true if the error is a known retryable type OR matches retryable message patterns.
  */
 export function isRetryableModelError(error: ErrorInfo): boolean {
+  const msg = error.message?.toLowerCase() ?? ""
+
   // If we have an error name, check against known lists
   if (error.name) {
     const errorNameLower = error.name.toLowerCase()
@@ -133,11 +135,15 @@ export function isRetryableModelError(error: ErrorInfo): boolean {
     }
   }
 
-  // Check message patterns for unknown errors
-  const msg = error.message?.toLowerCase() ?? ""
   if (hasProviderAutoRetrySignal(msg)) {
     return true
   }
+
+  if (isQuotaError(error)) {
+    return false
+  }
+
+  // Check message patterns for unknown errors
   return RETRYABLE_MESSAGE_PATTERNS.some((pattern) => msg.includes(pattern))
 }
 
@@ -154,6 +160,7 @@ const QUOTA_ERROR_PATTERNS = [
   "rate limit",
   "exhausted your capacity",
   "free usage",
+  "free period",
   "usage exceeded",
   "out of credits",
   "payment required",
