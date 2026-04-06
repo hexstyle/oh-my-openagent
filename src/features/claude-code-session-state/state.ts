@@ -1,4 +1,4 @@
-import { getAgentConfigKey } from "../../shared/agent-display-names"
+import { getAgentConfigKey, normalizeAgentForPrompt } from "../../shared/agent-display-names"
 
 export const subagentSessions = new Set<string>()
 export const syncSubagentSessions = new Set<string>()
@@ -16,17 +16,11 @@ export function getMainSessionID(): string | undefined {
 const registeredAgentNames = new Set<string>()
 
 export function registerAgentName(name: string): void {
-  const normalizedName = name.toLowerCase()
-  registeredAgentNames.add(normalizedName)
-
-  const configKey = getAgentConfigKey(name).toLowerCase()
-  if (configKey !== normalizedName) {
-    registeredAgentNames.add(configKey)
-  }
+  registeredAgentNames.add(getAgentConfigKey(name).toLowerCase())
 }
 
 export function isAgentRegistered(name: string): boolean {
-  return registeredAgentNames.has(name.toLowerCase())
+  return registeredAgentNames.has(getAgentConfigKey(name).toLowerCase())
 }
 
 /** @internal For testing only */
@@ -42,12 +36,12 @@ const sessionAgentMap = new Map<string, string>()
 
 export function setSessionAgent(sessionID: string, agent: string): void {
   if (!sessionAgentMap.has(sessionID)) {
-    sessionAgentMap.set(sessionID, agent)
+    sessionAgentMap.set(sessionID, normalizeAgentForPrompt(agent) ?? agent)
   }
 }
 
 export function updateSessionAgent(sessionID: string, agent: string): void {
-  sessionAgentMap.set(sessionID, agent)
+  sessionAgentMap.set(sessionID, normalizeAgentForPrompt(agent) ?? agent)
 }
 
 export function getSessionAgent(sessionID: string): string | undefined {

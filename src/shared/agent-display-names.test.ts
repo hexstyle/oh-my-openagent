@@ -64,8 +64,8 @@ describe("getAgentDisplayName", () => {
     // when getAgentDisplayName called
     const result = getAgentDisplayName(configKey)
 
-    // then returns "Sisyphus-Junior"
-    expect(result).toBe("Sisyphus-Junior")
+    // then returns canonical display name
+    expect(result).toBe("Sisyphus Junior (Focused Executor)")
   })
 
   it("returns display name for metis", () => {
@@ -97,8 +97,8 @@ describe("getAgentDisplayName", () => {
     // when getAgentDisplayName called
     const result = getAgentDisplayName(configKey)
 
-    // then returns "oracle"
-    expect(result).toBe("oracle")
+    // then returns canonical display name
+    expect(result).toBe("Oracle (Strategic Advisor)")
   })
 
   it("returns display name for librarian", () => {
@@ -108,8 +108,8 @@ describe("getAgentDisplayName", () => {
     // when getAgentDisplayName called
     const result = getAgentDisplayName(configKey)
 
-    // then returns "librarian"
-    expect(result).toBe("librarian")
+    // then returns canonical display name
+    expect(result).toBe("Librarian (OSS Research)")
   })
 
   it("returns display name for explore", () => {
@@ -119,8 +119,8 @@ describe("getAgentDisplayName", () => {
     // when getAgentDisplayName called
     const result = getAgentDisplayName(configKey)
 
-    // then returns "explore"
-    expect(result).toBe("explore")
+    // then returns canonical display name
+    expect(result).toBe("Explore (Code Search)")
   })
 
   it("returns display name for multimodal-looker", () => {
@@ -130,8 +130,8 @@ describe("getAgentDisplayName", () => {
     // when getAgentDisplayName called
     const result = getAgentDisplayName(configKey)
 
-    // then returns "multimodal-looker"
-    expect(result).toBe("multimodal-looker")
+    // then returns canonical display name
+    expect(result).toBe("Multimodal Looker (Document Vision)")
   })
 })
 
@@ -172,7 +172,18 @@ describe("getAgentConfigKey", () => {
     expect(getAgentConfigKey("Atlas (Plan Executor)")).toBe("atlas")
     expect(getAgentConfigKey("Metis (Plan Consultant)")).toBe("metis")
     expect(getAgentConfigKey("Momus (Plan Critic)")).toBe("momus")
-    expect(getAgentConfigKey("Sisyphus-Junior")).toBe("sisyphus-junior")
+    expect(getAgentConfigKey("Sisyphus Junior (Focused Executor)")).toBe("sisyphus-junior")
+    expect(getAgentConfigKey("Oracle (Strategic Advisor)")).toBe("oracle")
+    expect(getAgentConfigKey("Librarian (OSS Research)")).toBe("librarian")
+    expect(getAgentConfigKey("Explore (Code Search)")).toBe("explore")
+    expect(getAgentConfigKey("Multimodal Looker (Document Vision)")).toBe("multimodal-looker")
+  })
+
+  it("resolves legacy plain-name aliases through the migration table", () => {
+    expect(getAgentConfigKey("Sisyphus")).toBe("sisyphus")
+    expect(getAgentConfigKey("Prometheus")).toBe("prometheus")
+    expect(getAgentConfigKey("Sisyphus Junior")).toBe("sisyphus-junior")
+    expect(getAgentConfigKey("Oracle")).toBe("oracle")
   })
 })
 
@@ -184,16 +195,16 @@ describe("AGENT_DISPLAY_NAMES", () => {
       hephaestus: "Hephaestus (Deep Agent)",
       prometheus: "Prometheus (Plan Builder)",
       atlas: "Atlas (Plan Executor)",
-      "sisyphus-junior": "Sisyphus-Junior",
+      "sisyphus-junior": "Sisyphus Junior (Focused Executor)",
       metis: "Metis (Plan Consultant)",
       momus: "Momus (Plan Critic)",
       athena: "Athena (Council)",
-      "athena-junior": "Athena-Junior (Council)",
-      oracle: "oracle",
-      librarian: "librarian",
-      explore: "explore",
-      "multimodal-looker": "multimodal-looker",
-      "council-member": "council-member",
+      "athena-junior": "Athena Junior (Council)",
+      oracle: "Oracle (Strategic Advisor)",
+      librarian: "Librarian (OSS Research)",
+      explore: "Explore (Code Search)",
+      "multimodal-looker": "Multimodal Looker (Document Vision)",
+      "council-member": "Council Member (Advisor)",
     }
 
     // when checking the constant

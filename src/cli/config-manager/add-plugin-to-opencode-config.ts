@@ -10,6 +10,13 @@ import { deepMergeRecord } from "./deep-merge-record"
 import { getPersonalOpenCodeConfig } from "./personal-config-preset"
 import { getPluginNameWithVersion } from "./plugin-name-with-version"
 
+const MANAGED_HOST_KEYS = [
+  "default_agent",
+  "plugin",
+  "provider",
+  "lsp",
+] as const
+
 export async function addPluginToOpenCodeConfig(currentVersion: string): Promise<ConfigMergeResult> {
   try {
     ensureConfigDirectoryExists()
@@ -42,9 +49,16 @@ export async function addPluginToOpenCodeConfig(currentVersion: string): Promise
     }
 
     const config = deepMergeRecord(
-      presetConfig,
       parseResult.config,
+      presetConfig,
     ) as OpenCodeConfig
+    for (const key of MANAGED_HOST_KEYS) {
+      if (key in presetConfig) {
+        ;(config as Record<string, unknown>)[key] = structuredClone(
+          presetConfig[key],
+        )
+      }
+    }
     const plugins = config.plugin ?? []
     const presetPlugins = presetConfig.plugin ?? []
     const isPluginPackageEntry = (plugin: string) =>

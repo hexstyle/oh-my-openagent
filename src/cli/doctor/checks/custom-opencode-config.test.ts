@@ -7,17 +7,16 @@ const pluginConfigPath = new URL("../../../../assets/custom-opencode/oh-my-openc
 const EXECUTION_PROMPT_APPEND = "Before substantive work in any repository, first check whether the root AGENTS.md exists and matches the current project. If it is missing, outdated, or clearly incomplete, create or refresh it immediately before major edits. Keep it concise and factual. Add nested AGENTS.md files only when the repository is large or conventions differ by subtree. Maintain these files as you learn the repo's structure, commands, tests, conventions, and gotchas. If execution begins via /start-work, an approved Prometheus handoff, or an active boulder, treat that as explicit permission to implement. In execution mode, drive the plan to completion, keep delegating and verifying until all planned work is done, and do not stop at interim summaries or partial progress. Return control early only for destructive or irreversible actions, materially missing information, or hard environment blockers that cannot be solved from the repo. Default to short, task-appropriate timeouts for every operation. Long-running commands are exceptions, not the default. Break work into minimal steps, avoid waiting idle on commands that show no useful progress, and if something runs unexpectedly long, stop to diagnose it before retrying with a larger timeout."
 const PROMETHEUS_PROMPT_APPEND = "Before substantive work in any repository, first check whether the root AGENTS.md exists and matches the current project. If it is missing, outdated, or clearly incomplete, create or refresh it immediately before major edits. Keep it concise and factual. Add nested AGENTS.md files only when the repository is large or conventions differ by subtree. Maintain these files as you learn the repo's structure, commands, tests, conventions, and gotchas. You are the planning and negotiation front door. Stay in planning mode, resolve scope and tradeoffs with the user, and finish with a concrete executable plan plus /start-work guidance. Do not execute the plan yourself unless the user explicitly overrides this role. Default to short, task-appropriate timeouts for every operation. Long-running commands are exceptions, not the default. Break work into minimal steps, avoid waiting idle on commands that show no useful progress, and if something runs unexpectedly long, stop to diagnose it before retrying with a larger timeout."
 const PAID_MODELS = [
-  "openai/gpt-5.4",
   "anthropic/claude-opus-4-6",
   "anthropic/claude-sonnet-4-6",
-  "openai/gpt-5.3-codex",
+  "openai/gpt-5.4",
 ] as const
 const SPARK_MODELS = ["openai/gpt-5.3-codex-spark"] as const
 const FREE_MODELS = [
-  "opencode/qwen3.6-plus-free",
   "opencode/nemotron-3-super-free",
-  "opencode/mimo-v2-pro-free",
   "opencode/minimax-m2.5-free",
+  "opencode/mimo-v2-pro-free",
+  "opencode/qwen3.6-plus-free",
 ] as const
 
 type FallbackModelEntry = string | { model?: string }
@@ -54,6 +53,7 @@ const hostConfig = JSON.parse(readFileSync(hostConfigPath, "utf-8")) as {
   $schema?: string
   default_agent?: string
   plugin?: string[]
+  provider?: Record<string, { models?: Record<string, { limit?: { context?: number } }> }>
   lsp?: Record<string, { command?: string[]; extensions?: string[] }>
 }
 
@@ -93,10 +93,18 @@ const pluginConfig = JSON.parse(pluginConfigContents) as {
 
 describe("managed custom OpenCode config assets", () => {
   it("keeps explicit package-plugin registration in the host config", () => {
-    expect(hostConfig.default_agent).toBe("prometheus")
+    expect(hostConfig.default_agent).toBe("Prometheus (Plan Builder)")
     expect(hostConfig.plugin).toEqual(
-      expect.arrayContaining(["oh-my-openagent", "@ex-machina/opencode-anthropic-auth"])
+      expect.arrayContaining(["oh-my-openagent", "opencode-claude-auth"])
     )
+  })
+
+  it("pins OpenAI and Anthropic provider models with 200k context", () => {
+    expect(hostConfig.provider?.openai?.models?.["gpt-5.4"]?.limit?.context).toBe(200000)
+    expect(hostConfig.provider?.openai?.models?.["gpt-5.3-codex"]).toBeUndefined()
+    expect(hostConfig.provider?.openai?.models?.["gpt-5.3-codex-spark"]?.limit?.context).toBe(200000)
+    expect(hostConfig.provider?.anthropic?.models?.["claude-opus-4-6"]?.limit?.context).toBe(200000)
+    expect(hostConfig.provider?.anthropic?.models?.["claude-sonnet-4-6"]?.limit?.context).toBe(200000)
   })
 
   it("pins managed TypeScript and C# LSP entries in the host config", () => {
@@ -110,25 +118,31 @@ describe("managed custom OpenCode config assets", () => {
     })
   })
 
-  it("pins architecture/review agents to Opus and keeps Sisyphus on GPT-5.4 xhigh", () => {
+  it("pins controller and review agents to Opus first, with GPT-5.4 workers and no legacy Codex", () => {
     const prometheus = pluginConfig.agents?.prometheus
     expect(prometheus?.model).toBe("anthropic/claude-opus-4-6")
     expect(prometheus?.variant).toBe("max")
     expect(prometheus?.textVerbosity).toBe("high")
 
-    for (const reviewAgentName of ["oracle", "momus", "metis"] as const) {
+    for (const reviewAgentName of ["sisyphus", "oracle", "momus", "metis"] as const) {
       const reviewAgent = pluginConfig.agents?.[reviewAgentName]
       expect(reviewAgent?.model).toBe("anthropic/claude-opus-4-6")
     }
 
-    expect(pluginConfig.agents?.sisyphus?.model).toBe("openai/gpt-5.4")
-    expect(pluginConfig.agents?.sisyphus?.variant).toBe("xhigh")
+    expect(pluginConfig.agents?.hephaestus?.model).toBe("openai/gpt-5.4")
+    expect(pluginConfig.agents?.hephaestus?.variant).toBe("xhigh")
     expect(pluginConfig.agents?.atlas?.model).toBe("openai/gpt-5.4")
     expect(pluginConfig.agents?.atlas?.variant).toBe("xhigh")
-    expect(pluginConfig.agents?.["sisyphus-junior"]?.model).toBe("openai/gpt-5.3-codex")
+    expect(pluginConfig.agents?.explore?.model).toBe("openai/gpt-5.4")
+    expect(pluginConfig.agents?.librarian?.model).toBe("openai/gpt-5.4")
+    expect(pluginConfig.agents?.["sisyphus-junior"]?.model).toBe("openai/gpt-5.4")
 
-    expect(pluginConfig.categories?.ultrabrain?.model).toBe("openai/gpt-5.4")
-    expect(pluginConfig.categories?.ultrabrain?.reasoningEffort).toBe("xhigh")
+    expect(pluginConfig.categories?.ultrabrain?.model).toBe("anthropic/claude-opus-4-6")
+    expect(pluginConfig.categories?.deep?.model).toBe("openai/gpt-5.4")
+    expect(pluginConfig.categories?.quick?.model).toBe("openai/gpt-5.4")
+    expect(pluginConfig.categories?.["unspecified-low"]?.model).toBe("openai/gpt-5.4")
+    expect(pluginConfig.categories?.["unspecified-high"]?.model).toBe("openai/gpt-5.4")
+    expect(pluginConfig.default_run_agent).toBe("Prometheus (Plan Builder)")
   })
 
   it("keeps fallback order as paid -> spark -> free", () => {
@@ -164,12 +178,15 @@ describe("managed custom OpenCode config assets", () => {
     expect(pluginConfig.runtime_fallback?.enabled).toBe(true)
     expect(pluginConfig.runtime_fallback?.max_fallback_attempts).toBe(12)
     expect(pluginConfig.runtime_fallback?.max_full_chain_cycles).toBe(5)
+    expect(pluginConfig.runtime_fallback?.cooldown_seconds).toBe(300)
+    expect(pluginConfig.runtime_fallback?.timeout_seconds).toBe(45)
 
     expect(pluginConfig.sisyphus?.tasks).toEqual({
       storage_path: ".sisyphus/tasks",
       claude_code_compat: false,
     })
     expect(pluginConfig.sisyphus?.tasks?.enabled).toBeUndefined()
+    expect(pluginConfig.disabled_agents).toBeUndefined()
 
     if (/"tasks"\s*:\s*\{[^}]*"enabled"/s.test(pluginConfigContents)) {
       throw new Error("Managed config must not reintroduce sisyphus.tasks.enabled.")

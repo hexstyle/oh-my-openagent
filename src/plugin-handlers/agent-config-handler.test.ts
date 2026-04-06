@@ -16,6 +16,8 @@ import type { PluginComponents } from "./plugin-components-loader"
 const BUILTIN_SISYPHUS_DISPLAY_NAME = getAgentDisplayName("sisyphus")
 const BUILTIN_SISYPHUS_JUNIOR_DISPLAY_NAME = getAgentDisplayName("sisyphus-junior")
 const BUILTIN_MULTIMODAL_LOOKER_DISPLAY_NAME = getAgentDisplayName("multimodal-looker")
+const BUILTIN_ORACLE_DISPLAY_NAME = getAgentDisplayName("oracle")
+const BUILTIN_ATLAS_DISPLAY_NAME = getAgentDisplayName("atlas")
 
 function createPluginComponents(): PluginComponents {
   return {
@@ -60,33 +62,33 @@ describe("applyAgentConfig builtin override protection", () => {
   let logSpy: ReturnType<typeof spyOn>
 
   const builtinSisyphusConfig: AgentConfig = {
-    name: "Builtin Sisyphus",
+    name: BUILTIN_SISYPHUS_DISPLAY_NAME,
     prompt: "builtin prompt",
     mode: "primary",
     order: 1,
   }
 
   const builtinOracleConfig: AgentConfig = {
-    name: "oracle",
+    name: BUILTIN_ORACLE_DISPLAY_NAME,
     prompt: "oracle prompt",
     mode: "subagent",
   }
 
   const builtinMultimodalLookerConfig: AgentConfig = {
-    name: "multimodal-looker",
+    name: BUILTIN_MULTIMODAL_LOOKER_DISPLAY_NAME,
     prompt: "multimodal prompt",
     mode: "subagent",
   }
 
   const builtinAtlasConfig: AgentConfig = {
-    name: "atlas",
+    name: BUILTIN_ATLAS_DISPLAY_NAME,
     prompt: "atlas prompt",
     mode: "all",
     model: "openai/gpt-5.4",
   }
 
   const sisyphusJuniorConfig: AgentConfig = {
-    name: "Sisyphus-Junior",
+    name: BUILTIN_SISYPHUS_JUNIOR_DISPLAY_NAME,
     prompt: "junior prompt",
     mode: "all",
   }

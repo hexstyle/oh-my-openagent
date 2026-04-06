@@ -12,7 +12,12 @@ import { createPluginDispose, type PluginDispose } from "./plugin-dispose"
 import { loadPluginConfig } from "./plugin-config"
 import { createModelCacheState } from "./plugin-state"
 import { createFirstMessageVariantGate } from "./shared/first-message-variant"
-import { injectServerAuthIntoClient, log, logLegacyPluginStartupWarning } from "./shared"
+import {
+  injectServerAuthIntoClient,
+  log,
+  logLegacyPluginStartupWarning,
+  syncCodexCliAuthToOpenCodeAuth,
+} from "./shared"
 import { detectExternalSkillPlugin, getSkillPluginConflictWarning } from "./shared/external-plugin-detector"
 import { startTmuxCheck } from "./tools"
 
@@ -33,6 +38,7 @@ const OhMyOpenCodePlugin: Plugin = async (ctx) => {
   }
 
   injectServerAuthIntoClient(ctx.client)
+  syncCodexCliAuthToOpenCodeAuth()
   startTmuxCheck()
   await activePluginDispose?.()
 

@@ -23,7 +23,7 @@ interface OpenCodeHostConfig {
 }
 
 const EXPECTED_PACKAGE_ENTRY = "oh-my-openagent"
-const EXPECTED_ANTHROPIC_OAUTH_ENTRY = "@ex-machina/opencode-anthropic-auth"
+const EXPECTED_ANTHROPIC_OAUTH_ENTRY = "opencode-claude-auth"
 const hostConfigPath = new URL("../../assets/custom-opencode/opencode.json", import.meta.url)
 const deltaFixturePath = new URL(
   "../../test/fixtures/local-config-delta/current-local-delta.json",
@@ -114,7 +114,7 @@ describe("custom OpenCode plugin loading compatibility", () => {
 
     writeJson(configPath, {
       $schema: "https://opencode.ai/config.json",
-      default_agent: "prometheus",
+      default_agent: "Prometheus (Plan Builder)",
     })
 
     const result = await addPluginToOpenCodeConfig("3.14.0")
@@ -123,11 +123,12 @@ describe("custom OpenCode plugin loading compatibility", () => {
     expect(result.success).toBe(true)
     expect(requirePluginArray(savedConfig, "OpenCode host config after registration")).toEqual([
       EXPECTED_PACKAGE_ENTRY,
+      EXPECTED_ANTHROPIC_OAUTH_ENTRY,
     ])
   })
 
   it("fails loudly when explicit plugin registration disappears from the host config", () => {
-    expect(() => requirePluginArray({ default_agent: "prometheus" }, "Managed OpenCode host config"))
+    expect(() => requirePluginArray({ default_agent: "Prometheus (Plan Builder)" }, "Managed OpenCode host config"))
       .toThrow(
         "Managed OpenCode host config must declare a visible plugin array so plugin loading cannot become implicit again."
       )

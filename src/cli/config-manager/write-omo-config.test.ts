@@ -35,7 +35,7 @@ describe("writeOmoConfig", () => {
 
   beforeEach(() => {
     testConfigDir = join(tmpdir(), `omo-write-config-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-    testConfigPath = join(testConfigDir, "oh-my-opencode.json")
+    testConfigPath = join(testConfigDir, "oh-my-openagent.json")
 
     mkdirSync(testConfigDir, { recursive: true })
     process.env.OPENCODE_CONFIG_DIR = testConfigDir
@@ -48,7 +48,7 @@ describe("writeOmoConfig", () => {
     delete process.env.OPENCODE_CONFIG_DIR
   })
 
-  it("preserves existing user values while adding new defaults", () => {
+  it("makes the managed fork config authoritative while preserving unrelated keys", () => {
     // given
     const existingConfig = {
       agents: {
@@ -71,12 +71,13 @@ describe("writeOmoConfig", () => {
     const savedConfig = parseJsonc<Record<string, unknown>>(readFileSync(testConfigPath, "utf-8"))
     const savedAgents = getRecord(savedConfig.agents)
     const savedSisyphus = getRecord(savedAgents.sisyphus)
-    expect(savedSisyphus.model).toBe("custom/provider-model")
+    expect(savedSisyphus.model).toBe(getRecord(getRecord(generatedDefaults.agents).sisyphus).model)
     expect(savedConfig.disabled_hooks).toEqual(["comment-checker"])
-    expect(savedConfig.disabled_agents).toEqual(["hephaestus"])
+    expect(savedConfig.disabled_agents).toBeUndefined()
     expect(getRecord(savedConfig.runtime_fallback).enabled).toBe(true)
     expect(getRecord(savedAgents.oracle).model).toBe("anthropic/claude-opus-4-6")
-    expect(getRecord(savedAgents.hephaestus).model).toBeUndefined()
+    expect(getRecord(savedAgents.hephaestus).model).toBe("openai/gpt-5.4")
+    expect(savedConfig.default_run_agent).toBe("Prometheus (Plan Builder)")
 
     for (const defaultKey of Object.keys(generatedDefaults)) {
       expect(savedConfig).toHaveProperty(defaultKey)

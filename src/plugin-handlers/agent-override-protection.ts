@@ -1,7 +1,9 @@
+import { getAgentConfigKey } from "../shared/agent-display-names"
+
 const PARENTHETICAL_SUFFIX_PATTERN = /\s*(\([^)]*\)\s*)+$/u
 
 export function normalizeProtectedAgentName(agentName: string): string {
-  return agentName
+  return getAgentConfigKey(agentName)
     .trim()
     .toLowerCase()
     .replace(PARENTHETICAL_SUFFIX_PATTERN, "")

@@ -1,10 +1,44 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "default_agent": "prometheus",
+  "default_agent": "Prometheus (Plan Builder)",
   "plugin": [
     "oh-my-openagent",
-    "@ex-machina/opencode-anthropic-auth"
+    "opencode-claude-auth"
   ],
+  "provider": {
+    "openai": {
+      "models": {
+        "gpt-5.4": {
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          }
+        },
+        "gpt-5.3-codex-spark": {
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          }
+        }
+      }
+    },
+    "anthropic": {
+      "models": {
+        "claude-opus-4-6": {
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          }
+        },
+        "claude-sonnet-4-6": {
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          }
+        }
+      }
+    }
+  },
   "lsp": {
     "typescript": {
       "command": [

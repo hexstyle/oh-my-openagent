@@ -1,41 +1,35 @@
-# src/ — Plugin Source
+# src/AGENTS.md
 
-**Generated:** 2026-03-06
+## Scope
 
-## OVERVIEW
+`src/` contains the plugin runtime. For this fork, the important behavior is not just feature code but how startup turns managed config into the exact live OpenCode runtime.
 
-Entry point `index.ts` orchestrates 5-step initialization: loadConfig → createManagers → createTools → createHooks → createPluginInterface.
+## Files To Touch First
 
-## KEY FILES
+- `index.ts`
+- `plugin-config.ts`
+- `plugin-interface.ts`
+- `shared/agent-display-names.ts`
+- `shared/codex-auth-bootstrap.ts`
+- `plugin-handlers/agent-config-handler.ts`
+- `plugin-handlers/agent-key-remapper.ts`
 
-| File | Purpose |
-|------|---------|
-| `index.ts` | Plugin entry, exports `OhMyOpenCodePlugin` |
-| `plugin-config.ts` | JSONC parse, multi-level merge, Zod v4 validation |
-| `create-managers.ts` | TmuxSessionManager, BackgroundManager, SkillMcpManager, ConfigHandler |
-| `create-tools.ts` | SkillContext + AvailableCategories + ToolRegistry (26 tools) |
-| `create-hooks.ts` | 3-tier: Core(39) + Continuation(7) + Skill(2) = 48 hooks |
-| `plugin-interface.ts` | 8 OpenCode hook handlers: config, tool, chat.message, chat.params, chat.headers, event, tool.execute.before, tool.execute.after |
+## Runtime Rules For This Fork
 
-## CONFIG LOADING
+- Startup must tolerate the local-fork install shape where the host config points at `file://<repo-root>`.
+- Startup should preserve canonical display names for all user-visible agents.
+- Startup should keep Anthropic and OpenAI models configured even if one provider is not yet logged in.
+- Startup may bootstrap `Codex` auth into OpenCode, but must not silently rewrite away the managed agent model picture.
 
-```
-loadPluginConfig(directory, ctx)
-  1. User: ~/.config/opencode/oh-my-opencode.jsonc
-  2. Project: .opencode/oh-my-opencode.jsonc
-  3. mergeConfigs(user, project) → deepMerge for agents/categories, Set union for disabled_*
-  4. Zod safeParse → defaults for omitted fields
-  5. migrateConfigFile() → legacy key transformation
-```
+## If You Change Agent Runtime Behavior
 
-## HOOK COMPOSITION
+Check all of these together:
 
-```
-createHooks()
-  ├─→ createCoreHooks()           # 39 hooks
-  │   ├─ createSessionHooks()     # 23: contextWindowMonitor, thinkMode, ralphLoop, modelFallback, runtimeFallback, noSisyphusGpt, noHephaestusNonGpt, anthropicEffort, intentGate...
-  │   ├─ createToolGuardHooks()   # 12: commentChecker, rulesInjector, writeExistingFileGuard, jsonErrorRecovery, hashlineReadEnhancer...
-  │   └─ createTransformHooks()   # 4: claudeCodeHooks, keywordDetector, contextInjector, thinkingBlockValidator
-  ├─→ createContinuationHooks()   # 7: todoContinuationEnforcer, atlas, stopContinuationGuard, compactionContextInjector...
-  └─→ createSkillHooks()          # 2: categorySkillReminder, autoSlashCommand
-```
+- `assets/custom-opencode/oh-my-opencode.json`
+- `shared/agent-display-names.ts`
+- `shared/migration/agent-names.ts`
+- `plugin-handlers/agent-key-remapper.ts`
+- `plugin-handlers/agent-config-handler.ts`
+- `script/verify-local-opencode-install.ts`
+
+The verifier is the final authority on whether the runtime matches the fork contract.

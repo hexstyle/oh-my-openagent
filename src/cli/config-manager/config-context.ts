@@ -1,8 +1,12 @@
-import { getOpenCodeConfigPaths, detectPluginConfigFile } from "../../shared"
+import { existsSync } from "node:fs"
+import { join } from "node:path"
+
+import { getOpenCodeConfigPaths } from "../../shared"
 import type {
   OpenCodeBinaryType,
   OpenCodeConfigPaths,
 } from "../../shared/opencode-config-dir-types"
+import { CONFIG_BASENAME } from "../../shared/plugin-identity"
 
 export interface ConfigContext {
   binary: OpenCodeBinaryType
@@ -43,7 +47,9 @@ export function getConfigJsonc(): string {
 
 export function getOmoConfigPath(): string {
   const configDir = getConfigContext().paths.configDir
-  const detected = detectPluginConfigFile(configDir)
-  if (detected.format !== "none") return detected.path
-  return getConfigContext().paths.omoConfig
+  const canonicalJsoncPath = join(configDir, `${CONFIG_BASENAME}.jsonc`)
+  if (existsSync(canonicalJsoncPath)) {
+    return canonicalJsoncPath
+  }
+  return join(configDir, `${CONFIG_BASENAME}.json`)
 }

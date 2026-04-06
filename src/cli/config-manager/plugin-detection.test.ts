@@ -15,7 +15,7 @@ describe("detectCurrentConfig - single package detection", () => {
   beforeEach(() => {
     testConfigDir = join(tmpdir(), `omo-detect-config-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     testConfigPath = join(testConfigDir, "opencode.json")
-    testOmoConfigPath = join(testConfigDir, "oh-my-opencode.json")
+    testOmoConfigPath = join(testConfigDir, "oh-my-openagent.json")
 
     mkdirSync(testConfigDir, { recursive: true })
     process.env.OPENCODE_CONFIG_DIR = testConfigDir
@@ -94,12 +94,15 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
     expect(result.success).toBe(true)
     const savedConfig = JSON.parse(readFileSync(testConfigPath, "utf-8"))
     expect(savedConfig.plugin[0]).toMatch(/^oh-my-openagent(?:@.+)?$/)
-    expect(savedConfig.plugin).toContain("@ex-machina/opencode-anthropic-auth")
-    expect(savedConfig.default_agent).toBe("prometheus")
+    expect(savedConfig.plugin).toContain("opencode-claude-auth")
+    expect(savedConfig.default_agent).toBe("Prometheus (Plan Builder)")
     expect(savedConfig.lsp.typescript.command).toEqual([
       "typescript-language-server",
       "--stdio",
     ])
+    expect(savedConfig.provider.openai.models["gpt-5.4"].limit.context).toBe(200000)
+    expect(savedConfig.provider.openai.models["gpt-5.3-codex"]).toBeUndefined()
+    expect(savedConfig.provider.openai.models["gpt-5.3-codex-spark"].limit.context).toBe(200000)
   })
 
   it("upgrades a bare legacy plugin entry to canonical", async () => {
@@ -113,10 +116,10 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
     expect(result.success).toBe(true)
     const savedConfig = JSON.parse(readFileSync(testConfigPath, "utf-8"))
     expect(savedConfig.plugin[0]).toBe("oh-my-openagent")
-    expect(savedConfig.plugin).toContain("@ex-machina/opencode-anthropic-auth")
+    expect(savedConfig.plugin).toContain("opencode-claude-auth")
   })
 
-  it("upgrades a version-pinned legacy entry to canonical", async () => {
+  it("normalizes a version-pinned legacy entry to the canonical managed package entry", async () => {
     // given
     writeFileSync(testConfigPath, JSON.stringify({ plugin: ["oh-my-opencode@3.10.0"] }, null, 2) + "\n", "utf-8")
 
@@ -126,8 +129,8 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
     // then
     expect(result.success).toBe(true)
     const savedConfig = JSON.parse(readFileSync(testConfigPath, "utf-8"))
-    expect(savedConfig.plugin[0]).toBe("oh-my-openagent@3.10.0")
-    expect(savedConfig.plugin).toContain("@ex-machina/opencode-anthropic-auth")
+    expect(savedConfig.plugin[0]).toBe("oh-my-openagent")
+    expect(savedConfig.plugin).toContain("opencode-claude-auth")
   })
 
   it("removes stale legacy entry when canonical and legacy entries both exist", async () => {
@@ -141,7 +144,7 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
     expect(result.success).toBe(true)
     const savedConfig = JSON.parse(readFileSync(testConfigPath, "utf-8"))
     expect(savedConfig.plugin[0]).toBe("oh-my-openagent")
-    expect(savedConfig.plugin).toContain("@ex-machina/opencode-anthropic-auth")
+    expect(savedConfig.plugin).toContain("opencode-claude-auth")
   })
 
   it("preserves a canonical entry when it already exists", async () => {
@@ -154,7 +157,7 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
     // then
     expect(result.success).toBe(true)
     const savedConfig = JSON.parse(readFileSync(testConfigPath, "utf-8"))
-    expect(savedConfig.plugin[0]).toBe("oh-my-openagent@3.10.0")
+    expect(savedConfig.plugin[0]).toBe("oh-my-openagent")
   })
 
   it("rewrites quoted jsonc plugin field in place", async () => {
@@ -169,8 +172,8 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
     expect(result.success).toBe(true)
     const savedConfig = JSON.parse(readFileSync(testConfigPath, "utf-8"))
     expect(savedConfig.plugin[0]).toBe("oh-my-openagent")
-    expect(savedConfig.plugin).toContain("@ex-machina/opencode-anthropic-auth")
-    expect(savedConfig.default_agent).toBe("prometheus")
+    expect(savedConfig.plugin).toContain("opencode-claude-auth")
+    expect(savedConfig.default_agent).toBe("Prometheus (Plan Builder)")
     expect(savedConfig.lsp.csharp.command).toEqual(["csharp-ls"])
   })
 })

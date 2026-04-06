@@ -1,4 +1,36 @@
-import { AGENT_DISPLAY_NAMES } from "../shared/agent-display-names"
+import {
+  getAgentConfigKey,
+  getAgentDisplayName,
+  normalizeAgentForPrompt,
+} from "../shared/agent-display-names"
+
+const PRESERVE_CONFIG_KEY_AGENTS = new Set(["explore"])
+
+function normalizeAgentPayloadName(
+  value: unknown,
+  outputName: string,
+  canonicalKey: string,
+): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value
+  }
+
+  const record = value as Record<string, unknown>
+  const isKnownBuiltinAgent = getAgentDisplayName(canonicalKey) !== canonicalKey
+  const currentName = typeof record.name === "string" ? record.name : undefined
+  const normalizedName = isKnownBuiltinAgent
+    ? outputName
+    : normalizeAgentForPrompt(currentName)
+
+  if (normalizedName === undefined || normalizedName === currentName) {
+    return value
+  }
+
+  return {
+    ...record,
+    name: normalizedName,
+  }
+}
 
 export function remapAgentKeysToDisplayNames(
   agents: Record<string, unknown>,
@@ -6,11 +38,24 @@ export function remapAgentKeysToDisplayNames(
   const result: Record<string, unknown> = {}
 
   for (const [key, value] of Object.entries(agents)) {
-    const displayName = AGENT_DISPLAY_NAMES[key]
-    if (displayName && displayName !== key) {
-      result[displayName] = value
+    const canonicalKey = getAgentConfigKey(key)
+    const displayName = getAgentDisplayName(canonicalKey)
+    const preserveConfigKey = PRESERVE_CONFIG_KEY_AGENTS.has(canonicalKey)
+    const outputKey = preserveConfigKey
+      ? canonicalKey
+      : displayName !== canonicalKey
+        ? displayName
+        : key
+    const outputName = displayName !== canonicalKey ? displayName : outputKey
+
+    if (outputKey !== key) {
+      result[outputKey] = normalizeAgentPayloadName(
+        value,
+        outputName,
+        canonicalKey,
+      )
     } else {
-      result[key] = value
+      result[key] = normalizeAgentPayloadName(value, outputName, canonicalKey)
     }
   }
 

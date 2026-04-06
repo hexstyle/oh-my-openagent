@@ -1,3 +1,5 @@
+import { AGENT_NAME_MAP } from "./migration/agent-names"
+
 /**
  * Agent config keys to display names mapping.
  * Config keys are lowercase (e.g., "sisyphus", "atlas").
@@ -8,16 +10,16 @@ export const AGENT_DISPLAY_NAMES: Record<string, string> = {
   hephaestus: "Hephaestus (Deep Agent)",
   prometheus: "Prometheus (Plan Builder)",
   atlas: "Atlas (Plan Executor)",
-  "sisyphus-junior": "Sisyphus-Junior",
+  "sisyphus-junior": "Sisyphus Junior (Focused Executor)",
   metis: "Metis (Plan Consultant)",
   momus: "Momus (Plan Critic)",
   athena: "Athena (Council)",
-  "athena-junior": "Athena-Junior (Council)",
-  oracle: "oracle",
-  librarian: "librarian",
-  explore: "explore",
-  "multimodal-looker": "multimodal-looker",
-  "council-member": "council-member",
+  "athena-junior": "Athena Junior (Council)",
+  oracle: "Oracle (Strategic Advisor)",
+  librarian: "Librarian (OSS Research)",
+  explore: "Explore (Code Search)",
+  "multimodal-looker": "Multimodal Looker (Document Vision)",
+  "council-member": "Council Member (Advisor)",
 }
 
 /**
@@ -49,9 +51,14 @@ const REVERSE_DISPLAY_NAMES: Record<string, string> = Object.fromEntries(
  * "Atlas (Plan Executor)" → "atlas", "atlas" → "atlas", "unknown" → "unknown"
  */
 export function getAgentConfigKey(agentName: string): string {
-  const lower = agentName.toLowerCase()
+  const trimmed = agentName.trim()
+  const lower = trimmed.toLowerCase()
   const reversed = REVERSE_DISPLAY_NAMES[lower]
   if (reversed !== undefined) return reversed
+  const migrated =
+    AGENT_NAME_MAP[trimmed] ??
+    AGENT_NAME_MAP[lower]
+  if (migrated !== undefined) return migrated
   if (AGENT_DISPLAY_NAMES[lower] !== undefined) return lower
   return lower
 }
@@ -72,13 +79,10 @@ export function normalizeAgentForPrompt(agentName: string | undefined): string |
     return undefined
   }
 
-  const lower = trimmed.toLowerCase()
-  const reversed = REVERSE_DISPLAY_NAMES[lower]
-  if (reversed !== undefined) {
-    return AGENT_DISPLAY_NAMES[reversed] ?? trimmed
-  }
-  if (AGENT_DISPLAY_NAMES[lower] !== undefined) {
-    return AGENT_DISPLAY_NAMES[lower]
+  const configKey = getAgentConfigKey(trimmed)
+  const displayName = getAgentDisplayName(configKey)
+  if (displayName !== configKey) {
+    return displayName
   }
 
   return trimmed

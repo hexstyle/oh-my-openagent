@@ -3,6 +3,7 @@ export const AGENT_NAME_MAP: Record<string, string> = {
   omo: "sisyphus",
   OmO: "sisyphus",
   Sisyphus: "sisyphus",
+  "Sisyphus (Ultraworker)": "sisyphus",
   sisyphus: "sisyphus",
 
   // Prometheus variants → "prometheus"
@@ -11,11 +12,13 @@ export const AGENT_NAME_MAP: Record<string, string> = {
   "Planner-Sisyphus": "prometheus",
   "planner-sisyphus": "prometheus",
   "Prometheus (Planner)": "prometheus",
+  "Prometheus (Plan Builder)": "prometheus",
   prometheus: "prometheus",
 
   // Atlas variants → "atlas"
   "orchestrator-sisyphus": "atlas",
   Atlas: "atlas",
+  "Atlas (Plan Executor)": "atlas",
   atlas: "atlas",
 
   // Metis variants → "metis"
@@ -25,22 +28,47 @@ export const AGENT_NAME_MAP: Record<string, string> = {
 
   // Momus variants → "momus"
   "Momus (Plan Reviewer)": "momus",
+  "Momus (Plan Critic)": "momus",
   momus: "momus",
 
   // Sisyphus-Junior → "sisyphus-junior"
   "Sisyphus-Junior": "sisyphus-junior",
+  "Sisyphus Junior": "sisyphus-junior",
+  "Sisyphus Junior (Focused Executor)": "sisyphus-junior",
   "sisyphus-junior": "sisyphus-junior",
+
+  // Hephaestus variants → "hephaestus"
+  Hephaestus: "hephaestus",
+  "Hephaestus (Deep Agent)": "hephaestus",
+  hephaestus: "hephaestus",
+
+  // Oracle variants → "oracle"
+  Oracle: "oracle",
+  "Oracle (Strategic Advisor)": "oracle",
+  oracle: "oracle",
+
+  // Librarian variants → "librarian"
+  Librarian: "librarian",
+  "Librarian (OSS Research)": "librarian",
+  librarian: "librarian",
+
+  // Explore variants → "explore"
+  Explore: "explore",
+  "Explore (Code Search)": "explore",
+  explore: "explore",
+
+  // Multimodal Looker variants → "multimodal-looker"
+  "Multimodal Looker": "multimodal-looker",
+  "Multimodal Looker (Document Vision)": "multimodal-looker",
+  "multimodal-looker": "multimodal-looker",
 
   // Already lowercase - passthrough
   build: "build",
-  oracle: "oracle",
-  librarian: "librarian",
-  explore: "explore",
-  "multimodal-looker": "multimodal-looker",
 }
 
 export const BUILTIN_AGENT_NAMES = new Set([
   "sisyphus", // was "Sisyphus"
+  "hephaestus",
   "oracle",
   "librarian",
   "explore",

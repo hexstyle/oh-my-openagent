@@ -14,7 +14,7 @@ describe("remapAgentKeysToDisplayNames", () => {
 
     // then known agents get display name keys only
     expect(result["Sisyphus (Ultraworker)"]).toBeDefined()
-    expect(result["oracle"]).toBeDefined()
+    expect(result["Oracle (Strategic Advisor)"]).toBeDefined()
     expect(result["sisyphus"]).toBeUndefined()
   })
 
@@ -62,7 +62,7 @@ describe("remapAgentKeysToDisplayNames", () => {
     expect(result["metis"]).toBeUndefined()
     expect(result["Momus (Plan Critic)"]).toBeDefined()
     expect(result["momus"]).toBeUndefined()
-    expect(result["Sisyphus-Junior"]).toBeDefined()
+    expect(result["Sisyphus Junior (Focused Executor)"]).toBeDefined()
     expect(result["sisyphus-junior"]).toBeUndefined()
   })
 
@@ -79,5 +79,57 @@ describe("remapAgentKeysToDisplayNames", () => {
     expect(Object.keys(result)).toEqual(["Sisyphus (Ultraworker)"])
     expect(result["Sisyphus (Ultraworker)"]).toBeDefined()
     expect(result["sisyphus"]).toBeUndefined()
+  })
+
+  it("canonicalizes legacy aliases like Sisyphus to the display name", () => {
+    const agents = {
+      Sisyphus: { prompt: "legacy alias" },
+      "Atlas (Plan Executor)": { prompt: "current display" },
+    }
+
+    const result = remapAgentKeysToDisplayNames(agents)
+
+    expect(result["Sisyphus (Ultraworker)"]).toEqual({
+      name: "Sisyphus (Ultraworker)",
+      prompt: "legacy alias",
+    })
+    expect(result["Sisyphus"]).toBeUndefined()
+    expect(result["Atlas (Plan Executor)"]).toEqual({
+      name: "Atlas (Plan Executor)",
+      prompt: "current display",
+    })
+  })
+
+  it("rewrites builtin payload names to the canonical display names", () => {
+    const agents = {
+      sisyphus: { name: "Sisyphus", prompt: "legacy alias" },
+      "Sisyphus Junior": { name: "sisyphus-junior", prompt: "junior alias" },
+    }
+
+    const result = remapAgentKeysToDisplayNames(agents)
+
+    expect(result["Sisyphus (Ultraworker)"]).toEqual({
+      name: "Sisyphus (Ultraworker)",
+      prompt: "legacy alias",
+    })
+    expect(result["Sisyphus Junior (Focused Executor)"]).toEqual({
+      name: "Sisyphus Junior (Focused Executor)",
+      prompt: "junior alias",
+    })
+  })
+
+  it("preserves the reserved explore config key while exposing the canonical display name", () => {
+    const agents = {
+      explore: { prompt: "search", mode: "subagent" },
+    }
+
+    const result = remapAgentKeysToDisplayNames(agents)
+
+    expect(result["explore"]).toEqual({
+      name: "Explore (Code Search)",
+      prompt: "search",
+      mode: "subagent",
+    })
+    expect(result["Explore (Code Search)"]).toBeUndefined()
   })
 })

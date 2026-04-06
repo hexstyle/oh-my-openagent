@@ -21,6 +21,7 @@ import { remapAgentKeysToDisplayNames } from "./agent-key-remapper";
 import {
   createProtectedAgentNameSet,
   filterProtectedAgentOverrides,
+  normalizeProtectedAgentName,
 } from "./agent-override-protection";
 import { buildPrometheusAgentConfig } from "./prometheus-agent-config-builder";
 import { buildPlanDemoteConfig } from "./plan-model-inheritance";
@@ -208,6 +209,13 @@ export async function applyAgentConfig(params: {
               if (key === "build") return false;
               if (key === "plan" && shouldDemotePlan) return false;
               if (key in builtinAgents) return false;
+              const protectedBuiltinAgentNames = createProtectedAgentNameSet([
+                ...Object.keys(agentConfig),
+                ...Object.keys(builtinAgents),
+              ]);
+              if (protectedBuiltinAgentNames.has(normalizeProtectedAgentName(key))) {
+                return false;
+              }
               return true;
             })
             .map(([key, value]) => [
