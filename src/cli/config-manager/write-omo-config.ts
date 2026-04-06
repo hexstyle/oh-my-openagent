@@ -6,6 +6,7 @@ import { deepMergeRecord } from "./deep-merge-record"
 import { ensureConfigDirectoryExists } from "./ensure-config-directory-exists"
 import { formatErrorWithSuggestion } from "./format-error-with-suggestion"
 import { generateOmoConfig } from "./generate-omo-config"
+import { getPersonalOmoConfig } from "./personal-config-preset"
 
 function isEmptyOrWhitespace(content: string): boolean {
   return content.trim().length === 0
@@ -25,7 +26,10 @@ export function writeOmoConfig(installConfig: InstallConfig): ConfigMergeResult 
   const omoConfigPath = getOmoConfigPath()
 
   try {
-    const newConfig = generateOmoConfig(installConfig)
+    const newConfig = deepMergeRecord(
+      generateOmoConfig(installConfig),
+      getPersonalOmoConfig(),
+    )
 
     if (existsSync(omoConfigPath)) {
       try {

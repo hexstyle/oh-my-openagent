@@ -94,6 +94,14 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
     expect(result.success).toBe(true)
     const savedConfig = JSON.parse(readFileSync(testConfigPath, "utf-8"))
     expect(savedConfig.plugin).toEqual(["oh-my-openagent"])
+    expect(savedConfig.model).toBe("opencode/minimax-m2.5-free")
+    expect(savedConfig.small_model).toBe("opencode/big-pickle")
+    expect(savedConfig.provider.opencode.whitelist).toEqual([
+      "big-pickle",
+      "minimax-m2.5-free",
+      "nemotron-3-super-free",
+      "qwen3.6-plus-free",
+    ])
   })
 
   it("upgrades a bare legacy plugin entry to canonical", async () => {
@@ -158,8 +166,9 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
 
     // then
     expect(result.success).toBe(true)
-    const savedContent = readFileSync(testConfigPath, "utf-8")
-    expect(savedContent.includes('"plugin": [\n    "oh-my-openagent"\n  ]')).toBe(true)
-    expect(savedContent.includes("oh-my-opencode")).toBe(false)
+    const savedConfig = JSON.parse(readFileSync(testConfigPath, "utf-8"))
+    expect(savedConfig.plugin).toEqual(["oh-my-openagent"])
+    expect(savedConfig.model).toBe("opencode/minimax-m2.5-free")
+    expect(savedConfig.provider.opencode.models["qwen3.6-plus-free"].limit.context).toBe(200000)
   })
 })

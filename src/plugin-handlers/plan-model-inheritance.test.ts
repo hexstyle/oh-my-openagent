@@ -32,6 +32,8 @@ describe("buildPlanDemoteConfig", () => {
       reasoningEffort: "high",
       textVerbosity: "medium",
       providerOptions: { key: "value" },
+      fallback_models: ["openai/gpt-5.4", "opencode/big-pickle"],
+      compaction: { model: "opencode/big-pickle" },
     }
 
     //#when
@@ -48,6 +50,8 @@ describe("buildPlanDemoteConfig", () => {
     expect(result.reasoningEffort).toBe("high")
     expect(result.textVerbosity).toBe("medium")
     expect(result.providerOptions).toEqual({ key: "value" })
+    expect(result.fallback_models).toEqual(["openai/gpt-5.4", "opencode/big-pickle"])
+    expect(result.compaction).toEqual({ model: "opencode/big-pickle" })
     expect(result.prompt).toBeUndefined()
     expect(result.permission).toBeUndefined()
     expect(result.description).toBeUndefined()
@@ -68,6 +72,8 @@ describe("buildPlanDemoteConfig", () => {
       variant: "high",
       temperature: 0.5,
       reasoningEffort: "low",
+      fallback_models: ["opencode/big-pickle"],
+      compaction: { model: "opencode/minimax-m2.5-free" },
     }
 
     //#when
@@ -78,6 +84,8 @@ describe("buildPlanDemoteConfig", () => {
     expect(result.variant).toBe("high")
     expect(result.temperature).toBe(0.5)
     expect(result.reasoningEffort).toBe("low")
+    expect(result.fallback_models).toEqual(["opencode/big-pickle"])
+    expect(result.compaction).toEqual({ model: "opencode/minimax-m2.5-free" })
   })
 
   test("falls back to prometheus when plan override has partial settings", () => {

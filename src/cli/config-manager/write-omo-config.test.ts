@@ -7,6 +7,7 @@ import { parseJsonc } from "../../shared/jsonc-parser"
 import type { InstallConfig } from "../types"
 import { resetConfigContext } from "./config-context"
 import { generateOmoConfig } from "./generate-omo-config"
+import { getPersonalOmoConfig } from "./personal-config-preset"
 import { writeOmoConfig } from "./write-omo-config"
 
 const installConfig: InstallConfig = {
@@ -18,6 +19,7 @@ const installConfig: InstallConfig = {
   hasOpencodeZen: false,
   hasZaiCodingPlan: false,
   hasKimiForCoding: false,
+  hasOpencodeGo: false,
 }
 
 function getRecord(value: unknown): Record<string, unknown> {
@@ -59,7 +61,10 @@ describe("writeOmoConfig", () => {
     }
     writeFileSync(testConfigPath, JSON.stringify(existingConfig, null, 2) + "\n", "utf-8")
 
-    const generatedDefaults = generateOmoConfig(installConfig)
+    const generatedDefaults = {
+      ...generateOmoConfig(installConfig),
+      ...getPersonalOmoConfig(),
+    }
 
     // when
     const result = writeOmoConfig(installConfig)
@@ -72,6 +77,8 @@ describe("writeOmoConfig", () => {
     const savedSisyphus = getRecord(savedAgents.sisyphus)
     expect(savedSisyphus.model).toBe("custom/provider-model")
     expect(savedConfig.disabled_hooks).toEqual(["comment-checker"])
+    expect(savedConfig.default_run_agent).toBe("sisyphus")
+    expect(getRecord(savedConfig.runtime_fallback).enabled).toBe(true)
 
     for (const defaultKey of Object.keys(generatedDefaults)) {
       expect(savedConfig).toHaveProperty(defaultKey)

@@ -41,6 +41,56 @@ describe("createSisyphusJuniorAgentWithOverrides", () => {
       expect(result.top_p).toBe(0.9)
     })
 
+    test("applies reasoningEffort override", () => {
+      // given
+      const override = {
+        model: "openai/gpt-5.4",
+        reasoningEffort: "low" as const,
+      }
+
+      // when
+      const result = createSisyphusJuniorAgentWithOverrides(override)
+
+      // then
+      expect(result.reasoningEffort).toBe("low")
+    })
+
+    test("applies fallback_models override", () => {
+      // given
+      const override = {
+        fallback_models: [
+          "opencode/minimax-m2.5-free",
+          "opencode/nemotron-3-super-free",
+        ],
+      }
+
+      // when
+      const result = createSisyphusJuniorAgentWithOverrides(override)
+
+      // then
+      expect(result.fallback_models).toEqual([
+        "opencode/minimax-m2.5-free",
+        "opencode/nemotron-3-super-free",
+      ])
+    })
+
+    test("applies compaction override", () => {
+      // given
+      const override = {
+        compaction: {
+          model: "opencode/big-pickle",
+        },
+      }
+
+      // when
+      const result = createSisyphusJuniorAgentWithOverrides(override)
+
+      // then
+      expect(result.compaction).toEqual({
+        model: "opencode/big-pickle",
+      })
+    })
+
     test("applies description override", () => {
       // given
       const override = { description: "Custom description" }

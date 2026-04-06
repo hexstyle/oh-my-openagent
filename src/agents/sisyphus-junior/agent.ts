@@ -16,8 +16,10 @@ import { isGptModel, isGeminiModel } from "../types"
 import type { AgentOverrideConfig } from "../../config/schema"
 import {
   createAgentToolRestrictions,
+  migrateAgentConfig,
   type PermissionValue,
 } from "../../shared/permission-compat"
+import { mergeAgentConfig } from "../builtin-agents/agent-overrides"
 
 import { buildDefaultSisyphusJuniorPrompt } from "./default"
 import { buildGptSisyphusJuniorPrompt } from "./gpt"
@@ -85,16 +87,20 @@ export function createSisyphusJuniorAgentWithOverrides(
     override = undefined
   }
 
-  const overrideModel = (override as { model?: string } | undefined)?.model
-  const model = overrideModel ?? systemDefaultModel ?? SISYPHUS_JUNIOR_DEFAULTS.model
-  const temperature = override?.temperature ?? SISYPHUS_JUNIOR_DEFAULTS.temperature
+  const migratedOverride = override
+    ? migrateAgentConfig(override as Record<string, unknown>) as AgentOverrideConfig
+    : undefined
 
-  const promptAppend = override?.prompt_append
+  const overrideModel = (migratedOverride as { model?: string } | undefined)?.model
+  const model = overrideModel ?? systemDefaultModel ?? SISYPHUS_JUNIOR_DEFAULTS.model
+  const temperature = migratedOverride?.temperature ?? SISYPHUS_JUNIOR_DEFAULTS.temperature
+
+  const promptAppend = migratedOverride?.prompt_append
   const prompt = buildSisyphusJuniorPrompt(model, useTaskSystem, promptAppend)
 
   const baseRestrictions = createAgentToolRestrictions(BLOCKED_TOOLS)
 
-  const userPermission = (override?.permission ?? {}) as Record<string, PermissionValue>
+  const userPermission = (migratedOverride?.permission ?? {}) as Record<string, PermissionValue>
   const basePermission = baseRestrictions.permission
   const merged: Record<string, PermissionValue> = { ...userPermission }
   for (const tool of BLOCKED_TOOLS) {
@@ -104,28 +110,47 @@ export function createSisyphusJuniorAgentWithOverrides(
   const toolsConfig = { permission: { ...merged, ...basePermission } }
 
   const base: AgentConfig = {
-    description: override?.description ??
+    description: migratedOverride?.description ??
       "Focused task executor. Same discipline, no delegation. (Sisyphus-Junior - OhMyOpenCode)",
     mode: MODE,
     model,
     temperature,
     maxTokens: 64000,
     prompt,
-    color: override?.color ?? "#20B2AA",
+    color: migratedOverride?.color ?? "#20B2AA",
     ...toolsConfig,
   }
 
-  if (override?.top_p !== undefined) {
-    base.top_p = override.top_p
+  if (migratedOverride?.top_p !== undefined) {
+    base.top_p = migratedOverride.top_p
   }
 
-  if (isGptModel(model)) {
-    return { ...base, reasoningEffort: "medium" } as AgentConfig
+  const baseWithModelDefaults = isGptModel(model)
+    ? ({ ...base, reasoningEffort: "medium" } as AgentConfig)
+    : ({
+        ...base,
+        thinking: { type: "enabled", budgetTokens: 32000 },
+      } as AgentConfig)
+
+  if (!migratedOverride) {
+    return baseWithModelDefaults
+  }
+
+  const {
+    prompt: _ignoredPrompt,
+    mode: _ignoredMode,
+    permission: _ignoredPermission,
+    tools: _ignoredTools,
+    ...overrideWithoutConstrainedFields
+  } = migratedOverride as AgentOverrideConfig & {
+    tools?: Record<string, boolean>
   }
 
   return {
-    ...base,
-    thinking: { type: "enabled", budgetTokens: 32000 },
+    ...mergeAgentConfig(baseWithModelDefaults, overrideWithoutConstrainedFields),
+    mode: MODE,
+    prompt,
+    ...toolsConfig,
   } as AgentConfig
 }
 
