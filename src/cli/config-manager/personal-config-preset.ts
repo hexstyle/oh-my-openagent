@@ -1,16 +1,32 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import type { OpenCodeConfig } from "./parse-opencode-config-file"
 
-function loadJsonRecord<T extends Record<string, unknown>>(relativePath: string): T {
-  const url = new URL(relativePath, import.meta.url)
-  return JSON.parse(readFileSync(url, "utf-8")) as T
+function resolveCustomPresetPath(fileName: string): string {
+  let currentDir = dirname(fileURLToPath(import.meta.url))
+
+  for (let depth = 0; depth < 8; depth += 1) {
+    const candidate = join(currentDir, "assets", "custom-opencode", fileName)
+    if (existsSync(candidate)) {
+      return candidate
+    }
+    currentDir = dirname(currentDir)
+  }
+
+  throw new Error(`Unable to locate custom-opencode preset: ${fileName}`)
+}
+
+function loadJsonRecord<T extends Record<string, unknown>>(fileName: string): T {
+  const path = resolveCustomPresetPath(fileName)
+  return JSON.parse(readFileSync(path, "utf-8")) as T
 }
 
 const PERSONAL_OPENCODE_CONFIG = loadJsonRecord<OpenCodeConfig>(
-  "../../../assets/custom-opencode/opencode.json",
+  "opencode.json",
 )
 const PERSONAL_OMO_CONFIG = loadJsonRecord<Record<string, unknown>>(
-  "../../../assets/custom-opencode/oh-my-opencode.json",
+  "oh-my-opencode.json",
 )
 
 function cloneRecord<T extends Record<string, unknown>>(value: T): T {
