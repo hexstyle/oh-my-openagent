@@ -6,7 +6,6 @@ import { join } from "node:path"
 import { parseJsonc } from "../../shared/jsonc-parser"
 import type { InstallConfig } from "../types"
 import { resetConfigContext } from "./config-context"
-import { generateOmoConfig } from "./generate-omo-config"
 import { getPersonalOmoConfig } from "./personal-config-preset"
 import { writeOmoConfig } from "./write-omo-config"
 
@@ -61,10 +60,7 @@ describe("writeOmoConfig", () => {
     }
     writeFileSync(testConfigPath, JSON.stringify(existingConfig, null, 2) + "\n", "utf-8")
 
-    const generatedDefaults = {
-      ...generateOmoConfig(installConfig),
-      ...getPersonalOmoConfig(),
-    }
+    const generatedDefaults = getPersonalOmoConfig()
 
     // when
     const result = writeOmoConfig(installConfig)
@@ -77,8 +73,10 @@ describe("writeOmoConfig", () => {
     const savedSisyphus = getRecord(savedAgents.sisyphus)
     expect(savedSisyphus.model).toBe("custom/provider-model")
     expect(savedConfig.disabled_hooks).toEqual(["comment-checker"])
-    expect(savedConfig.default_run_agent).toBe("sisyphus")
+    expect(savedConfig.disabled_agents).toEqual(["hephaestus"])
     expect(getRecord(savedConfig.runtime_fallback).enabled).toBe(true)
+    expect(getRecord(savedAgents.oracle).model).toBe("anthropic/claude-opus-4-6")
+    expect(getRecord(savedAgents.hephaestus).model).toBeUndefined()
 
     for (const defaultKey of Object.keys(generatedDefaults)) {
       expect(savedConfig).toHaveProperty(defaultKey)

@@ -93,14 +93,12 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
     // then
     expect(result.success).toBe(true)
     const savedConfig = JSON.parse(readFileSync(testConfigPath, "utf-8"))
-    expect(savedConfig.plugin).toEqual(["oh-my-openagent"])
-    expect(savedConfig.model).toBe("opencode/minimax-m2.5-free")
-    expect(savedConfig.small_model).toBe("opencode/big-pickle")
-    expect(savedConfig.provider.opencode.whitelist).toEqual([
-      "big-pickle",
-      "minimax-m2.5-free",
-      "nemotron-3-super-free",
-      "qwen3.6-plus-free",
+    expect(savedConfig.plugin[0]).toMatch(/^oh-my-openagent(?:@.+)?$/)
+    expect(savedConfig.plugin).toContain("@ex-machina/opencode-anthropic-auth")
+    expect(savedConfig.default_agent).toBe("prometheus")
+    expect(savedConfig.lsp.typescript.command).toEqual([
+      "typescript-language-server",
+      "--stdio",
     ])
   })
 
@@ -114,7 +112,8 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
     // then
     expect(result.success).toBe(true)
     const savedConfig = JSON.parse(readFileSync(testConfigPath, "utf-8"))
-    expect(savedConfig.plugin).toEqual(["oh-my-openagent"])
+    expect(savedConfig.plugin[0]).toBe("oh-my-openagent")
+    expect(savedConfig.plugin).toContain("@ex-machina/opencode-anthropic-auth")
   })
 
   it("upgrades a version-pinned legacy entry to canonical", async () => {
@@ -127,7 +126,8 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
     // then
     expect(result.success).toBe(true)
     const savedConfig = JSON.parse(readFileSync(testConfigPath, "utf-8"))
-    expect(savedConfig.plugin).toEqual(["oh-my-openagent@3.10.0"])
+    expect(savedConfig.plugin[0]).toBe("oh-my-openagent@3.10.0")
+    expect(savedConfig.plugin).toContain("@ex-machina/opencode-anthropic-auth")
   })
 
   it("removes stale legacy entry when canonical and legacy entries both exist", async () => {
@@ -140,7 +140,8 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
     // then
     expect(result.success).toBe(true)
     const savedConfig = JSON.parse(readFileSync(testConfigPath, "utf-8"))
-    expect(savedConfig.plugin).toEqual(["oh-my-openagent"])
+    expect(savedConfig.plugin[0]).toBe("oh-my-openagent")
+    expect(savedConfig.plugin).toContain("@ex-machina/opencode-anthropic-auth")
   })
 
   it("preserves a canonical entry when it already exists", async () => {
@@ -153,7 +154,7 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
     // then
     expect(result.success).toBe(true)
     const savedConfig = JSON.parse(readFileSync(testConfigPath, "utf-8"))
-    expect(savedConfig.plugin).toEqual(["oh-my-openagent@3.10.0"])
+    expect(savedConfig.plugin[0]).toBe("oh-my-openagent@3.10.0")
   })
 
   it("rewrites quoted jsonc plugin field in place", async () => {
@@ -167,8 +168,9 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
     // then
     expect(result.success).toBe(true)
     const savedConfig = JSON.parse(readFileSync(testConfigPath, "utf-8"))
-    expect(savedConfig.plugin).toEqual(["oh-my-openagent"])
-    expect(savedConfig.model).toBe("opencode/minimax-m2.5-free")
-    expect(savedConfig.provider.opencode.models["qwen3.6-plus-free"].limit.context).toBe(200000)
+    expect(savedConfig.plugin[0]).toBe("oh-my-openagent")
+    expect(savedConfig.plugin).toContain("@ex-machina/opencode-anthropic-auth")
+    expect(savedConfig.default_agent).toBe("prometheus")
+    expect(savedConfig.lsp.csharp.command).toEqual(["csharp-ls"])
   })
 })

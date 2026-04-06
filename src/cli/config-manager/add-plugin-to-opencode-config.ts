@@ -23,10 +23,11 @@ export async function addPluginToOpenCodeConfig(currentVersion: string): Promise
 
   const { format, path } = detectConfigFormat()
   const pluginEntry = await getPluginNameWithVersion(currentVersion, PLUGIN_NAME)
+  const presetConfig = getPersonalOpenCodeConfig(pluginEntry)
 
   try {
     if (format === "none") {
-      const config = getPersonalOpenCodeConfig(pluginEntry)
+      const config = presetConfig
       writeFileSync(path, JSON.stringify(config, null, 2) + "\n")
       return { success: true, configPath: path }
     }
@@ -41,10 +42,14 @@ export async function addPluginToOpenCodeConfig(currentVersion: string): Promise
     }
 
     const config = deepMergeRecord(
-      getPersonalOpenCodeConfig(pluginEntry),
+      presetConfig,
       parseResult.config,
     ) as OpenCodeConfig
     const plugins = config.plugin ?? []
+    const presetPlugins = presetConfig.plugin ?? []
+    const isPluginPackageEntry = (plugin: string) =>
+      plugin === PLUGIN_NAME || plugin.startsWith(`${PLUGIN_NAME}@`) ||
+      plugin === LEGACY_PLUGIN_NAME || plugin.startsWith(`${LEGACY_PLUGIN_NAME}@`)
 
     const canonicalEntries = plugins.filter(
       (plugin) => plugin === PLUGIN_NAME || plugin.startsWith(`${PLUGIN_NAME}@`)
@@ -52,12 +57,12 @@ export async function addPluginToOpenCodeConfig(currentVersion: string): Promise
     const legacyEntries = plugins.filter(
       (plugin) => plugin === LEGACY_PLUGIN_NAME || plugin.startsWith(`${LEGACY_PLUGIN_NAME}@`)
     )
-    const otherPlugins = plugins.filter(
-      (plugin) => !(plugin === PLUGIN_NAME || plugin.startsWith(`${PLUGIN_NAME}@`))
-        && !(plugin === LEGACY_PLUGIN_NAME || plugin.startsWith(`${LEGACY_PLUGIN_NAME}@`))
-    )
+    const otherPlugins = [...new Set([
+      ...presetPlugins.filter((plugin) => !isPluginPackageEntry(plugin)),
+      ...plugins.filter((plugin) => !isPluginPackageEntry(plugin)),
+    ])]
 
-    const normalizedPlugins = [...otherPlugins]
+    const normalizedPlugins: string[] = []
 
     if (canonicalEntries.length > 0) {
       normalizedPlugins.push(canonicalEntries[0])
@@ -68,6 +73,8 @@ export async function addPluginToOpenCodeConfig(currentVersion: string): Promise
     } else {
       normalizedPlugins.push(pluginEntry)
     }
+
+    normalizedPlugins.push(...otherPlugins)
 
     config.plugin = normalizedPlugins
 
