@@ -3,6 +3,11 @@ import type { SessionMessage, SessionMessagePart } from "./session-messages"
 import { extractSessionMessages } from "./session-messages"
 import { extractAutoRetrySignal } from "./error-classifier"
 
+const NON_VISIBLE_ASSISTANT_TEXT_PREFIXES = [
+  /^thinking\b[:\s-]*/i,
+  /^reasoning\b[:\s-]*/i,
+]
+
 function getLastUserMessageIndex(messages: SessionMessage[]): number {
   for (let index = messages.length - 1; index >= 0; index--) {
     if (messages[index]?.info?.role === "user") {
@@ -26,18 +31,10 @@ function getAssistantText(parts: SessionMessagePart[] | undefined): string {
     .join("\n")
 }
 
-function hasVisibleAssistantPart(parts: SessionMessagePart[] | undefined): boolean {
+function hasVisibleNonTextAssistantPart(parts: SessionMessagePart[] | undefined): boolean {
   for (const part of parts ?? []) {
     const type = part?.type
     if (!type) {
-      continue
-    }
-
-    if (type === "text") {
-      const text = typeof part.text === "string" ? part.text.trim() : ""
-      if (text.length > 0) {
-        return true
-      }
       continue
     }
 
@@ -52,6 +49,38 @@ function hasVisibleAssistantPart(parts: SessionMessagePart[] | undefined): boole
   }
 
   return false
+}
+
+function isNonVisibleAssistantText(text: string): boolean {
+  return NON_VISIBLE_ASSISTANT_TEXT_PREFIXES.some((pattern) => pattern.test(text))
+}
+
+export function hasVisibleAssistantEventContent(
+  extractAutoRetrySignalFn: typeof extractAutoRetrySignal,
+  args: {
+    message?: unknown
+    parts?: SessionMessagePart[]
+  },
+): boolean {
+  const messageText = typeof args.message === "string" ? args.message.trim() : ""
+  if (
+    messageText.length > 0 &&
+    !isNonVisibleAssistantText(messageText) &&
+    !extractAutoRetrySignalFn({ message: messageText })
+  ) {
+    return true
+  }
+
+  const assistantText = getAssistantText(args.parts)
+  if (
+    assistantText.length > 0 &&
+    !isNonVisibleAssistantText(assistantText) &&
+    !extractAutoRetrySignalFn({ message: assistantText })
+  ) {
+    return true
+  }
+
+  return hasVisibleNonTextAssistantPart(args.parts)
 }
 
 export function hasVisibleAssistantResponse(extractAutoRetrySignalFn: typeof extractAutoRetrySignal) {
@@ -88,16 +117,10 @@ export function hasVisibleAssistantResponse(extractAutoRetrySignalFn: typeof ext
         const parts = message.parts && message.parts.length > 0
           ? message.parts
           : infoMessageParts
-        const assistantText = getAssistantText(parts)
-        if (assistantText && extractAutoRetrySignalFn({ message: assistantText })) {
-          continue
-        }
-
-        if (assistantText.length > 0) {
-          return true
-        }
-
-        if (hasVisibleAssistantPart(parts)) {
+        if (hasVisibleAssistantEventContent(extractAutoRetrySignalFn, {
+          message: message.info?.message,
+          parts,
+        })) {
           return true
         }
       }

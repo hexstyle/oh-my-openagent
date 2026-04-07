@@ -9,7 +9,10 @@ import { getFallbackModelsForSession } from "./fallback-models"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
 import { extractEventModelString } from "./event-model"
-import { hasVisibleAssistantResponse } from "./visible-assistant-response"
+import {
+  hasVisibleAssistantEventContent,
+  hasVisibleAssistantResponse,
+} from "./visible-assistant-response"
 
 export { hasVisibleAssistantResponse } from "./visible-assistant-response"
 
@@ -111,6 +114,30 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
     }
 
     if (sessionID && role === "assistant" && !error) {
+      const currentEventHasVisibleResponse = hasVisibleAssistantEventContent(
+        extractAutoRetrySignal,
+        {
+          message: info?.message,
+          parts,
+        },
+      )
+
+      if (currentEventHasVisibleResponse) {
+        sessionLastAccess.set(sessionID, Date.now())
+        sessionAwaitingFallbackResult.delete(sessionID)
+        sessionStatusRetryKeys.delete(sessionID)
+        helpers.clearSessionFallbackTimeout(sessionID)
+        const state = sessionStates.get(sessionID)
+        if (state) {
+          markFallbackResponseSuccess(state)
+        }
+        log(`[${HOOK_NAME}] Assistant response observed directly in message.updated; cleared fallback timeout`, {
+          sessionID,
+          model,
+        })
+        return
+      }
+
       await armActiveSessionWatchdog({
         sessionID,
         role,

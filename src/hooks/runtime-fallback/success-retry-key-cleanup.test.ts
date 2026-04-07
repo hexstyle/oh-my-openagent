@@ -94,4 +94,38 @@ describe("createMessageUpdateHandler retry-key cleanup", () => {
     expect(state.pendingFallbackModel).toBe(undefined)
     expect(clearCalls).toEqual([sessionID])
   })
+
+  it("#given a fallback reply that is visible in message.updated before session storage catches up #when the assistant update arrives #then the watchdog is cleared immediately", async () => {
+    // given
+    const { createMessageUpdateHandler } = await importFreshMessageUpdateHandlerModule()
+    const sessionID = "session-visible-message-event"
+    const clearCalls: string[] = []
+    const deps = createDeps({
+      data: [
+        { info: { role: "user" }, parts: [{ type: "text", text: "latest question" }] },
+      ],
+    })
+    const state = createFallbackState("google/gemini-2.5-pro")
+    state.pendingFallbackModel = "openai/gpt-5.4"
+    deps.sessionStates.set(sessionID, state)
+    deps.sessionAwaitingFallbackResult.add(sessionID)
+    deps.sessionStatusRetryKeys.set(sessionID, "retry:1")
+    const handler = createMessageUpdateHandler(deps, createHelpers(clearCalls))
+
+    // when
+    await handler({
+      info: {
+        sessionID,
+        role: "assistant",
+        model: "openai/gpt-5.4",
+        message: "Task completed successfully.",
+      },
+    })
+
+    // then
+    expect(deps.sessionAwaitingFallbackResult.has(sessionID)).toBe(false)
+    expect(deps.sessionStatusRetryKeys.has(sessionID)).toBe(false)
+    expect(state.pendingFallbackModel).toBe(undefined)
+    expect(clearCalls).toEqual([sessionID])
+  })
 })
