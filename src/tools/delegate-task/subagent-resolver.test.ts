@@ -268,6 +268,36 @@ describe("resolveSubagentExecution", () => {
     connectedSpy.mockRestore()
   })
 
+  test("resolves explore by display name and keeps runtime key canonical for OpenCode compatibility", async () => {
+    //#given
+    const args = createBaseArgs({ subagent_type: "Explore (Code Search)" })
+    const executorCtx = createExecutorContext(async () => ([
+      { name: "explore", mode: "subagent" },
+    ]))
+
+    //#when
+    const result = await resolveSubagentExecution(args, executorCtx, "sisyphus", "deep")
+
+    //#then
+    expect(result.error).toBeUndefined()
+    expect(result.agentToUse).toBe("explore")
+  })
+
+  test("resolves display-name agent entries returned by OpenCode and maps to explore key for execution", async () => {
+    //#given
+    const args = createBaseArgs({ subagent_type: "explore" })
+    const executorCtx = createExecutorContext(async () => ([
+      { name: "Explore (Code Search)", mode: "subagent" },
+    ]))
+
+    //#when
+    const result = await resolveSubagentExecution(args, executorCtx, "sisyphus", "deep")
+
+    //#then
+    expect(result.error).toBeUndefined()
+    expect(result.agentToUse).toBe("explore")
+  })
+
   test("matches promoted fallback settings after fuzzy model resolution", async () => {
     //#given
     const cacheSpy = spyOn(connectedProvidersCache, "readProviderModelsCache").mockReturnValue({

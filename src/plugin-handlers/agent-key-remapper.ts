@@ -2,9 +2,8 @@ import {
   getAgentConfigKey,
   getAgentDisplayName,
   normalizeAgentForPrompt,
+  PRESERVE_CONFIG_KEY_AGENTS,
 } from "../shared/agent-display-names"
-
-const PRESERVE_CONFIG_KEY_AGENTS = new Set(["explore"])
 
 function normalizeAgentPayloadName(
   value: unknown,

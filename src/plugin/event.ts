@@ -16,13 +16,15 @@ import {
   setSessionFallbackChain,
   setPendingModelFallback,
 } from "../hooks/model-fallback/hook";
+import { fixEmptyMessagesWithSDK } from "../hooks/anthropic-context-window-limit-recovery/empty-content-recovery-sdk";
+import { extractResumeConfig, findLastUserMessage, resumeSession } from "../hooks/session-recovery/resume";
 import { getRawFallbackModels } from "../hooks/runtime-fallback/fallback-models";
 import {
   clearBackgroundOutputConsumptionsForParentSession,
   clearBackgroundOutputConsumptionsForTaskSession,
   restoreBackgroundOutputConsumption,
 } from "../shared/background-output-consumption";
-import { resetMessageCursor } from "../shared";
+import { normalizeSDKResponse, resetMessageCursor } from "../shared";
 import { getAgentConfigKey } from "../shared/agent-display-names";
 import { readConnectedProvidersCache } from "../shared/connected-providers-cache";
 import { log } from "../shared/logger";
@@ -109,6 +111,182 @@ function extractProviderModelFromErrorMessage(message: string): { providerID?: s
 
   return {};
 }
+
+type RecoveryMessagePart = {
+  type?: string;
+  text?: string;
+}
+
+type RecoveryMessage = {
+  info?: {
+    id?: string;
+    role?: string;
+    agent?: string;
+    model?: { providerID: string; modelID: string };
+    tools?: Record<string, boolean>;
+    error?: unknown;
+  };
+  parts?: RecoveryMessagePart[];
+}
+
+const EMPTY_ASSISTANT_PLACEHOLDER_TEXT = "[recovered empty assistant message]";
+const EMPTY_ASSISTANT_RECOVERY_DELAY_MS = 5000;
+const recoveredEmptyAssistantMessageBySession = new Map<string, string>();
+
+function assistantMessageHasVisibleContent(parts: RecoveryMessagePart[] | undefined): boolean {
+  if (!Array.isArray(parts) || parts.length === 0) return false;
+
+  for (const part of parts) {
+    const type = part?.type;
+    if (!type) continue;
+
+    if (
+      type === "thinking" ||
+      type === "reasoning" ||
+      type === "redacted_thinking" ||
+      type === "meta" ||
+      type === "step-start" ||
+      type === "step-finish" ||
+      type === "patch"
+    ) {
+      continue;
+    }
+
+    if (type === "text") {
+      if (typeof part.text === "string" && part.text.trim().length > 0) {
+        return true;
+      }
+      continue;
+    }
+
+    if (type === "tool" || type === "tool_use" || type === "tool_result") {
+      return true;
+    }
+
+    return true;
+  }
+
+  return false;
+}
+
+async function maybeRecoverIdleEmptyAssistantMessage(
+  ctx: { client: Record<string, unknown> },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "session.status.idle",
+): Promise<boolean> {
+  const session = ctx.client["session"] as { messages?: (args: { path: { id: string } }) => Promise<unknown> } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    log("[event] empty assistant recovery skipped: session.messages unavailable", { sessionID, source });
+    return false;
+  }
+
+  const response = await readMessages({
+    path: { id: sessionID },
+  });
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = lastMessage?.info?.id;
+
+  if (!lastMessageID) {
+    log("[event] empty assistant recovery skipped: no last message", { sessionID, source });
+    return false;
+  }
+  if (expectedMessageID && lastMessageID !== expectedMessageID) {
+    log("[event] empty assistant recovery skipped: latest message changed", {
+      sessionID,
+      source,
+      expectedMessageID,
+      lastMessageID,
+    });
+    return false;
+  }
+  if (lastMessage.info?.role !== "assistant") {
+    log("[event] empty assistant recovery skipped: latest message is not assistant", {
+      sessionID,
+      source,
+      lastMessageID,
+      role: lastMessage.info?.role,
+    });
+    return false;
+  }
+  if (lastMessage.info?.error) {
+    log("[event] empty assistant recovery skipped: assistant message already has error", {
+      sessionID,
+      source,
+      lastMessageID,
+    });
+    return false;
+  }
+  if (assistantMessageHasVisibleContent(lastMessage.parts)) {
+    log("[event] empty assistant recovery skipped: assistant message already has visible content", {
+      sessionID,
+      source,
+      lastMessageID,
+      partCount: Array.isArray(lastMessage.parts) ? lastMessage.parts.length : 0,
+    });
+    return false;
+  }
+
+  const lastRecoveredMessageID = recoveredEmptyAssistantMessageBySession.get(sessionID);
+  if (lastRecoveredMessageID === lastMessageID) {
+    log("[event] empty assistant recovery skipped: message already recovered", {
+      sessionID,
+      source,
+      lastMessageID,
+    });
+    return false;
+  }
+
+  log("[event] attempting empty assistant recovery", {
+    sessionID,
+    source,
+    lastMessageID,
+    partCount: Array.isArray(lastMessage.parts) ? lastMessage.parts.length : 0,
+  });
+
+  const recoveryResult = await fixEmptyMessagesWithSDK({
+    sessionID,
+    client: ctx.client as never,
+    placeholderText: EMPTY_ASSISTANT_PLACEHOLDER_TEXT,
+  });
+  if (!recoveryResult.fixed) {
+    log("[event] empty assistant recovery failed during message patch", {
+      sessionID,
+      source,
+      lastMessageID,
+      fixedMessageIds: recoveryResult.fixedMessageIds,
+      scannedEmptyCount: recoveryResult.scannedEmptyCount,
+    });
+    return false;
+  }
+
+  const lastUser = findLastUserMessage(messages as never);
+  const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+  const resumed = await resumeSession(ctx.client as never, resumeConfig);
+
+  if (resumed) {
+    recoveredEmptyAssistantMessageBySession.set(sessionID, lastMessageID);
+    log("[event] recovered idle empty assistant message", {
+      sessionID,
+      source,
+      messageID: lastMessageID,
+      fixedMessageIds: recoveryResult.fixedMessageIds,
+    });
+  } else {
+    log("[event] empty assistant recovery patched message but resume failed", {
+      sessionID,
+      source,
+      messageID: lastMessageID,
+      fixedMessageIds: recoveryResult.fixedMessageIds,
+    });
+  }
+
+  return resumed;
+}
 function applyUserConfiguredFallbackChain(
   sessionID: string,
   agentName: string,
@@ -143,6 +321,7 @@ export function createEventHandler(args: {
     directory: string;
     client: {
       session: {
+        messages?: (input: { path: { id: string } }) => Promise<unknown>;
         abort: (input: { path: { id: string } }) => Promise<unknown>;
         promptAsync?: (input: {
           path: { id: string };
@@ -173,6 +352,52 @@ export function createEventHandler(args: {
   const lastHandledModelErrorMessageID = new Map<string, string>();
   const lastHandledRetryStatusKey = new Map<string, string>();
   const lastKnownModelBySession = new Map<string, { providerID: string; modelID: string }>();
+  const emptyAssistantRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  const clearEmptyAssistantRecoveryTimer = (sessionID: string): void => {
+    const timer = emptyAssistantRecoveryTimers.get(sessionID);
+    if (!timer) return;
+    clearTimeout(timer);
+    emptyAssistantRecoveryTimers.delete(sessionID);
+  };
+
+  const scheduleEmptyAssistantRecovery = (sessionID: string, messageID: string): void => {
+    clearEmptyAssistantRecoveryTimer(sessionID);
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          emptyAssistantRecoveryTimers.delete(sessionID);
+          log("[event] running delayed empty assistant recovery", {
+            sessionID,
+            messageID,
+          });
+
+          if (hooks.stopContinuationGuard?.isStopped(sessionID)) {
+            log("[event] delayed empty assistant recovery skipped: stop guard active", {
+              sessionID,
+              messageID,
+            });
+            return;
+          }
+
+          await maybeRecoverIdleEmptyAssistantMessage(
+            pluginContext,
+            sessionID,
+            messageID,
+            "message.updated.delayed",
+          );
+        } catch (error) {
+          log("[event] delayed empty assistant recovery failed", { sessionID, messageID, error });
+        }
+      })();
+    }, EMPTY_ASSISTANT_RECOVERY_DELAY_MS);
+    emptyAssistantRecoveryTimers.set(sessionID, timer);
+    log("[event] scheduled delayed empty assistant recovery", {
+      sessionID,
+      messageID,
+      delayMs: EMPTY_ASSISTANT_RECOVERY_DELAY_MS,
+    });
+  };
 
   const resolveFallbackProviderID = (sessionID: string, providerHint?: string): string => {
     const sessionModel = getSessionModel(sessionID);
@@ -368,6 +593,7 @@ export function createEventHandler(args: {
         lastHandledModelErrorMessageID.delete(sessionInfo.id);
         lastHandledRetryStatusKey.delete(sessionInfo.id);
         lastKnownModelBySession.delete(sessionInfo.id);
+        clearEmptyAssistantRecoveryTimer(sessionInfo.id);
         clearPendingModelFallback(sessionInfo.id);
         clearSessionFallbackChain(sessionInfo.id);
         resetMessageCursor(sessionInfo.id);
@@ -401,6 +627,7 @@ export function createEventHandler(args: {
       const agent = info?.agent as string | undefined;
       const role = info?.role as string | undefined;
       if (sessionID && role === "user") {
+        clearEmptyAssistantRecoveryTimer(sessionID);
         const isCompactionMessage = agent ? isCompactionAgent(agent) : false;
         if (agent && !isCompactionMessage) {
           updateSessionAgent(sessionID, agent);
@@ -420,6 +647,7 @@ export function createEventHandler(args: {
           const assistantMessageID = info?.id as string | undefined;
           const assistantError = info?.error;
           if (assistantMessageID && assistantError) {
+            clearEmptyAssistantRecoveryTimer(sessionID);
             const lastHandled = lastHandledModelErrorMessageID.get(sessionID);
             if (lastHandled === assistantMessageID) {
               return;
@@ -468,6 +696,14 @@ export function createEventHandler(args: {
           log("[event] model-fallback error in message.updated:", { sessionID, error: err });
         }
       }
+
+      if (sessionID && role === "assistant" && args.pluginConfig.experimental?.auto_resume) {
+        const assistantMessageID = info?.id as string | undefined;
+        const assistantError = info?.error;
+        if (assistantMessageID && !assistantError) {
+          scheduleEmptyAssistantRecovery(sessionID, assistantMessageID);
+        }
+      }
     }
 
     if (event.type === "session.status") {
@@ -478,6 +714,18 @@ export function createEventHandler(args: {
       // (non-retry idle) so future failures with the same key can trigger fallback again.
       if (sessionID && status?.type === "idle") {
         lastHandledRetryStatusKey.delete(sessionID);
+        clearEmptyAssistantRecoveryTimer(sessionID);
+
+        if (
+          args.pluginConfig.experimental?.auto_resume &&
+          !hooks.stopContinuationGuard?.isStopped(sessionID)
+        ) {
+          try {
+            await maybeRecoverIdleEmptyAssistantMessage(pluginContext, sessionID);
+          } catch (err) {
+            log("[event] empty assistant recovery failed in session.status:", { sessionID, error: err });
+          }
+        }
       }
 
       if (sessionID && status?.type === "retry" && isModelFallbackEnabled && !isRuntimeFallbackEnabled) {

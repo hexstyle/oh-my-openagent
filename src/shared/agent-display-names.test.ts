@@ -1,5 +1,11 @@
 import { describe, it, expect } from "bun:test"
-import { AGENT_DISPLAY_NAMES, getAgentDisplayName, getAgentConfigKey } from "./agent-display-names"
+import {
+  AGENT_DISPLAY_NAMES,
+  getAgentDisplayName,
+  getAgentConfigKey,
+  normalizeAgentForExecution,
+  normalizeAgentForPrompt,
+} from "./agent-display-names"
 
 describe("getAgentDisplayName", () => {
   it("returns display name for lowercase config key (new format)", () => {
@@ -210,5 +216,21 @@ describe("AGENT_DISPLAY_NAMES", () => {
     // when checking the constant
     // then contains all expected mappings
     expect(AGENT_DISPLAY_NAMES).toEqual(expectedMappings)
+  })
+})
+
+describe("normalizeAgentForPrompt", () => {
+  it("keeps builtin agents on their canonical display names", () => {
+    expect(normalizeAgentForPrompt("oracle")).toBe("Oracle (Strategic Advisor)")
+  })
+})
+
+describe("normalizeAgentForExecution", () => {
+  it("preserves the explore runtime key when given the canonical display name", () => {
+    expect(normalizeAgentForExecution("Explore (Code Search)")).toBe("explore")
+  })
+
+  it("leaves non-reserved agent names unchanged", () => {
+    expect(normalizeAgentForExecution("oracle")).toBe("oracle")
   })
 })

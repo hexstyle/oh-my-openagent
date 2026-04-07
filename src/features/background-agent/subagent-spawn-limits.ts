@@ -3,6 +3,7 @@ import type { OpencodeClient } from "./constants"
 
 export const DEFAULT_MAX_SUBAGENT_DEPTH = 3
 export const DEFAULT_MAX_ROOT_SESSION_SPAWN_BUDGET = 50
+export const DEFAULT_MAX_IDENTICAL_TASKS_PER_PARENT = 1
 
 export interface SubagentSpawnContext {
   rootSessionID: string
@@ -16,6 +17,10 @@ export function getMaxSubagentDepth(config?: BackgroundTaskConfig): number {
 
 export function getMaxRootSessionSpawnBudget(config?: BackgroundTaskConfig): number {
   return config?.maxDescendants ?? DEFAULT_MAX_ROOT_SESSION_SPAWN_BUDGET
+}
+
+export function getMaxIdenticalTasksPerParent(config?: BackgroundTaskConfig): number {
+  return config?.maxIdenticalTasksPerParent ?? DEFAULT_MAX_IDENTICAL_TASKS_PER_PARENT
 }
 
 export async function resolveSubagentSpawnContext(

@@ -22,6 +22,8 @@ export const AGENT_DISPLAY_NAMES: Record<string, string> = {
   "council-member": "Council Member (Advisor)",
 }
 
+export const PRESERVE_CONFIG_KEY_AGENTS = new Set(["explore"])
+
 /**
  * Get display name for an agent config key.
  * Uses case-insensitive lookup for backward compatibility.
@@ -83,6 +85,29 @@ export function normalizeAgentForPrompt(agentName: string | undefined): string |
   const displayName = getAgentDisplayName(configKey)
   if (displayName !== configKey) {
     return displayName
+  }
+
+  return trimmed
+}
+
+/**
+ * Normalize an agent name for execution paths that must preserve internal runtime keys.
+ * Reserved runtime agents (for example `explore`) are always mapped to their config key.
+ * All other agent names are preserved as provided, aside from trimming.
+ */
+export function normalizeAgentForExecution(agentName: string | undefined): string | undefined {
+  if (typeof agentName !== "string") {
+    return undefined
+  }
+
+  const trimmed = agentName.trim()
+  if (!trimmed) {
+    return undefined
+  }
+
+  const configKey = getAgentConfigKey(trimmed)
+  if (PRESERVE_CONFIG_KEY_AGENTS.has(configKey)) {
+    return configKey
   }
 
   return trimmed

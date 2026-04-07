@@ -3,21 +3,130 @@ import type { AutoRetryHelpers } from "./auto-retry"
 import { HOOK_NAME } from "./constants"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError } from "./error-classifier"
-import { createFallbackState } from "./fallback-state"
+import { createFallbackState, markFallbackResponseSuccess } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
 import { createSessionStatusHandler } from "./session-status-handler"
+import { extractEventModelString } from "./event-model"
 
 export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   const { config, pluginConfig, sessionStates, sessionLastAccess, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionFallbackTimeouts, sessionStatusRetryKeys } = deps
   const sessionStatusHandler = createSessionStatusHandler(deps, helpers, sessionStatusRetryKeys)
+  const timeoutEnabled = config.timeout_seconds > 0
+
+  const ensureStateForActiveWatch = (args: {
+    sessionID: string
+    source: string
+    eventAgent?: string
+    eventModel?: string
+  }): boolean => {
+    if (sessionStates.has(args.sessionID)) {
+      return true
+    }
+
+    const model = args.eventModel ?? resolveFallbackBootstrapModel({
+      sessionID: args.sessionID,
+      source: args.source,
+      eventModel: undefined,
+      resolvedAgent: args.eventAgent,
+      pluginConfig,
+    })
+
+    if (!model) {
+      log(`[${HOOK_NAME}] Active-session watchdog could not bootstrap fallback state`, {
+        sessionID: args.sessionID,
+        source: args.source,
+        eventAgent: args.eventAgent,
+      })
+      return false
+    }
+
+    sessionStates.set(args.sessionID, createFallbackState(model))
+    log(`[${HOOK_NAME}] Bootstrapped fallback state for active-session watchdog`, {
+      sessionID: args.sessionID,
+      source: args.source,
+      model,
+      eventAgent: args.eventAgent,
+    })
+    return true
+  }
+
+  const handleAssistantProgressEvent = (props: Record<string, unknown> | undefined, source: string) => {
+    if (!timeoutEnabled) return
+
+    const info = props?.info as Record<string, unknown> | undefined
+    const part = props?.part as Record<string, unknown> | undefined
+    const sessionID =
+      (info?.sessionID as string | undefined) ??
+      (part?.sessionID as string | undefined) ??
+      (props?.sessionID as string | undefined) ??
+      (props?.sessionId as string | undefined)
+    const role = (info?.role as string | undefined) ?? "assistant"
+    if (!sessionID || role !== "assistant") return
+
+    const eventAgent = info?.agent as string | undefined
+    const eventModel = extractEventModelString({
+      model: info?.model,
+      providerID: info?.providerID,
+      modelID: info?.modelID,
+    })
+
+    if (!ensureStateForActiveWatch({
+      sessionID,
+      source,
+      eventAgent,
+      eventModel,
+    })) {
+      return
+    }
+
+    const partType = typeof part?.type === "string" ? part.type : undefined
+    const partText = typeof part?.text === "string" ? part.text.trim() : ""
+    const delta = typeof props?.delta === "string" ? props.delta : ""
+    const field = typeof props?.field === "string" ? props.field : undefined
+    const hasMeaningfulProgress =
+      (field === "text" && delta.trim().length > 0) ||
+      partType === "tool" ||
+      partType === "tool_use" ||
+      partType === "tool_result" ||
+      partType === "tool-call" ||
+      (partType === "text" && partText.length > 0) ||
+      (partType === "reasoning" && (partText.length > 0 || delta.trim().length > 0))
+
+    sessionLastAccess.set(sessionID, Date.now())
+
+    if (!hasMeaningfulProgress) {
+      return
+    }
+
+    helpers.clearSessionFallbackTimeout(sessionID)
+    if (sessionAwaitingFallbackResult.has(sessionID)) {
+      sessionAwaitingFallbackResult.delete(sessionID)
+      sessionStatusRetryKeys.delete(sessionID)
+      const state = sessionStates.get(sessionID)
+      if (state) {
+        markFallbackResponseSuccess(state)
+      }
+    }
+
+    log(`[${HOOK_NAME}] Cleared fallback timeout after assistant progress`, {
+      sessionID,
+      source,
+      partType,
+      field,
+    })
+  }
 
   const handleSessionCreated = (props: Record<string, unknown> | undefined) => {
-    const sessionInfo = props?.info as { id?: string; model?: string } | undefined
-    const sessionID = sessionInfo?.id
-    const model = sessionInfo?.model
+    const sessionInfo = props?.info as Record<string, unknown> | undefined
+    const sessionID = typeof sessionInfo?.id === "string" ? sessionInfo.id : undefined
+    const model = extractEventModelString({
+      model: sessionInfo?.model,
+      providerID: sessionInfo?.providerID,
+      modelID: sessionInfo?.modelID,
+    })
 
     if (sessionID && model) {
       log(`[${HOOK_NAME}] Session created with model`, { sessionID, model })
@@ -177,6 +286,8 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     if (event.type === "session.deleted") { handleSessionDeleted(props); return }
     if (event.type === "session.stop") { await handleSessionStop(props); return }
     if (event.type === "session.idle") { handleSessionIdle(props); return }
+    if (event.type === "message.part.updated") { handleAssistantProgressEvent(props, "message.part.updated"); return }
+    if (event.type === "message.part.delta") { handleAssistantProgressEvent(props, "message.part.delta"); return }
     if (event.type === "session.status") { await sessionStatusHandler(props); return }
     if (event.type === "session.error") { await handleSessionError(props); return }
   }

@@ -11,6 +11,7 @@ import { formatDuration } from "./time-formatter"
 import { syncContinuationDeps, type SyncContinuationDeps } from "./sync-continuation-deps"
 import { setSessionTools } from "../../shared/session-tools-store"
 import { normalizeSDKResponse } from "../../shared"
+import { normalizeAgentForExecution } from "../../shared/agent-display-names"
 import { buildTaskPrompt } from "./prompt-builder"
 
 export async function executeSyncContinuation(
@@ -63,6 +64,8 @@ export async function executeSyncContinuation(
         : undefined
       resumeVariant = resumeMessage?.model?.variant
     }
+
+    resumeAgent = normalizeAgentForExecution(resumeAgent) ?? resumeAgent
 
     syncContMeta = {
       title: `Continue: ${args.description}`,

@@ -6,6 +6,7 @@ import { resolveMessageContext } from "../../features/hook-message-injector"
 import { getSessionAgent } from "../../features/claude-code-session-state"
 import { storeToolMetadata } from "../../features/tool-metadata-store"
 import { log } from "../../shared/logger"
+import { normalizeAgentForExecution } from "../../shared/agent-display-names"
 import { delay } from "./delay"
 import { getMessageDir } from "./message-dir"
 
@@ -37,6 +38,7 @@ export function createBackgroundTask(
       }
 
       try {
+        const normalizedAgent = normalizeAgentForExecution(args.agent) ?? args.agent.trim()
         const messageDir = getMessageDir(ctx.sessionID)
         const { prevMessage, firstMessageAgent } = await resolveMessageContext(
           ctx.sessionID,
@@ -68,7 +70,7 @@ export function createBackgroundTask(
         const task = await manager.launch({
           description: args.description,
           prompt: args.prompt,
-          agent: args.agent.trim(),
+          agent: normalizedAgent,
           parentSessionID: ctx.sessionID,
           parentMessageID: ctx.messageID,
           parentModel,

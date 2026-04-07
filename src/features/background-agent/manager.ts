@@ -66,6 +66,7 @@ import {
 import {
   createSubagentDepthLimitError,
   createSubagentDescendantLimitError,
+  getMaxIdenticalTasksPerParent,
   getMaxRootSessionSpawnBudget,
   getMaxSubagentDepth,
   resolveSubagentSpawnContext,
@@ -141,6 +142,18 @@ ${lines}
 
 The current agent can keep working while these run in the background. Wait only if their result is needed for the next decision.
 </system-reminder>`
+}
+
+function normalizeDuplicateLaunchValue(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase()
+}
+
+function createDuplicateLaunchSignature(input: Pick<LaunchInput, "agent" | "description" | "prompt">): string {
+  return JSON.stringify({
+    agent: normalizeDuplicateLaunchValue(input.agent),
+    description: normalizeDuplicateLaunchValue(input.description),
+    prompt: normalizeDuplicateLaunchValue(input.prompt),
+  })
 }
 
 
@@ -342,6 +355,21 @@ export class BackgroundManager {
     this.unregisterRootDescendant(task.rootSessionID)
   }
 
+  private findIdenticalActiveTasks(input: LaunchInput): BackgroundTask[] {
+    const requestedSignature = createDuplicateLaunchSignature(input)
+
+    return Array.from(this.tasks.values()).filter((task) => {
+      if (task.parentSessionID !== input.parentSessionID) return false
+      if (task.status !== "pending" && task.status !== "running") return false
+
+      return createDuplicateLaunchSignature({
+        agent: task.agent,
+        description: task.description,
+        prompt: task.prompt,
+      }) === requestedSignature
+    })
+  }
+
   async launch(input: LaunchInput): Promise<BackgroundTask> {
     log("[background-agent] launch() called with:", {
       agent: input.agent,
@@ -352,6 +380,15 @@ export class BackgroundManager {
 
     if (!input.agent || input.agent.trim() === "") {
       throw new Error("Agent parameter is required")
+    }
+
+    const identicalActiveTasks = this.findIdenticalActiveTasks(input)
+    const maxIdenticalTasksPerParent = getMaxIdenticalTasksPerParent(this.config)
+    if (identicalActiveTasks.length >= maxIdenticalTasksPerParent) {
+      const existingTaskIds = identicalActiveTasks.map((task) => task.id).join(", ")
+      throw new Error(
+        `Subagent spawn blocked: parent session ${input.parentSessionID} already has ${identicalActiveTasks.length} active identical task(s) for agent "${input.agent}" with description "${input.description}". Existing task IDs: ${existingTaskIds}. Reuse the existing task output instead of spawning another identical copy.`
+      )
     }
 
     const spawnReservation = await this.reserveSubagentSpawn(input.parentSessionID)

@@ -370,6 +370,7 @@
   },
   "background_task": {
     "defaultConcurrency": 4,
+    "maxIdenticalTasksPerParent": 1,
     "staleTimeoutMs": 600000,
     "providerConcurrency": {
       "anthropic": 3,

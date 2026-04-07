@@ -79,4 +79,21 @@ describe("hasVisibleAssistantResponse", () => {
     // then
     expect(result).toBe(false)
   })
+
+  it("#given an assistant tool call after the latest user turn #when visibility is checked #then the current reply is treated as visible", async () => {
+    // given
+    const checkVisibleResponse = hasVisibleAssistantResponse(() => undefined)
+    const ctx = createContext({
+      data: [
+        { info: { role: "user" }, parts: [{ type: "text", text: "latest question" }] },
+        { info: { role: "assistant" }, parts: [{ type: "tool_use" }] },
+      ],
+    })
+
+    // when
+    const result = await checkVisibleResponse(ctx, "session-visible-tool-call", undefined)
+
+    // then
+    expect(result).toBe(true)
+  })
 })

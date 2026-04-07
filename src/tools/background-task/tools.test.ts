@@ -1,11 +1,12 @@
 /// <reference types="bun-types" />
 
 import { describe, test, expect } from "bun:test"
-import { createBackgroundCancel, createBackgroundOutput } from "./tools"
+import { createBackgroundCancel, createBackgroundOutput, createBackgroundTask } from "./tools"
 import type { BackgroundManager, BackgroundTask } from "../../features/background-agent"
 import type { ToolContext } from "@opencode-ai/plugin/tool"
 import type { BackgroundCancelClient, BackgroundOutputManager, BackgroundOutputClient } from "./tools"
 import { consumeToolMetadata, clearPendingStore } from "../../features/tool-metadata-store"
+import { getAgentDisplayName } from "../../shared/agent-display-names"
 
 const projectDir = "/Users/yeongyu/local-workspaces/oh-my-opencode"
 
@@ -53,6 +54,43 @@ function createTask(overrides: Partial<BackgroundTask> = {}): BackgroundTask {
 }
 
 describe("background_output full_session", () => {
+  test("background_task normalizes the reserved explore display name to the runtime key", async () => {
+    // #given
+    let launchedAgent: string | undefined
+    const manager = {
+      launch: async (input: {
+        description: string
+        prompt: string
+        agent: string
+        parentSessionID: string
+        parentMessageID: string
+      }) => {
+        launchedAgent = input.agent
+        return createTask({
+          id: "task-explore",
+          sessionID: "ses-explore",
+          description: input.description,
+          prompt: input.prompt,
+          agent: input.agent,
+          status: "pending",
+        })
+      },
+      getTask: () => undefined,
+    } as unknown as BackgroundManager
+    const tool = createBackgroundTask(manager, {} as never)
+
+    // #when
+    const output = await tool.execute({
+      description: "Explore project structure",
+      prompt: "Inspect the repo layout",
+      agent: "Explore (Code Search)",
+    }, mockContext)
+
+    // #then
+    expect(launchedAgent).toBe("explore")
+    expect(output).toContain("Agent: explore")
+  })
+
   test("resolves task_id into title metadata", async () => {
     // #given
     clearPendingStore()
@@ -85,7 +123,7 @@ describe("background_output full_session", () => {
 
     const task = createTask({
       id: "task-1",
-      agent: "Sisyphus-Junior",
+      agent: getAgentDisplayName("sisyphus-junior"),
       category: "quick",
       description: "Fix flaky test",
       status: "running",

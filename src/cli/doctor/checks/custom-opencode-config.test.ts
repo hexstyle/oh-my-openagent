@@ -168,6 +168,7 @@ describe("managed custom OpenCode config assets", () => {
     expect(pluginConfigContents).not.toContain("raw.githubusercontent.com/code-yeongyu/oh-my-openagent/dev/assets/oh-my-opencode.schema.json")
 
     expect(pluginConfig.hashline_edit).toBe(true)
+    expect(pluginConfig.background_task?.maxIdenticalTasksPerParent).toBe(1)
     expect(pluginConfig.background_task?.staleTimeoutMs).toBe(600000)
     expect(pluginConfig.babysitting?.timeout_ms).toBe(300000)
     expect(pluginConfig.model_capabilities?.refresh_timeout_ms).toBe(10000)

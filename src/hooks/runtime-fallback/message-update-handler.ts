@@ -8,6 +8,7 @@ import { markFallbackResponseSuccess } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
+import { extractEventModelString } from "./event-model"
 import { hasVisibleAssistantResponse } from "./visible-assistant-response"
 
 export { hasVisibleAssistantResponse } from "./visible-assistant-response"
@@ -15,11 +16,64 @@ export { hasVisibleAssistantResponse } from "./visible-assistant-response"
 export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   const { ctx, config, pluginConfig, sessionStates, sessionLastAccess, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionStatusRetryKeys } = deps
   const checkVisibleResponse = hasVisibleAssistantResponse(extractAutoRetrySignal)
+  const timeoutEnabled = config.timeout_seconds > 0
+
+  const armActiveSessionWatchdog = async (args: {
+    sessionID: string
+    role: string
+    source: string
+    info: Record<string, unknown> | undefined
+  }): Promise<{ resolvedAgent?: string; model?: string } | null> => {
+    if (!timeoutEnabled) return null
+
+    const resolvedAgent = await helpers.resolveAgentForSessionFromContext(
+      args.sessionID,
+      args.info?.agent as string | undefined,
+    )
+    const model = extractEventModelString({
+      model: args.info?.model,
+      providerID: args.info?.providerID,
+      modelID: args.info?.modelID,
+    }) ?? resolveFallbackBootstrapModel({
+      sessionID: args.sessionID,
+      source: args.source,
+      eventModel: undefined,
+      resolvedAgent,
+      pluginConfig,
+    })
+
+    if (!sessionStates.has(args.sessionID)) {
+      if (!model) {
+        log(`[${HOOK_NAME}] Active-session watchdog could not bootstrap from message.updated`, {
+          sessionID: args.sessionID,
+          role: args.role,
+          source: args.source,
+        })
+        return null
+      }
+
+      sessionStates.set(args.sessionID, createFallbackState(model))
+      log(`[${HOOK_NAME}] Bootstrapped fallback state from message.updated`, {
+        sessionID: args.sessionID,
+        role: args.role,
+        source: args.source,
+        model,
+        resolvedAgent,
+      })
+    }
+
+    sessionLastAccess.set(args.sessionID, Date.now())
+    helpers.scheduleSessionFallbackTimeout(args.sessionID, {
+      resolvedAgent,
+      source: args.source,
+    })
+
+    return { resolvedAgent, model }
+  }
 
   return async (props: Record<string, unknown> | undefined) => {
     const info = props?.info as Record<string, unknown> | undefined
     const sessionID = info?.sessionID as string | undefined
-    const timeoutEnabled = config.timeout_seconds > 0
     const eventParts = props?.parts as Array<{ type?: string; text?: string }> | undefined
     const infoParts = info?.parts as Array<{ type?: string; text?: string }> | undefined
     const parts = eventParts && eventParts.length > 0 ? eventParts : infoParts
@@ -38,30 +92,53 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       (retrySignal && timeoutEnabled ? { name: "ProviderRateLimitError", message: retrySignal } : undefined) ??
       (errorContentResult.hasError ? { name: "MessageContentError", message: errorContentResult.errorMessage || "Message contains error content" } : undefined)
     const role = info?.role as string | undefined
-    const model = info?.model as string | undefined
+    const model = extractEventModelString({
+      model: info?.model,
+      providerID: info?.providerID,
+      modelID: info?.modelID,
+    })
+
+    if (sessionID && role === "user") {
+      sessionAwaitingFallbackResult.delete(sessionID)
+      sessionStatusRetryKeys.delete(sessionID)
+      await armActiveSessionWatchdog({
+        sessionID,
+        role,
+        source: "message.updated.user",
+        info,
+      })
+      return
+    }
 
     if (sessionID && role === "assistant" && !error) {
+      await armActiveSessionWatchdog({
+        sessionID,
+        role,
+        source: "message.updated.assistant",
+        info,
+      })
+
+      const hasVisible = await checkVisibleResponse(ctx, sessionID, info)
+      if (hasVisible) {
+        sessionAwaitingFallbackResult.delete(sessionID)
+        sessionStatusRetryKeys.delete(sessionID)
+        helpers.clearSessionFallbackTimeout(sessionID)
+        const state = sessionStates.get(sessionID)
+        if (state) {
+          markFallbackResponseSuccess(state)
+        }
+        log(`[${HOOK_NAME}] Assistant response observed; cleared fallback timeout`, { sessionID, model })
+        return
+      }
+
       if (!sessionAwaitingFallbackResult.has(sessionID)) {
         return
       }
 
-      const hasVisible = await checkVisibleResponse(ctx, sessionID, info)
-      if (!hasVisible) {
-        log(`[${HOOK_NAME}] Assistant update observed without visible final response; keeping fallback timeout`, {
-          sessionID,
-          model,
-        })
-        return
-      }
-
-      sessionAwaitingFallbackResult.delete(sessionID)
-      sessionStatusRetryKeys.delete(sessionID)
-      helpers.clearSessionFallbackTimeout(sessionID)
-      const state = sessionStates.get(sessionID)
-      if (state) {
-        markFallbackResponseSuccess(state)
-      }
-      log(`[${HOOK_NAME}] Assistant response observed; cleared fallback timeout`, { sessionID, model })
+      log(`[${HOOK_NAME}] Assistant update observed without visible final response; keeping fallback timeout`, {
+        sessionID,
+        model,
+      })
       return
     }
 

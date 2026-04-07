@@ -51,6 +51,30 @@ describe("BackgroundTaskConfigSchema", () => {
     })
   })
 
+  describe("maxIdenticalTasksPerParent", () => {
+    describe("#given valid maxIdenticalTasksPerParent (1)", () => {
+      test("#when parsed #then returns correct value", () => {
+        const result = BackgroundTaskConfigSchema.parse({ maxIdenticalTasksPerParent: 1 })
+
+        expect(result.maxIdenticalTasksPerParent).toBe(1)
+      })
+    })
+
+    describe("#given maxIdenticalTasksPerParent below minimum (0)", () => {
+      test("#when parsed #then throws ZodError", () => {
+        let thrownError: unknown
+
+        try {
+          BackgroundTaskConfigSchema.parse({ maxIdenticalTasksPerParent: 0 })
+        } catch (error) {
+          thrownError = error
+        }
+
+        expect(thrownError).toBeInstanceOf(ZodError)
+      })
+    })
+  })
+
   describe("syncPollTimeoutMs", () => {
     describe("#given valid syncPollTimeoutMs (120000)", () => {
       test("#when parsed #then returns correct value", () => {

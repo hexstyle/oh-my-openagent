@@ -7,13 +7,43 @@ import { normalizeModelFormat } from "../../shared/model-format-normalizer"
 import { AGENT_MODEL_REQUIREMENTS } from "../../shared/model-requirements"
 import { normalizeFallbackModels, flattenToFallbackModelStrings } from "../../shared/model-resolver"
 import { buildFallbackChainFromModels, findMostSpecificFallbackEntry } from "../../shared/fallback-chain-from-models"
-import { getAgentDisplayName, getAgentConfigKey } from "../../shared/agent-display-names"
+import { getAgentDisplayName, getAgentConfigKey, PRESERVE_CONFIG_KEY_AGENTS } from "../../shared/agent-display-names"
 import { normalizeSDKResponse } from "../../shared"
 import { log } from "../../shared/logger"
 import { getAvailableModelsForDelegateTask } from "./available-models"
 import type { FallbackEntry } from "../../shared/model-requirements"
 import { resolveModelForDelegateTask } from "./model-selection"
 import { fuzzyMatchModel } from "../../shared/model-availability"
+
+type AgentInfo = {
+  name: string
+  mode?: "subagent" | "primary" | "all"
+  model?: string | { providerID: string; modelID: string }
+}
+
+function buildAgentMatchSet(rawAgentName: string): Set<string> {
+  const canonicalKey = getAgentConfigKey(rawAgentName)
+  const canonicalDisplay = getAgentDisplayName(canonicalKey)
+
+  return new Set([
+    rawAgentName.toLowerCase(),
+    canonicalKey.toLowerCase(),
+    canonicalDisplay.toLowerCase(),
+  ])
+}
+
+function doesAgentMatchRequest(
+  agent: AgentInfo,
+  requestedNames: Set<string>,
+): boolean {
+  const canonicalKey = getAgentConfigKey(agent.name)
+  const canonicalDisplay = getAgentDisplayName(canonicalKey)
+  return (
+    requestedNames.has(agent.name.toLowerCase())
+    || requestedNames.has(canonicalKey.toLowerCase())
+    || requestedNames.has(canonicalDisplay.toLowerCase())
+  )
+}
 
 export async function resolveSubagentExecution(
   args: DelegateTaskArgs,
@@ -50,6 +80,7 @@ Create the work plan directly - that's your job as the planning agent.`,
   }
 
   let agentToUse = agentName
+  const requestedAgentNames = buildAgentMatchSet(agentToUse)
   let categoryModel: DelegatedModelConfig | undefined
   let fallbackChain: FallbackEntry[] | undefined = undefined
 
@@ -66,16 +97,13 @@ Create the work plan directly - that's your job as the planning agent.`,
 
     const callableAgents = agents.filter((a) => a.mode !== "primary")
 
-    const resolvedDisplayName = getAgentDisplayName(agentToUse)
     const matchedAgent = callableAgents.find(
-      (agent) => agent.name.toLowerCase() === agentToUse.toLowerCase()
-        || agent.name.toLowerCase() === resolvedDisplayName.toLowerCase()
+      (agent) => doesAgentMatchRequest(agent, requestedAgentNames)
     )
     if (!matchedAgent) {
       const isPrimaryAgent = agents
         .filter((a) => a.mode === "primary")
-        .find((agent) => agent.name.toLowerCase() === agentToUse.toLowerCase()
-          || agent.name.toLowerCase() === resolvedDisplayName.toLowerCase())
+        .find((agent) => doesAgentMatchRequest(agent, requestedAgentNames))
 
       if (isPrimaryAgent) {
         return {
@@ -96,7 +124,11 @@ Create the work plan directly - that's your job as the planning agent.`,
       }
     }
 
-    agentToUse = matchedAgent.name
+    const matchedAgentConfigKey = getAgentConfigKey(matchedAgent.name)
+    const shouldPreserveConfigKey = PRESERVE_CONFIG_KEY_AGENTS.has(
+      matchedAgentConfigKey,
+    )
+    agentToUse = shouldPreserveConfigKey ? matchedAgentConfigKey : matchedAgent.name
 
     const agentConfigKey = getAgentConfigKey(agentToUse)
     const agentOverride = agentOverrides?.[agentConfigKey as keyof typeof agentOverrides]

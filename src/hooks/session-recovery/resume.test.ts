@@ -49,4 +49,29 @@ describe("session-recovery resume", () => {
     const firstPart = (promptBody?.parts as Array<{ text?: string }>)?.[0]
     expect(firstPart?.text).toContain(OMO_INTERNAL_INITIATOR_MARKER)
   })
+
+  test("resumeSession normalizes the reserved explore display name back to the runtime key", async () => {
+    // given
+    let promptBody: Record<string, unknown> | undefined
+    const client = {
+      session: {
+        promptAsync: async (input: { body: Record<string, unknown> }) => {
+          promptBody = input.body
+          return {}
+        },
+      },
+    }
+
+    // when
+    const ok = await resumeSession(client as never, {
+      sessionID: "ses_resume_explore",
+      agent: "Explore (Code Search)",
+      model: undefined,
+      tools: undefined,
+    })
+
+    // then
+    expect(ok).toBe(true)
+    expect(promptBody?.agent).toBe("explore")
+  })
 })
