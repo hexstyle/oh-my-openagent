@@ -3,11 +3,13 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs"
 import os from "node:os"
 import { join, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
-
 import { createOpencodeClient, createOpencodeServer } from "@opencode-ai/sdk"
 
 import { getAgentDisplayName } from "../src/shared/agent-display-names"
+import {
+  getManagedLivePluginEntries,
+  MANAGED_RUNTIME_PLUGIN_DEPENDENCIES,
+} from "../src/shared/managed-opencode-runtime"
 
 const repoRoot = resolve(import.meta.dir, "..")
 const homeDir = process.env.HOME ?? os.homedir()
@@ -26,7 +28,7 @@ const pluginAsset = JSON.parse(
 ) as Record<string, unknown>
 const expectedLiveHost = {
   ...hostAsset,
-  plugin: [pathToFileURL(repoRoot).toString(), "opencode-claude-auth"],
+  plugin: getManagedLivePluginEntries(repoRoot),
 }
 
 type RuntimeAgentExpectation = {
@@ -289,8 +291,8 @@ async function main(): Promise<void> {
   const dependencies = runtimePackage.dependencies as Record<string, string> | undefined
   assert(dependencies, `Runtime package is missing dependencies in ${runtimePackagePath}`)
   assert(
-    dependencies["opencode-claude-auth"] === "1.4.7",
-    "Runtime package does not pin opencode-claude-auth",
+    deepEqualJson(dependencies, MANAGED_RUNTIME_PLUGIN_DEPENDENCIES),
+    "Runtime package dependencies do not match the managed plugin set",
   )
   assert(
     dependencies["oh-my-openagent"] === undefined,

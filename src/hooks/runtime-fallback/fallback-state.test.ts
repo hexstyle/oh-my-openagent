@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test"
 
 import {
+  canKeepRetryingTransiently,
   createFallbackState,
+  getNextTransientRetryDelayMs,
   markFallbackResponseSuccess,
   prepareFallback,
   recoverPreferredModel,
@@ -19,8 +21,12 @@ describe("runtime fallback state recovery", () => {
         enabled: true,
         retry_on_errors: [429, 503, 529],
         max_fallback_attempts: 5,
+        max_full_chain_cycles: 5,
         cooldown_seconds: 600,
         timeout_seconds: 30,
+        transient_retry_window_seconds: 14_400,
+        transient_retry_initial_delay_seconds: 30,
+        transient_retry_max_delay_seconds: 300,
         notify_on_fallback: true,
       },
     )
@@ -37,12 +43,18 @@ describe("runtime fallback state recovery", () => {
     state.pendingFallbackModel = "anthropic/claude-sonnet-4-6"
     state.attemptCount = 2
     state.transientRetryCount = 1
+    state.transientRetryStartedAt = Date.now() - 1000
+    state.transientRetryDelayMs = 30_000
+    state.pendingTransientRetry = true
 
     markFallbackResponseSuccess(state)
 
     expect(state.pendingFallbackModel).toBeUndefined()
     expect(state.attemptCount).toBe(0)
     expect(state.transientRetryCount).toBe(0)
+    expect(state.transientRetryStartedAt).toBeUndefined()
+    expect(state.transientRetryDelayMs).toBeUndefined()
+    expect(state.pendingTransientRetry).toBe(false)
     expect(state.currentModel).toBe("anthropic/claude-sonnet-4-6")
   })
 
@@ -86,5 +98,34 @@ describe("runtime fallback state recovery", () => {
     expect(state.currentModel).toBe("anthropic/claude-sonnet-4-6")
     expect(state.fallbackIndex).toBe(0)
     expect(state.attemptCount).toBe(0)
+  })
+
+  it("keeps transient retries alive for up to four hours and caps delay at five minutes", () => {
+    const now = Date.now()
+    const state = createFallbackState("openai/gpt-5.4")
+    const config = {
+      enabled: true,
+      retry_on_errors: [429, 503],
+      max_fallback_attempts: 12,
+      max_full_chain_cycles: 5,
+      cooldown_seconds: 300,
+      timeout_seconds: 45,
+      transient_retry_window_seconds: 14_400,
+      transient_retry_initial_delay_seconds: 30,
+      transient_retry_max_delay_seconds: 300,
+      notify_on_fallback: true,
+    } as const
+
+    expect(canKeepRetryingTransiently(state, config, now)).toBe(true)
+    expect(getNextTransientRetryDelayMs(state, config)).toBe(30_000)
+
+    state.transientRetryStartedAt = now - 60_000
+    state.transientRetryDelayMs = 240_000
+
+    expect(canKeepRetryingTransiently(state, config, now)).toBe(true)
+    expect(getNextTransientRetryDelayMs(state, config)).toBe(300_000)
+
+    state.transientRetryStartedAt = now - 14_401_000
+    expect(canKeepRetryingTransiently(state, config, now)).toBe(false)
   })
 })

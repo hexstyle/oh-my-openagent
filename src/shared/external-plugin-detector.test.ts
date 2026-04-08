@@ -1,5 +1,12 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test"
-import { detectExternalNotificationPlugin, getNotificationConflictWarning, detectExternalSkillPlugin, getSkillPluginConflictWarning } from "./external-plugin-detector"
+import {
+  detectExternalCompactionPlugin,
+  detectExternalNotificationPlugin,
+  detectExternalSkillPlugin,
+  getCompactionPluginConflictWarning,
+  getNotificationConflictWarning,
+  getSkillPluginConflictWarning,
+} from "./external-plugin-detector"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
@@ -427,6 +434,46 @@ describe("external-plugin-detector", () => {
       expect(warning).toContain("Duplicate tool names detected")
       expect(warning).toContain("claude_code")
       expect(warning).toContain("skills")
+    })
+  })
+
+  describe("detectExternalCompactionPlugin", () => {
+    test("should detect opencode-supermemory", () => {
+      const opencodeDir = path.join(tempDir, ".opencode")
+      fs.mkdirSync(opencodeDir, { recursive: true })
+      fs.writeFileSync(
+        path.join(opencodeDir, "opencode.json"),
+        JSON.stringify({ plugin: ["oh-my-opencode", "opencode-supermemory"] }),
+      )
+
+      const result = detectExternalCompactionPlugin(tempDir)
+
+      expect(result.detected).toBe(true)
+      expect(result.pluginName).toBe("opencode-supermemory")
+    })
+
+    test("should ignore non-overlapping plugins", () => {
+      const opencodeDir = path.join(tempDir, ".opencode")
+      fs.mkdirSync(opencodeDir, { recursive: true })
+      fs.writeFileSync(
+        path.join(opencodeDir, "opencode.json"),
+        JSON.stringify({ plugin: ["oh-my-opencode", "opencode-helicone-session"] }),
+      )
+
+      const result = detectExternalCompactionPlugin(tempDir)
+
+      expect(result.detected).toBe(false)
+      expect(result.pluginName).toBeNull()
+    })
+  })
+
+  describe("getCompactionPluginConflictWarning", () => {
+    test("should mention the overlapping compaction hooks", () => {
+      const warning = getCompactionPluginConflictWarning("opencode-supermemory")
+
+      expect(warning).toContain("opencode-supermemory")
+      expect(warning).toContain("anthropic-context-window-limit-recovery")
+      expect(warning).toContain("preemptive-compaction")
     })
   })
 })

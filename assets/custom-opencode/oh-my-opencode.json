@@ -456,6 +456,9 @@
     "max_fallback_attempts": 12,
     "cooldown_seconds": 300,
     "timeout_seconds": 45,
+    "transient_retry_window_seconds": 14400,
+    "transient_retry_initial_delay_seconds": 30,
+    "transient_retry_max_delay_seconds": 300,
     "notify_on_fallback": true,
     "max_full_chain_cycles": 5
   }

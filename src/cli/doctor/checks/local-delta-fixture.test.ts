@@ -108,9 +108,14 @@ describe("local delta fixture regression", () => {
     ])
     expect(managedConfigEntry.evidence?.live_alias).toBe("oh-my-openagent.json")
     expect(managedConfigEntry.evidence?.default_agent).toBe("Prometheus (Plan Builder)")
+    expect(managedConfigEntry.evidence?.instructions).toEqual([
+      "./node_modules/oh-my-openagent/assets/custom-opencode/instructions/non-interactive-shell.md",
+    ])
     expect(managedConfigEntry.evidence?.plugin_entries).toEqual([
       "oh-my-openagent",
       "opencode-claude-auth",
+      "opencode-helicone-session",
+      "@nick-vi/opencode-type-inject",
     ])
 
     const modelPolicyEntry = getEntry("config_only_deltas", "role-specific-model-policy")
@@ -136,6 +141,9 @@ describe("local delta fixture regression", () => {
     expect(fallbackPolicyEntry.evidence?.max_fallback_attempts).toBe(12)
     expect(fallbackPolicyEntry.evidence?.max_full_chain_cycles).toBe(5)
     expect(fallbackPolicyEntry.evidence?.timeout_seconds).toBe(45)
+    expect(fallbackPolicyEntry.evidence?.transient_retry_window_seconds).toBe(14400)
+    expect(fallbackPolicyEntry.evidence?.transient_retry_initial_delay_seconds).toBe(30)
+    expect(fallbackPolicyEntry.evidence?.transient_retry_max_delay_seconds).toBe(300)
   })
 
   it("records the live fork-specific runtime code paths", () => {

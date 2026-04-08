@@ -12,8 +12,15 @@ import { log } from "../../shared/logger"
 import { normalizeAgentName, resolveAgentForSession } from "./agent-resolver"
 import { getSessionAgent } from "../../features/claude-code-session-state"
 import { getFallbackModelsForSession } from "./fallback-models"
-import { prepareFallback } from "./fallback-state"
-import { recoverPreferredModel } from "./fallback-state"
+import {
+  beginTransientRetryWindow,
+  canKeepRetryingTransiently,
+  getNextTransientRetryDelayMs,
+  markTransientRetryDispatched,
+  prepareFallback,
+  recoverPreferredModel,
+  resetTransientRetryState,
+} from "./fallback-state"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { buildRetryModelPayload } from "./retry-model-payload"
 import { getLastUserRetryParts } from "./last-user-retry-parts"
@@ -42,6 +49,7 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     sessionRetryInFlight,
     sessionAwaitingFallbackResult,
     sessionFallbackTimeouts,
+    sessionTransientRetryTimeouts,
     pluginConfig,
     sessionStatusRetryKeys,
   } = deps
@@ -232,22 +240,44 @@ fi
     }
   }
 
-  const clearSessionFallbackTimeout = (sessionID: string) => {
-    const timer = sessionFallbackTimeouts.get(sessionID)
+  const clearSessionTransientRetryTimeout = (sessionID: string): void => {
+    const timer = sessionTransientRetryTimeouts.get(sessionID)
     if (timer) {
       clearTimeout(timer)
+      sessionTransientRetryTimeouts.delete(sessionID)
+    }
+  }
+
+  const clearSessionFallbackTimeout = (sessionID: string) => {
+    const existingTimer = sessionFallbackTimeouts.get(sessionID)
+    if (existingTimer) {
+      clearTimeout(existingTimer)
       sessionFallbackTimeouts.delete(sessionID)
     }
+    clearSessionTransientRetryTimeout(sessionID)
     invalidateExternalWatchdog(sessionID)
   }
 
   const scheduleSessionFallbackTimeout = (sessionID: string, args?: {
     resolvedAgent?: string
     source?: string
+    mode?: "fallback" | "transient_retry"
   }) => {
     const source = args?.source ?? "session.timeout"
+    const mode = args?.mode ?? "fallback"
     const hadExistingTimer = sessionFallbackTimeouts.has(sessionID)
-    clearSessionFallbackTimeout(sessionID)
+    const delayedTransientTimer = sessionTransientRetryTimeouts.get(sessionID)
+    if (delayedTransientTimer) {
+      clearTimeout(delayedTransientTimer)
+      sessionTransientRetryTimeouts.delete(sessionID)
+    }
+
+    const existingTimer = sessionFallbackTimeouts.get(sessionID)
+    if (existingTimer) {
+      clearTimeout(existingTimer)
+      sessionFallbackTimeouts.delete(sessionID)
+    }
+    invalidateExternalWatchdog(sessionID)
 
     const timeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
     if (timeoutMs <= 0) return
@@ -266,16 +296,19 @@ fi
         sessionID,
         source,
         timeoutMs,
+        mode,
         currentModel: stateAtSchedule.currentModel,
       },
     )
-    armExternalWatchdog({
-      sessionID,
-      timeoutMs,
-      source,
-      resolvedAgent: args?.resolvedAgent,
-      currentModel: stateAtSchedule.currentModel,
-    })
+    if (mode === "fallback") {
+      armExternalWatchdog({
+        sessionID,
+        timeoutMs,
+        source,
+        resolvedAgent: args?.resolvedAgent,
+        currentModel: stateAtSchedule.currentModel,
+      })
+    }
 
     const timer = setTimeout(async () => {
       try {
@@ -297,11 +330,21 @@ fi
         await abortSessionRequest(sessionID, source)
         sessionRetryInFlight.delete(sessionID)
 
+        const resolvedAgent = args?.resolvedAgent ?? await resolveAgentForSessionFromContext(sessionID)
+
+        if (mode === "transient_retry" && state.pendingTransientRetry) {
+          state.pendingTransientRetry = false
+
+          if (canKeepRetryingTransiently(state, config)) {
+            scheduleTransientRetry(sessionID, resolvedAgent, `${source}.transient-timeout`)
+            return
+          }
+        }
+
         if (state.pendingFallbackModel) {
           state.pendingFallbackModel = undefined
         }
 
-        const resolvedAgent = args?.resolvedAgent ?? await resolveAgentForSessionFromContext(sessionID)
         const fallbackModels = getFallbackModelsForSession(sessionID, resolvedAgent, pluginConfig)
         if (fallbackModels.length === 0) {
           log(`[${HOOK_NAME}] Session fallback timeout reached but no fallback models were resolved`, {
@@ -338,11 +381,81 @@ fi
     sessionFallbackTimeouts.set(sessionID, timer)
   }
 
+  const scheduleTransientRetry = (
+    sessionID: string,
+    resolvedAgent: string | undefined,
+    source: string,
+  ): void => {
+    const state = sessionStates.get(sessionID)
+    if (!state) {
+      return
+    }
+
+    if (!canKeepRetryingTransiently(state, config)) {
+      log(`[${HOOK_NAME}] Transient retry window exhausted`, {
+        sessionID,
+        source,
+        currentModel: state.currentModel,
+        transientRetryCount: state.transientRetryCount,
+      })
+      return
+    }
+
+    if (sessionTransientRetryTimeouts.has(sessionID)) {
+      log(`[${HOOK_NAME}] Transient retry already scheduled`, {
+        sessionID,
+        source,
+        currentModel: state.currentModel,
+      })
+      return
+    }
+
+    beginTransientRetryWindow(state)
+    const delayMs = getNextTransientRetryDelayMs(state, config)
+    state.transientRetryDelayMs = delayMs
+
+    log(`[${HOOK_NAME}] Scheduling delayed transient retry on current model`, {
+      sessionID,
+      source,
+      currentModel: state.currentModel,
+      delayMs,
+      transientRetryCount: state.transientRetryCount,
+    })
+
+    const timer = setTimeout(async () => {
+      sessionTransientRetryTimeouts.delete(sessionID)
+
+      const latestState = sessionStates.get(sessionID)
+      if (!latestState) {
+        return
+      }
+
+      if (!canKeepRetryingTransiently(latestState, config)) {
+        log(`[${HOOK_NAME}] Skipping delayed transient retry after retry window expired`, {
+          sessionID,
+          source,
+          currentModel: latestState.currentModel,
+        })
+        return
+      }
+
+      markTransientRetryDispatched(latestState)
+      await autoRetryWithFallback(sessionID, latestState.currentModel, resolvedAgent, `${source}.retry`, {
+        transientRetry: true,
+      })
+    }, delayMs)
+
+    sessionTransientRetryTimeouts.set(sessionID, timer)
+  }
+
   const autoRetryWithFallback = async (
     sessionID: string,
     newModel: string,
     resolvedAgent: string | undefined,
     source: string,
+    args?: {
+      transientRetry?: boolean
+    },
   ): Promise<void> => {
     if (sessionRetryInFlight.has(sessionID)) {
       log(`[${HOOK_NAME}] Retry already in flight, skipping (${source})`, { sessionID })
@@ -355,6 +468,9 @@ fi
       const state = sessionStates.get(sessionID)
       if (state?.pendingFallbackModel) {
         state.pendingFallbackModel = undefined
+      }
+      if (state?.pendingTransientRetry) {
+        state.pendingTransientRetry = false
       }
       return
     }
@@ -379,6 +495,7 @@ fi
         scheduleSessionFallbackTimeout(sessionID, {
           resolvedAgent: retryAgent,
           source,
+          mode: args?.transientRetry ? "transient_retry" : "fallback",
         })
 
         await ctx.client.session.promptAsync({
@@ -405,6 +522,9 @@ fi
         if (state?.pendingFallbackModel) {
           state.pendingFallbackModel = undefined
         }
+        if (state?.pendingTransientRetry) {
+          state.pendingTransientRetry = false
+        }
       }
     }
   }
@@ -413,21 +533,38 @@ fi
     sessionID: string,
     resolvedAgent: string | undefined,
     source: string,
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     const state = sessionStates.get(sessionID)
     if (!state) {
-      return
+      return false
     }
 
-    state.transientRetryCount += 1
-    log(`[${HOOK_NAME}] Retrying current model after transient error`, {
-      sessionID,
-      source,
-      currentModel: state.currentModel,
-      transientRetryCount: state.transientRetryCount,
-    })
+    if (!canKeepRetryingTransiently(state, config)) {
+      log(`[${HOOK_NAME}] Transient retry window exhausted before retry dispatch`, {
+        sessionID,
+        source,
+        currentModel: state.currentModel,
+      })
+      return false
+    }
 
-    await autoRetryWithFallback(sessionID, state.currentModel, resolvedAgent, `${source}.retry`)
+    if (state.transientRetryCount === 0) {
+      markTransientRetryDispatched(state)
+      log(`[${HOOK_NAME}] Retrying current model immediately after transient error`, {
+        sessionID,
+        source,
+        currentModel: state.currentModel,
+        transientRetryCount: state.transientRetryCount,
+      })
+
+      await autoRetryWithFallback(sessionID, state.currentModel, resolvedAgent, `${source}.retry`, {
+        transientRetry: true,
+      })
+      return true
+    }
+
+    scheduleTransientRetry(sessionID, resolvedAgent, source)
+    return true
   }
 
   const resolveAgentForSessionFromContext = async (

@@ -2386,7 +2386,7 @@ describe("runtime-fallback", () => {
       })
 
       //#then - transient 503 should retry the current model first
-      const retryLog = logCalls.find((c) => c.msg.includes("Retrying current model after transient error"))
+      const retryLog = logCalls.find((c) => c.msg.includes("Retrying current model"))
       expect(retryLog).toBeDefined()
       expect(retryLog?.data).toMatchObject({ currentModel: "anthropic/claude-opus-4-5" })
 

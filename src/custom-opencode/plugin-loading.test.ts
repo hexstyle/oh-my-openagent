@@ -5,6 +5,10 @@ import { join } from "node:path"
 
 import { addPluginToOpenCodeConfig } from "../cli/config-manager/add-plugin-to-opencode-config"
 import { resetConfigContext } from "../cli/config-manager/config-context"
+import {
+  MANAGED_HOST_INSTRUCTION_ENTRIES,
+  MANAGED_HOST_PLUGIN_ENTRIES,
+} from "../shared/managed-opencode-runtime"
 
 type DeltaCategoryName = "intended_extension_points" | "suspicious_runtime_drift"
 
@@ -18,12 +22,11 @@ interface DeltaFixture {
 }
 
 interface OpenCodeHostConfig {
+  instructions?: string[]
   plugin?: string[]
   [key: string]: unknown
 }
 
-const EXPECTED_PACKAGE_ENTRY = "oh-my-openagent"
-const EXPECTED_ANTHROPIC_OAUTH_ENTRY = "opencode-claude-auth"
 const hostConfigPath = new URL("../../assets/custom-opencode/opencode.json", import.meta.url)
 const deltaFixturePath = new URL(
   "../../test/fixtures/local-config-delta/current-local-delta.json",
@@ -93,9 +96,9 @@ describe("custom OpenCode plugin loading compatibility", () => {
   it("keeps package-plugin loading explicit and pointed at the preferred plugin identity", () => {
     const hostConfig = JSON.parse(readFileSync(hostConfigPath, "utf-8")) as OpenCodeHostConfig
 
+    expect(hostConfig.instructions).toEqual([...MANAGED_HOST_INSTRUCTION_ENTRIES])
     expect(requirePluginArray(hostConfig, "Managed OpenCode host config")).toEqual([
-      EXPECTED_PACKAGE_ENTRY,
-      EXPECTED_ANTHROPIC_OAUTH_ENTRY,
+      ...MANAGED_HOST_PLUGIN_ENTRIES,
     ])
   })
 
@@ -121,9 +124,9 @@ describe("custom OpenCode plugin loading compatibility", () => {
     const savedConfig = JSON.parse(readFileSync(configPath, "utf-8")) as OpenCodeHostConfig
 
     expect(result.success).toBe(true)
+    expect(savedConfig.instructions).toEqual([...MANAGED_HOST_INSTRUCTION_ENTRIES])
     expect(requirePluginArray(savedConfig, "OpenCode host config after registration")).toEqual([
-      EXPECTED_PACKAGE_ENTRY,
-      EXPECTED_ANTHROPIC_OAUTH_ENTRY,
+      ...MANAGED_HOST_PLUGIN_ENTRIES,
     ])
   })
 

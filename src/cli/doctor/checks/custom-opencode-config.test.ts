@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test"
 import { readFileSync } from "node:fs"
+import {
+  MANAGED_HOST_INSTRUCTION_ENTRIES,
+  MANAGED_HOST_PLUGIN_ENTRIES,
+} from "../../../shared/managed-opencode-runtime"
 
 const hostConfigPath = new URL("../../../../assets/custom-opencode/opencode.json", import.meta.url)
 const pluginConfigPath = new URL("../../../../assets/custom-opencode/oh-my-opencode.json", import.meta.url)
@@ -52,6 +56,7 @@ function assertPaidSparkFreeOrdering(chain: FallbackModelEntry[]) {
 const hostConfig = JSON.parse(readFileSync(hostConfigPath, "utf-8")) as {
   $schema?: string
   default_agent?: string
+  instructions?: string[]
   plugin?: string[]
   provider?: Record<string, { models?: Record<string, { limit?: { context?: number } }> }>
   lsp?: Record<string, { command?: string[]; extensions?: string[] }>
@@ -67,6 +72,9 @@ const pluginConfig = JSON.parse(pluginConfigContents) as {
     enabled?: boolean
     max_fallback_attempts?: number
     max_full_chain_cycles?: number
+    transient_retry_window_seconds?: number
+    transient_retry_initial_delay_seconds?: number
+    transient_retry_max_delay_seconds?: number
   }
   background_task?: {
     staleTimeoutMs?: number
@@ -94,9 +102,8 @@ const pluginConfig = JSON.parse(pluginConfigContents) as {
 describe("managed custom OpenCode config assets", () => {
   it("keeps explicit package-plugin registration in the host config", () => {
     expect(hostConfig.default_agent).toBe("Prometheus (Plan Builder)")
-    expect(hostConfig.plugin).toEqual(
-      expect.arrayContaining(["oh-my-openagent", "opencode-claude-auth"])
-    )
+    expect(hostConfig.instructions).toEqual([...MANAGED_HOST_INSTRUCTION_ENTRIES])
+    expect(hostConfig.plugin).toEqual([...MANAGED_HOST_PLUGIN_ENTRIES])
   })
 
   it("pins OpenAI and Anthropic provider models with 200k context", () => {
@@ -181,6 +188,9 @@ describe("managed custom OpenCode config assets", () => {
     expect(pluginConfig.runtime_fallback?.max_full_chain_cycles).toBe(5)
     expect(pluginConfig.runtime_fallback?.cooldown_seconds).toBe(300)
     expect(pluginConfig.runtime_fallback?.timeout_seconds).toBe(45)
+    expect(pluginConfig.runtime_fallback?.transient_retry_window_seconds).toBe(14400)
+    expect(pluginConfig.runtime_fallback?.transient_retry_initial_delay_seconds).toBe(30)
+    expect(pluginConfig.runtime_fallback?.transient_retry_max_delay_seconds).toBe(300)
 
     expect(pluginConfig.sisyphus?.tasks).toEqual({
       storage_path: ".sisyphus/tasks",

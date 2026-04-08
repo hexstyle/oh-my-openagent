@@ -1,7 +1,6 @@
 import type { HookDeps } from "./types"
 import type { AutoRetryHelpers } from "./auto-retry"
 import { HOOK_NAME } from "./constants"
-import { MAX_TRANSIENT_SAME_MODEL_RETRIES } from "./constants"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, extractAutoRetrySignal, containsErrorContent } from "./error-classifier"
 import { createFallbackState } from "./fallback-state"
@@ -298,9 +297,11 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
 
       const action = getRuntimeFallbackAction(error, config.retry_on_errors)
 
-      if (action === "retry_same_model" && state.transientRetryCount < MAX_TRANSIENT_SAME_MODEL_RETRIES) {
-        await helpers.retryCurrentModel(sessionID, resolvedAgent, "message.updated")
-        return
+      if (action === "retry_same_model") {
+        const retried = await helpers.retryCurrentModel(sessionID, resolvedAgent, "message.updated")
+        if (retried) {
+          return
+        }
       }
 
       const effectiveAction = action === "retry_same_model" ? "fallback_chain" : action

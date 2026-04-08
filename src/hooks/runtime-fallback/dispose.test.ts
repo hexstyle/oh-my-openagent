@@ -11,8 +11,10 @@ const mockCreateAutoRetryHelpers = mock((deps: HookDeps) => {
     clearSessionFallbackTimeout: () => {},
     scheduleSessionFallbackTimeout: () => {},
     autoRetryWithFallback: async () => {},
+    retryCurrentModel: async () => false,
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
+    recoverPreferredModels: async () => {},
   }
 })
 
@@ -111,8 +113,8 @@ describe("createRuntimeFallbackHook dispose", () => {
     hook.dispose?.()
 
     // then
-    expect(createdIntervals).toHaveLength(1)
-    expect(clearedIntervals).toEqual([createdIntervals[0]])
+    expect(createdIntervals).toHaveLength(2)
+    expect(clearedIntervals).toEqual(createdIntervals)
   })
 
   test("#given hook with session state data #when dispose() is called #then all Maps and Sets are empty", () => {
@@ -124,8 +126,10 @@ describe("createRuntimeFallbackHook dispose", () => {
       originalModel: "anthropic/claude-opus-4-6",
       currentModel: "openai/gpt-5.4",
       fallbackIndex: 1,
+      fallbackModels: [],
       failedModels: new Map([["anthropic/claude-opus-4-6", 1]]),
       attemptCount: 1,
+      transientRetryCount: 0,
     })
     capturedDeps?.sessionLastAccess.set("session-1", Date.now())
     capturedDeps?.sessionRetryInFlight.add("session-1")
@@ -141,6 +145,7 @@ describe("createRuntimeFallbackHook dispose", () => {
     expect(capturedDeps?.sessionRetryInFlight.size).toBe(0)
     expect(capturedDeps?.sessionAwaitingFallbackResult.size).toBe(0)
     expect(capturedDeps?.sessionFallbackTimeouts.size).toBe(0)
+    expect(capturedDeps?.sessionTransientRetryTimeouts.size).toBe(0)
   })
 
   test("#given hook with pending fallback timeouts #when dispose() is called #then timeouts are cleared before Map is emptied", () => {

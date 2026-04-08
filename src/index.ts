@@ -13,12 +13,17 @@ import { loadPluginConfig } from "./plugin-config"
 import { createModelCacheState } from "./plugin-state"
 import { createFirstMessageVariantGate } from "./shared/first-message-variant"
 import {
+  getCompactionPluginConflictWarning,
   injectServerAuthIntoClient,
   log,
   logLegacyPluginStartupWarning,
   syncCodexCliAuthToOpenCodeAuth,
 } from "./shared"
-import { detectExternalSkillPlugin, getSkillPluginConflictWarning } from "./shared/external-plugin-detector"
+import {
+  detectExternalCompactionPlugin,
+  detectExternalSkillPlugin,
+  getSkillPluginConflictWarning,
+} from "./shared/external-plugin-detector"
 import { startTmuxCheck } from "./tools"
 
 let activePluginDispose: PluginDispose | null = null
@@ -35,6 +40,11 @@ const OhMyOpenCodePlugin: Plugin = async (ctx) => {
   const skillPluginCheck = detectExternalSkillPlugin(ctx.directory)
   if (skillPluginCheck.detected && skillPluginCheck.pluginName) {
     console.warn(getSkillPluginConflictWarning(skillPluginCheck.pluginName))
+  }
+
+  const compactionPluginCheck = detectExternalCompactionPlugin(ctx.directory)
+  if (compactionPluginCheck.detected && compactionPluginCheck.pluginName) {
+    console.warn(getCompactionPluginConflictWarning(compactionPluginCheck.pluginName))
   }
 
   injectServerAuthIntoClient(ctx.client)

@@ -34,6 +34,13 @@ const KNOWN_SKILL_PLUGINS = [
   "@opencode/skills",
 ]
 
+/**
+ * Known compaction / memory plugins that overlap with oh-my-opencode's compaction stack.
+ */
+const KNOWN_COMPACTION_PLUGINS = [
+  "opencode-supermemory",
+]
+
 function getWindowsAppdataDir(): string | null {
   return process.env.APPDATA || null
 }
@@ -120,6 +127,22 @@ function matchesSkillPlugin(entry: string): string | null {
   return null
 }
 
+function matchesCompactionPlugin(entry: string): string | null {
+  const normalized = entry.toLowerCase()
+  for (const known of KNOWN_COMPACTION_PLUGINS) {
+    if (normalized === known) return known
+    if (normalized.startsWith(`${known}@`)) return known
+    if (normalized === `npm:${known}` || normalized.startsWith(`npm:${known}@`)) return known
+    if (
+      normalized.startsWith("file://") &&
+      (normalized.endsWith(`/${known}`) || normalized.endsWith(`\\${known}`))
+    ) {
+      return known
+    }
+  }
+  return null
+}
+
 export interface ExternalNotifierResult {
   detected: boolean
   pluginName: string | null
@@ -127,6 +150,12 @@ export interface ExternalNotifierResult {
 }
 
 export interface ExternalSkillPluginResult {
+  detected: boolean
+  pluginName: string | null
+  allPlugins: string[]
+}
+
+export interface ExternalCompactionPluginResult {
   detected: boolean
   pluginName: string | null
   allPlugins: string[]
@@ -185,6 +214,31 @@ export function detectExternalSkillPlugin(directory: string): ExternalSkillPlugi
 }
 
 /**
+ * Detect if any external compaction / memory plugin is configured.
+ */
+export function detectExternalCompactionPlugin(directory: string): ExternalCompactionPluginResult {
+  const plugins = loadOpencodePlugins(directory)
+
+  for (const plugin of plugins) {
+    const match = matchesCompactionPlugin(plugin)
+    if (match) {
+      log(`Detected external compaction plugin: ${plugin}`)
+      return {
+        detected: true,
+        pluginName: match,
+        allPlugins: plugins,
+      }
+    }
+  }
+
+  return {
+    detected: false,
+    pluginName: null,
+    allPlugins: plugins,
+  }
+}
+
+/**
  * Generate a warning message for users with conflicting notification plugins.
  */
 export function getNotificationConflictWarning(pluginName: string): string {
@@ -213,4 +267,19 @@ Both oh-my-opencode and ${pluginName} scan ~/.config/opencode/skills/ and regist
    1. Remove ${pluginName} from your opencode.json plugins to use oh-my-opencode's skill loading
    2. Or disable oh-my-opencode's skill loading by setting "claude_code.skills": false in oh-my-opencode.json
    3. Or uninstall oh-my-opencode if you prefer ${pluginName}'s skill management`
+}
+
+/**
+ * Generate a warning message for users with overlapping compaction / memory plugins.
+ */
+export function getCompactionPluginConflictWarning(pluginName: string): string {
+  return `[oh-my-opencode] External compaction plugin detected: ${pluginName}
+
+${pluginName} overlaps with oh-my-opencode's compaction and session-recovery stack.
+   This fork does not enable it in the managed baseline because it can compete with:
+   1. anthropic-context-window-limit-recovery
+   2. preemptive-compaction
+   3. compaction-context-injector / compaction-todo-preserver
+
+   If you intentionally use ${pluginName}, disable the overlapping oh-my-opencode hooks first.`
 }

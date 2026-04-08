@@ -1,9 +1,14 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "default_agent": "Prometheus (Plan Builder)",
+  "instructions": [
+    "./node_modules/oh-my-openagent/assets/custom-opencode/instructions/non-interactive-shell.md"
+  ],
   "plugin": [
     "oh-my-openagent",
-    "opencode-claude-auth"
+    "opencode-claude-auth",
+    "opencode-helicone-session",
+    "@nick-vi/opencode-type-inject"
   ],
   "provider": {
     "openai": {

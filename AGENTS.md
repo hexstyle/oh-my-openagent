@@ -15,11 +15,13 @@ This fork keeps the upstream package identity but changes the local install and 
 Start here when changing models, agent names, or local install behavior:
 
 - `assets/custom-opencode/opencode.json`
+- `assets/custom-opencode/instructions/non-interactive-shell.md`
 - `assets/custom-opencode/oh-my-opencode.json`
 - `README.md`
 - `script/install-local-opencode-fork.sh`
 - `script/verify-local-opencode-install.ts`
 - `src/shared/agent-display-names.ts`
+- `src/shared/managed-opencode-runtime.ts`
 - `src/plugin-handlers/agent-key-remapper.ts`
 - `src/shared/codex-auth-bootstrap.ts`
 - `src/hooks/runtime-fallback/*`
@@ -41,9 +43,15 @@ That command must remain able to:
 - build this fork
 - sync managed config into `~/.config/opencode`
 - rewrite live host config to load the plugin from `file://<repo-root>`
-- install only `opencode-claude-auth` into `~/.cache/opencode`
+- install the managed runtime package set into `~/.cache/opencode`:
+  - `opencode-claude-auth`
+  - `opencode-helicone-session`
+  - `@nick-vi/opencode-type-inject`
+- keep the built-in shell-strategy equivalent wired through the managed `instructions` path in `opencode.json`
 - sync `Codex` OAuth into the OpenCode auth store when `~/.codex/auth.json` exists
 - run a live verifier and fail hard on drift
+
+Do not add `opencode-supermemory` to the managed baseline. It overlaps with the fork compaction stack and is an explicit opt-in integration only.
 
 Do not weaken the verifier just to make the installer pass.
 
@@ -91,7 +99,12 @@ Do not reintroduce a second synced JS plugin layer for fallback/retry behavior.
 
 Current policy:
 
-- transient network/TLS/5xx/unknown failures retry once on the current model before switching
+- transient network/TLS/5xx/unknown failures stay on the current model first
+- transient same-model retries must:
+  - open a retry window of 4 hours by default
+  - increase delay between attempts over time
+  - never become less frequent than once every 5 minutes
+  - fall back only after that retry window expires
 - quota, cooldown, payment, usage-limit, and free-period failures skip directly to the limit path:
   - first `gpt-5.3-codex-spark`
   - then free fallback models
@@ -110,8 +123,17 @@ When changing this area, inspect together:
 Minimum regression coverage for fallback changes:
 
 ```bash
-bun test src/hooks/runtime-fallback/error-classifier.test.ts src/hooks/runtime-fallback/fallback-policy.test.ts src/hooks/runtime-fallback/fallback-state.test.ts src/hooks/runtime-fallback/auto-retry.recovery-probe.test.ts src/hooks/runtime-fallback/index.test.ts src/hooks/runtime-fallback/session-status-handler.test.ts --bail
+bun test src/hooks/runtime-fallback/error-classifier.test.ts src/hooks/runtime-fallback/fallback-policy.test.ts src/hooks/runtime-fallback/fallback-state.test.ts src/hooks/runtime-fallback/auto-retry.recovery-probe.test.ts src/hooks/runtime-fallback/auto-retry.transient-backoff.test.ts src/hooks/runtime-fallback/index.test.ts src/hooks/runtime-fallback/session-status-handler.test.ts --bail
 ```
+
+## External Plugin Policy
+
+- Safe managed baseline additions in this fork currently include:
+  - `opencode-helicone-session`
+  - `@nick-vi/opencode-type-inject`
+- `opencode-shell-strategy` is not a normal runtime npm plugin. Keep its behavior vendored as repo-managed instructions instead of adding a git-clone side path to the installer.
+- `opencode-supermemory` must remain out of the managed baseline unless the compaction stack is intentionally redesigned around it.
+- `src/shared/external-plugin-detector.ts` is where warnings for overlapping external plugins belong.
 
 ## Auth Policy
 

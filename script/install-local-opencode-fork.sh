@@ -76,16 +76,12 @@ bun run build
 
 say "Preparing OpenCode runtime workspace"
 mkdir -p "$CACHE_DIR"
-CLAUDE_AUTH_VERSION="$(node -e "const p=require('$ROOT_DIR/package.json'); process.stdout.write(String(p.dependencies['opencode-claude-auth']))")"
-CLAUDE_AUTH_VERSION="${CLAUDE_AUTH_VERSION#^}"
-CLAUDE_AUTH_VERSION="${CLAUDE_AUTH_VERSION#~}"
+RUNTIME_DEPS_JSON="$(bun --eval "import { MANAGED_RUNTIME_PLUGIN_DEPENDENCIES } from '$ROOT_DIR/src/shared/managed-opencode-runtime.ts'; process.stdout.write(JSON.stringify(MANAGED_RUNTIME_PLUGIN_DEPENDENCIES));")"
 cat >"$CACHE_DIR/package.json" <<EOF
 {
   "name": "opencode-local-runtime",
   "private": true,
-  "dependencies": {
-    "opencode-claude-auth": "$CLAUDE_AUTH_VERSION"
-  }
+  "dependencies": $RUNTIME_DEPS_JSON
 }
 EOF
 rm -rf "$CACHE_DIR/node_modules" "$CACHE_DIR/bun.lock"
@@ -99,15 +95,15 @@ say "Syncing managed OpenCode config"
 bun run script/sync-custom-opencode-assets.ts --target "$CONFIG_DIR"
 
 say "Pinning OpenCode host config to the local fork"
+LIVE_PLUGIN_JSON="$(bun --eval "import { getManagedLivePluginEntries } from '$ROOT_DIR/src/shared/managed-opencode-runtime.ts'; process.stdout.write(JSON.stringify(getManagedLivePluginEntries('$ROOT_DIR')));")"
 node -e "
 const fs = require('node:fs');
-const { pathToFileURL } = require('node:url');
 const configPath = process.argv[1];
-const repoRoot = process.argv[2];
+const livePluginJson = process.argv[2];
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-config.plugin = [pathToFileURL(repoRoot).href, 'opencode-claude-auth'];
+config.plugin = JSON.parse(livePluginJson);
 fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
-" "$CONFIG_DIR/opencode.json" "$ROOT_DIR"
+" "$CONFIG_DIR/opencode.json" "$LIVE_PLUGIN_JSON"
 
 say "Importing Codex OAuth into OpenCode auth"
 bun --eval "import { syncCodexCliAuthToOpenCodeAuth } from '$ROOT_DIR/src/shared/codex-auth-bootstrap.ts'; syncCodexCliAuthToOpenCodeAuth();"

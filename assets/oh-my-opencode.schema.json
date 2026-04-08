@@ -5775,6 +5775,18 @@
               "type": "number",
               "minimum": 0
             },
+            "transient_retry_window_seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "transient_retry_initial_delay_seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "transient_retry_max_delay_seconds": {
+              "type": "number",
+              "minimum": 1
+            },
             "notify_on_fallback": {
               "type": "boolean"
             }

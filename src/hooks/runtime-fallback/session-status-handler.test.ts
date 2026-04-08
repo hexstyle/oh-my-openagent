@@ -28,8 +28,12 @@ function createDeps(): HookDeps {
       enabled: true,
       retry_on_errors: [429, 503, 529],
       max_fallback_attempts: 4,
+      max_full_chain_cycles: 5,
       cooldown_seconds: 60,
       timeout_seconds: 30,
+      transient_retry_window_seconds: 14_400,
+      transient_retry_initial_delay_seconds: 30,
+      transient_retry_max_delay_seconds: 300,
       notify_on_fallback: false,
     },
     options: undefined,
@@ -47,6 +51,7 @@ function createDeps(): HookDeps {
     sessionRetryInFlight: new Set(),
     sessionAwaitingFallbackResult: new Set(),
     sessionFallbackTimeouts: new Map(),
+    sessionTransientRetryTimeouts: new Map(),
     sessionStatusRetryKeys: new Map(),
   }
 }
@@ -54,21 +59,26 @@ function createDeps(): HookDeps {
 function createHelpers(
   abortCalls: string[],
   retryCalls: Array<{ sessionID: string; model: string; source: string }>,
-  scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string }>,
+  scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" }>,
 ): AutoRetryHelpers {
   return {
     abortSessionRequest: async (sessionID: string) => {
       abortCalls.push(sessionID)
     },
     clearSessionFallbackTimeout: () => {},
-    scheduleSessionFallbackTimeout: (sessionID: string, args?: { resolvedAgent?: string; source?: string }) => {
+    scheduleSessionFallbackTimeout: (
+      sessionID: string,
+      args?: { resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" },
+    ) => {
       scheduleCalls.push({ sessionID, ...args })
     },
     autoRetryWithFallback: async (sessionID: string, model: string, _resolvedAgent: string | undefined, source: string) => {
       retryCalls.push({ sessionID, model, source })
     },
+    retryCurrentModel: async () => false,
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
+    recoverPreferredModels: async () => {},
   }
 }
 
@@ -82,7 +92,7 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
-    const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string }> = []
+    const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" }> = []
     const state = createFallbackState("anthropic/claude-opus-4-6")
     state.currentModel = "openai/gpt-5.4"
     state.fallbackIndex = 0

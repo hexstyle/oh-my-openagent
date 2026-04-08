@@ -32,6 +32,9 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     failedModels: new Map<string, number>(),
     attemptCount: 0,
     transientRetryCount: 0,
+    transientRetryStartedAt: undefined,
+    transientRetryDelayMs: undefined,
+    pendingTransientRetry: false,
     pendingFallbackModel: undefined,
   }
 }
@@ -54,7 +57,66 @@ export function pruneExpiredFailedModels(state: FallbackState, cooldownSeconds: 
 export function markFallbackResponseSuccess(state: FallbackState): void {
   state.pendingFallbackModel = undefined
   state.attemptCount = 0
+  resetTransientRetryState(state)
+}
+
+export function resetTransientRetryState(state: FallbackState): void {
   state.transientRetryCount = 0
+  state.transientRetryStartedAt = undefined
+  state.transientRetryDelayMs = undefined
+  state.pendingTransientRetry = false
+}
+
+export function canKeepRetryingTransiently(
+  state: FallbackState,
+  config: Required<RuntimeFallbackConfig>,
+  now = Date.now(),
+): boolean {
+  if (config.transient_retry_window_seconds <= 0) {
+    return false
+  }
+
+  if (state.transientRetryStartedAt === undefined) {
+    return true
+  }
+
+  return now - state.transientRetryStartedAt < config.transient_retry_window_seconds * 1000
+}
+
+export function beginTransientRetryWindow(state: FallbackState, now = Date.now()): void {
+  if (state.transientRetryStartedAt === undefined) {
+    state.transientRetryStartedAt = now
+  }
+}
+
+export function getNextTransientRetryDelayMs(
+  state: FallbackState,
+  config: Required<RuntimeFallbackConfig>,
+): number {
+  const initialDelayMs = Math.max(0, Math.round(config.transient_retry_initial_delay_seconds * 1000))
+  const maxDelayMs = Math.max(initialDelayMs, Math.round(config.transient_retry_max_delay_seconds * 1000))
+
+  if (state.transientRetryDelayMs === undefined || state.transientRetryDelayMs <= 0) {
+    return initialDelayMs
+  }
+
+  return Math.min(state.transientRetryDelayMs * 2, maxDelayMs)
+}
+
+export function markTransientRetryDispatched(
+  state: FallbackState,
+  options?: {
+    now?: number
+    nextDelayMs?: number
+  },
+): void {
+  beginTransientRetryWindow(state, options?.now)
+  state.transientRetryCount += 1
+  state.pendingTransientRetry = true
+
+  if (typeof options?.nextDelayMs === "number") {
+    state.transientRetryDelayMs = options.nextDelayMs
+  }
 }
 
 export function recoverPreferredModel(state: FallbackState, cooldownSeconds: number, now = Date.now()): string | undefined {
@@ -79,7 +141,7 @@ export function recoverPreferredModel(state: FallbackState, cooldownSeconds: num
     state.currentModel = candidate
     state.pendingFallbackModel = undefined
     state.attemptCount = 0
-    state.transientRetryCount = 0
+    resetTransientRetryState(state)
     state.fallbackIndex = candidate === state.originalModel
       ? -1
       : state.fallbackModels.indexOf(candidate)
@@ -103,22 +165,21 @@ export function isModelInCooldown(model: string, state: FallbackState, cooldownS
 }
 
 export function findNextAvailableFallback(
-state: FallbackState,
-fallbackModels: string[],
-cooldownSeconds: number
+  state: FallbackState,
+  fallbackModels: string[],
+  cooldownSeconds: number,
 ): string | undefined {
-for (let i = state.fallbackIndex + 1; i < fallbackModels.length; i++) {
+  for (let i = state.fallbackIndex + 1; i < fallbackModels.length; i++) {
     const candidate = fallbackModels[i]
-    // Skip current model — never fallback to the same model
     if (candidate === state.currentModel) {
       continue
     }
-if (!isModelInCooldown(candidate, state, cooldownSeconds)) {
-return candidate
-}
-log(`[${HOOK_NAME}] Skipping fallback model in cooldown`, { model: candidate, index: i })
-}
-return undefined
+    if (!isModelInCooldown(candidate, state, cooldownSeconds)) {
+      return candidate
+    }
+    log(`[${HOOK_NAME}] Skipping fallback model in cooldown`, { model: candidate, index: i })
+  }
+  return undefined
 }
 
 export function prepareFallback(
@@ -155,7 +216,7 @@ export function prepareFallback(
   state.fallbackIndex = fallbackModels.indexOf(nextModel)
   state.failedModels.set(failedModel, now)
   state.attemptCount++
-  state.transientRetryCount = 0
+  resetTransientRetryState(state)
   state.currentModel = nextModel
   state.pendingFallbackModel = nextModel
 

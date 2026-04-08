@@ -12,6 +12,7 @@ import { getPluginNameWithVersion } from "./plugin-name-with-version"
 
 const MANAGED_HOST_KEYS = [
   "default_agent",
+  "instructions",
   "plugin",
   "provider",
   "lsp",

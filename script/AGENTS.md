@@ -15,6 +15,8 @@ This directory owns the reproducible local install and live verification flow fo
 - `opencode.json`
 - generated live plugin config `oh-my-openagent.json` from repo source `assets/custom-opencode/oh-my-opencode.json`
 
+The managed host config may still reference repo-owned instruction files through the `oh-my-openagent` symlink under `~/.config/opencode/node_modules/`.
+
 ## Install Contract
 
 `install-local-opencode-fork.sh --reset` is the supported clean setup path. Keep it able to:
@@ -25,6 +27,7 @@ This directory owns the reproducible local install and live verification flow fo
 - build the fork
 - sync managed config
 - pin the live plugin to `file://<repo-root>`
+- install the managed runtime package set in `~/.cache/opencode`
 - import `Codex` OAuth
 - run a live verifier
 
@@ -36,6 +39,7 @@ This directory owns the reproducible local install and live verification flow fo
 - plugin config
 - runtime package dependencies
 - local plugin pin
+- managed instruction paths
 - canonical agent names
 - expected runtime modes
 - expected pinned primary models

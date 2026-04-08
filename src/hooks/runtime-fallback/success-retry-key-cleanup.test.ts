@@ -32,8 +32,12 @@ function createDeps(messagesResponse: unknown): HookDeps {
       enabled: true,
       retry_on_errors: [429, 503, 529],
       max_fallback_attempts: 3,
+      max_full_chain_cycles: 5,
       cooldown_seconds: 60,
       timeout_seconds: 30,
+      transient_retry_window_seconds: 14_400,
+      transient_retry_initial_delay_seconds: 30,
+      transient_retry_max_delay_seconds: 300,
       notify_on_fallback: false,
     },
     options: undefined,
@@ -45,6 +49,7 @@ function createDeps(messagesResponse: unknown): HookDeps {
     sessionRetryInFlight: new Set(),
     sessionAwaitingFallbackResult: new Set(),
     sessionFallbackTimeouts: new Map(),
+    sessionTransientRetryTimeouts: new Map(),
     sessionStatusRetryKeys: new Map(),
   }
 }
@@ -57,8 +62,10 @@ function createHelpers(clearCalls: string[]): AutoRetryHelpers {
     },
     scheduleSessionFallbackTimeout: () => {},
     autoRetryWithFallback: async () => {},
+    retryCurrentModel: async () => false,
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
+    recoverPreferredModels: async () => {},
   }
 }
 

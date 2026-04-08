@@ -22,6 +22,12 @@ export function createRuntimeFallbackHook(
     max_full_chain_cycles: options?.config?.max_full_chain_cycles ?? DEFAULT_CONFIG.max_full_chain_cycles,
     cooldown_seconds: options?.config?.cooldown_seconds ?? DEFAULT_CONFIG.cooldown_seconds,
     timeout_seconds: options?.config?.timeout_seconds ?? DEFAULT_CONFIG.timeout_seconds,
+    transient_retry_window_seconds:
+      options?.config?.transient_retry_window_seconds ?? DEFAULT_CONFIG.transient_retry_window_seconds,
+    transient_retry_initial_delay_seconds:
+      options?.config?.transient_retry_initial_delay_seconds ?? DEFAULT_CONFIG.transient_retry_initial_delay_seconds,
+    transient_retry_max_delay_seconds:
+      options?.config?.transient_retry_max_delay_seconds ?? DEFAULT_CONFIG.transient_retry_max_delay_seconds,
     notify_on_fallback: options?.config?.notify_on_fallback ?? DEFAULT_CONFIG.notify_on_fallback,
   }
 
@@ -46,6 +52,7 @@ export function createRuntimeFallbackHook(
     sessionRetryInFlight: new Set(),
     sessionAwaitingFallbackResult: new Set(),
     sessionFallbackTimeouts: new Map(),
+    sessionTransientRetryTimeouts: new Map(),
     sessionStatusRetryKeys: new Map(),
   }
 
@@ -78,6 +85,9 @@ export function createRuntimeFallbackHook(
     for (const fallbackTimeout of deps.sessionFallbackTimeouts.values()) {
       clearTimeout(fallbackTimeout)
     }
+    for (const transientRetryTimeout of deps.sessionTransientRetryTimeouts.values()) {
+      clearTimeout(transientRetryTimeout)
+    }
 
     deps.sessionStates.clear()
     deps.sessionLastAccess.clear()
@@ -86,6 +96,7 @@ export function createRuntimeFallbackHook(
     deps.sessionRetryInFlight.clear()
     deps.sessionAwaitingFallbackResult.clear()
     deps.sessionFallbackTimeouts.clear()
+    deps.sessionTransientRetryTimeouts.clear()
     deps.sessionStatusRetryKeys.clear()
   }
 

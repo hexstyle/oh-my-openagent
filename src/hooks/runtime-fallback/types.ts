@@ -43,6 +43,9 @@ export interface FallbackState {
   failedModels: Map<string, number>
   attemptCount: number
   transientRetryCount: number
+  transientRetryStartedAt?: number
+  transientRetryDelayMs?: number
+  pendingTransientRetry?: boolean
   pendingFallbackModel?: string
 }
 
@@ -82,5 +85,6 @@ export interface HookDeps {
   sessionRetryInFlight: Set<string>
   sessionAwaitingFallbackResult: Set<string>
   sessionFallbackTimeouts: Map<string, RuntimeFallbackTimeout>
+  sessionTransientRetryTimeouts: Map<string, RuntimeFallbackTimeout>
   sessionStatusRetryKeys: Map<string, string>
 }
