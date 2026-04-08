@@ -436,7 +436,7 @@ describe("generateModelConfig", () => {
       expect(result.agents?.metis?.variant).toBe("high")
     })
 
-    test("Sisyphus-Junior resolves to spark when only OpenAI is available", () => {
+    test("Sisyphus-Junior keeps GPT-5.4 ahead of spark when only OpenAI is available", () => {
       // #given
       const config = createConfig({ hasOpenAI: true })
 
@@ -444,8 +444,8 @@ describe("generateModelConfig", () => {
       const result = generateModelConfig(config)
 
       // #then
-      expect(result.agents?.["sisyphus-junior"]?.model).toBe("openai/gpt-5.3-codex-spark")
-      expect(result.agents?.["sisyphus-junior"]?.variant).toBeUndefined()
+      expect(result.agents?.["sisyphus-junior"]?.model).toBe("openai/gpt-5.4")
+      expect(result.agents?.["sisyphus-junior"]?.variant).toBe("medium")
     })
   })
 

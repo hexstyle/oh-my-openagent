@@ -14,7 +14,7 @@ describe("injectBoulderContinuation", () => {
     _resetForTesting()
   })
 
-  test("normalizes config-key agent to display-name for promptAsync", async () => {
+  test("preserves non-reserved agent keys for promptAsync", async () => {
     // given
     registerAgentName("atlas")
     const promptAsyncMock = mock(async (_request: unknown) => undefined)
@@ -46,7 +46,45 @@ describe("injectBoulderContinuation", () => {
     expect(promptAsyncMock).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.objectContaining({
-          agent: "Atlas (Plan Executor)",
+          agent: "atlas",
+        }),
+      }),
+    )
+  })
+
+  test("preserves the explore runtime key for promptAsync", async () => {
+    // given
+    registerAgentName("explore")
+    const promptAsyncMock = mock(async (_request: unknown) => undefined)
+    const messagesMock = mock(async () => ({ data: [] }))
+
+    const ctx = {
+      directory: "/tmp",
+      client: {
+        session: {
+          messages: messagesMock,
+          promptAsync: promptAsyncMock,
+        },
+      },
+    } as unknown as PluginInput
+
+    // when
+    await injectBoulderContinuation({
+      ctx,
+      sessionID: "ses_test_explore",
+      planName: "test-plan",
+      remaining: 1,
+      total: 2,
+      agent: "Explore (Code Search)",
+      sessionState: { promptFailureCount: 0 },
+    })
+
+    // then
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          agent: "explore",
         }),
       }),
     )

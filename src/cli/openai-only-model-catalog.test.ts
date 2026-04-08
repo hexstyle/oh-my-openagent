@@ -29,7 +29,7 @@ describe("generateModelConfig OpenAI-only model catalog", () => {
     // #then
     expect(result.agents?.explore).toEqual({ model: "openai/gpt-5.3-codex-spark" })
     expect(result.agents?.librarian).toEqual({ model: "openai/gpt-5.4", variant: "medium" })
-    expect(result.agents?.["sisyphus-junior"]).toEqual({ model: "openai/gpt-5.3-codex-spark" })
+    expect(result.agents?.["sisyphus-junior"]).toEqual({ model: "openai/gpt-5.4", variant: "medium" })
   })
 
   test("fills remaining OpenAI-only category gaps with OpenAI models", () => {

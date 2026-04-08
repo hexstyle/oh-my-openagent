@@ -13,6 +13,7 @@ Upstream reference at the last synced README:
 - `Codex` OAuth is imported into OpenCode automatically when `~/.codex/auth.json` exists
 - `Claude` stays configured by default and can be authorized later with `opencode auth login -p anthropic`
 - runtime agent names stay canonical and user-facing only, in the form `Agent (Role)`
+- local model overrides live in `~/.config/opencode/oh-my-openagent.local.jsonc` instead of editing the managed base file
 - the managed local baseline also installs:
   - `opencode-claude-auth`
   - `opencode-helicone-session`
@@ -23,15 +24,20 @@ Primary model picture in this fork:
 
 - planning/review/controller roles prefer `anthropic/claude-opus-4-6`
 - deep execution roles prefer `openai/gpt-5.4`
-- `Explore (Code Search)` and `Sisyphus Junior (Focused Executor)` are speed-first lanes on `openai/gpt-5.3-codex-spark`
+- `Explore (Code Search)` is the spark-first speed lane on `openai/gpt-5.3-codex-spark`
+- `Sisyphus Junior (Focused Executor)` is the fast coding lane on `openai/gpt-5.4`, with `spark` before free fallback
 - free models stay behind `spark`
-- configured large-model context limits stay capped at `200000`
+- the managed free chain is `opencode/nemotron-3-super-free` -> `opencode/minimax-m2.5-free` -> `opencode/big-pickle`
+- managed host context caps stay conservative:
+  - `openai/gpt-5.4`, `anthropic/claude-opus-4-6`, `anthropic/claude-sonnet-4-6` stay pinned at `200000`
+  - `openai/gpt-5.3-codex-spark` is pinned at `128000`, because the refreshed runtime catalog currently caps it there
 
 Primary agents and their visible fallback shape:
 
 - `Prometheus`, `Sisyphus`, `Oracle`, `Metis`, `Momus`: `anthropic/claude-opus-4-6` -> `openai/gpt-5.4` -> `anthropic/claude-sonnet-4-6` -> `openai/gpt-5.3-codex-spark` -> free models
 - `Hephaestus`, `Atlas`, `Librarian`, `Multimodal Looker`: `openai/gpt-5.4` -> paid alternates -> `openai/gpt-5.3-codex-spark` -> free models
-- `Explore`, `Sisyphus Junior`: `openai/gpt-5.3-codex-spark` -> free models
+- `Explore`: `openai/gpt-5.3-codex-spark` -> free models
+- `Sisyphus Junior`: `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
 
 Managed source of truth for this table: `assets/custom-opencode/oh-my-opencode.json`.
 
@@ -41,8 +47,10 @@ Managed source of truth for this table: `assets/custom-opencode/oh-my-opencode.j
 - same-model transient retries stay alive for up to 4 hours
 - the retry interval grows over time and caps at 5 minutes between attempts
 - quota/cooldown/payment/usage-limit failures fall back to `gpt-5.3-codex-spark`, then to free models
-- for `Explore` and `Sisyphus Junior`, `spark` is already the primary model, so their limit/fallback path is `spark` -> free models
+- for `Explore`, `spark` is already the primary model, so its limit/fallback path is `spark` -> free models
+- for `Sisyphus Junior`, `gpt-5.4` stays ahead of `spark`
 - when a session is pushed down to `spark` or free models, background recovery probes can move it back up to stronger models when they recover
+- the fork only treats free models as valid when they resolve in the local runtime baseline; deprecated cache-only entries are ignored
 
 `opencode-supermemory` is not enabled in the managed baseline. It overlaps with this fork's compaction/recovery stack and should be treated as an optional manual integration, not a default install.
 
@@ -72,6 +80,12 @@ cd /path/to/oh-my-openagent
 
 `--reset` is the supported clean path. It rebuilds the fork, syncs the managed config, pins OpenCode to this local checkout, installs the managed runtime plugins, imports `Codex` OAuth when present, and runs a live verification pass.
 
+The installer also:
+
+- creates `~/.config/opencode/oh-my-openagent.local.jsonc` if it does not exist
+- preserves that local override file across reruns
+- validates the effective model config against a refreshed OpenCode model catalog
+
 ## Use
 
 Check current auth:
@@ -97,6 +111,38 @@ After pulling new changes in this fork, rerun:
 ```bash
 ./script/install-local-opencode-fork.sh --reset
 ```
+
+## Local model overrides
+
+Do not edit `~/.config/opencode/oh-my-openagent.json` directly. That file is installer-managed.
+
+Edit this instead:
+
+```bash
+~/.config/opencode/oh-my-openagent.local.jsonc
+```
+
+Use it to override:
+
+- `agents.*.model`
+- `agents.*.fallback_models`
+- `categories.*.model`
+- `categories.*.fallback_models`
+
+After editing the local override file:
+
+```bash
+bun run script/validate-effective-model-config.ts
+```
+
+`validate-effective-model-config.ts` checks the repo-managed install assets plus your local override against a refreshed model catalog. To reapply the managed config into the live OpenCode runtime and verify the installed state, rerun:
+
+```bash
+./script/install-local-opencode-fork.sh --reset
+bun run script/verify-local-opencode-install.ts
+```
+
+Then restart `opencode` so the running process picks up the new config.
 
 ## Notes
 

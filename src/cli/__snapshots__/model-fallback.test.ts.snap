@@ -233,7 +233,8 @@ exports[`generateModelConfig single native provider uses OpenAI models when only
       "variant": "medium",
     },
     "sisyphus-junior": {
-      "model": "openai/gpt-5.3-codex-spark",
+      "model": "openai/gpt-5.4",
+      "variant": "medium",
     },
   },
   "categories": {
@@ -316,7 +317,8 @@ exports[`generateModelConfig single native provider uses OpenAI models with isMa
       "variant": "medium",
     },
     "sisyphus-junior": {
-      "model": "openai/gpt-5.3-codex-spark",
+      "model": "openai/gpt-5.4",
+      "variant": "medium",
     },
   },
   "categories": {

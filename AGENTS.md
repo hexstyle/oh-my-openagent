@@ -17,8 +17,12 @@ Start here when changing models, agent names, or local install behavior:
 - `assets/custom-opencode/opencode.json`
 - `assets/custom-opencode/instructions/non-interactive-shell.md`
 - `assets/custom-opencode/oh-my-opencode.json`
+- `assets/custom-opencode/oh-my-openagent.local.template.jsonc`
 - `README.md`
+- `.opencode/skills/agent-model-selection/SKILL.md`
 - `script/install-local-opencode-fork.sh`
+- `script/prepare-local-opencode-model-config.ts`
+- `script/validate-effective-model-config.ts`
 - `script/verify-local-opencode-install.ts`
 - `src/shared/agent-display-names.ts`
 - `src/shared/managed-opencode-runtime.ts`
@@ -38,10 +42,11 @@ The supported zero-to-working flow is:
 
 That command must remain able to:
 
-- remove an existing OpenCode install and config while preserving auth state
+- remove an existing OpenCode install and config while preserving auth state and the local model override file
 - install `bun` and `opencode` with Homebrew when missing
 - build this fork
 - sync managed config into `~/.config/opencode`
+- create or preserve `~/.config/opencode/oh-my-openagent.local.jsonc`
 - rewrite live host config to load the plugin from `file://<repo-root>`
 - install the managed runtime package set into `~/.cache/opencode`:
   - `opencode-claude-auth`
@@ -49,6 +54,7 @@ That command must remain able to:
   - `@nick-vi/opencode-type-inject`
 - keep the built-in shell-strategy equivalent wired through the managed `instructions` path in `opencode.json`
 - sync `Codex` OAuth into the OpenCode auth store when `~/.codex/auth.json` exists
+- validate the effective model config against a refreshed model catalog
 - run a live verifier and fail hard on drift
 
 Do not add `opencode-supermemory` to the managed baseline. It overlaps with the fork compaction stack and is an explicit opt-in integration only.
@@ -86,10 +92,38 @@ If you add or rename an agent, update:
 
 - Architect, reviewer, critic, planner, and controller-style roles prefer `anthropic/claude-opus-4-6` first.
 - Deep execution roles like `Hephaestus` and `Atlas`, plus `Librarian` and `Multimodal Looker`, prefer `openai/gpt-5.4`.
-- `Explore` and `Sisyphus Junior` are the only speed-first exceptions that run on `openai/gpt-5.3-codex-spark` as their primary.
+- `Explore` is the only spark-primary speed lane.
+- `Sisyphus Junior` is the fast coding lane and must keep `openai/gpt-5.4` ahead of `openai/gpt-5.3-codex-spark`.
 - Do not move planner/review/controller roles onto `spark` primary.
-- Configured large-model context limits stay capped at `200000`.
+- Managed host context caps must stay within live model metadata:
+  - keep `openai/gpt-5.4`, `anthropic/claude-opus-4-6`, and `anthropic/claude-sonnet-4-6` at or below `200000`
+  - keep `openai/gpt-5.3-codex-spark` at or below its refreshed live limit, currently `128000`
 - Free-model fallbacks remain behind the paid chain and must survive transient failures cleanly.
+- The managed free fallback chain is `opencode/nemotron-3-super-free` -> `opencode/minimax-m2.5-free` -> `opencode/big-pickle`.
+- Do not rely on deprecated `models.json` entries alone when choosing OpenCode free fallbacks; live provider refresh wins over stale cache.
+
+## Model Selection Protocol
+
+When changing any model or fallback chain:
+
+- use `.opencode/skills/agent-model-selection/SKILL.md`
+- check official provider docs and OpenCode docs for exact model IDs and context limits
+- refresh the local catalog before trusting a candidate:
+  - `opencode models --refresh`
+  - `opencode models opencode --refresh`
+- prefer live refreshed availability over stale cache or historical docs for OpenCode free models
+- validate both:
+  - model ID resolves in the refreshed catalog
+  - configured context caps do not exceed available model context
+- update the whole scheme, not just one file:
+  - managed config
+  - local override template
+  - installer/validator/verifier
+  - tests
+  - `README.md`
+  - this `AGENTS.md`
+
+Remember that users may want a different per-agent model or fallback policy. Support that through `~/.config/opencode/oh-my-openagent.local.jsonc`, not by editing the installer-managed base file.
 
 ## Runtime Fallback Policy
 
@@ -108,9 +142,11 @@ Current policy:
 - quota, cooldown, payment, usage-limit, and free-period failures skip directly to the limit path:
   - first `gpt-5.3-codex-spark`
   - then free fallback models
-- `Explore` and `Sisyphus Junior` are already `spark`-primary speed lanes:
-  - keep their fallback path as `spark` -> free models
-  - do not insert `gpt-5.4` ahead of free models for those two roles
+- `Explore` stays `spark`-primary:
+  - keep its fallback path as `spark` -> free models
+- `Sisyphus Junior` is not `spark`-primary:
+  - keep `gpt-5.4` ahead of `spark`
+  - keep `spark` ahead of free models
 - when a session is running on `spark` or a free model, background recovery probes may restore a higher-priority model
 - if a stalled session is still awaiting a fallback result when recovery succeeds, the hook may auto-resume the task on the recovered model
 
@@ -153,8 +189,9 @@ Minimum checks after touching config, runtime remapping, or install flow:
 ```bash
 bun run build
 bun test src/plugin-handlers/agent-key-remapper.test.ts src/cli/doctor/checks/custom-opencode-config.test.ts --bail
-bun run script/verify-local-opencode-install.ts
+bun run script/validate-effective-model-config.ts
 ./script/install-local-opencode-fork.sh --reset
+bun run script/verify-local-opencode-install.ts
 ```
 
 The live runtime is not considered fixed until the clean install path passes.

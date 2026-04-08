@@ -156,8 +156,9 @@ describe("custom OpenCode plugin loading compatibility", () => {
     )
 
     expect(mergeSemantics.evidence?.merge_rules).toEqual([
-      "user config first",
-      "project config overrides second",
+      "managed user config first",
+      "local user override second",
+      "project config overrides last",
       "agents deepMerge",
       "categories deepMerge",
       "disabled_* arrays union",

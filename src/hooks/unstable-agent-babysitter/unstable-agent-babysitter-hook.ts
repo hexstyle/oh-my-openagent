@@ -1,6 +1,7 @@
 import type { BackgroundManager } from "../../features/background-agent"
 import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
 import { getMainSessionID, getSessionAgent } from "../../features/claude-code-session-state"
+import { normalizeAgentForSessionPrompt } from "../../shared/agent-display-names"
 import { log } from "../../shared/logger"
 import { createInternalAgentTextPart, resolveInheritedPromptTools } from "../../shared"
 import {
@@ -156,12 +157,13 @@ export function createUnstableAgentBabysitterHook(ctx: BabysitterContext, option
       const summary = task.sessionID ? await getThinkingSummary(ctx, task.sessionID) : null
       const reminder = buildReminder(task, summary, idleMs)
       const { agent, model, tools } = await resolveMainSessionTarget(ctx, mainSessionID)
+      const promptAgent = normalizeAgentForSessionPrompt(agent)
 
       try {
         await ctx.client.session.promptAsync({
           path: { id: mainSessionID },
           body: {
-            ...(agent ? { agent } : {}),
+            ...(promptAgent ? { agent: promptAgent } : {}),
             ...(model ? { model } : {}),
             ...(tools ? { tools } : {}),
             parts: [createInternalAgentTextPart(reminder)],

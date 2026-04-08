@@ -3,6 +3,8 @@ const { beforeEach, describe, expect, mock, test } = require("bun:test")
 
 const readConnectedProvidersCacheMock = mock(() => null)
 const readProviderModelsCacheMock = mock(() => null)
+const readCachedModelCatalogMock = mock(() => new Set<string>())
+const resolveKnownCachedModelMock = mock((_target: string, availableModels: Set<string>) => availableModels.size > 0 ? null : "known")
 const selectFallbackProviderMock = mock((providers: string[], preferredProviderID?: string) => {
   const connectedProviders = readConnectedProvidersCacheMock()
   if (connectedProviders) {
@@ -49,12 +51,18 @@ mock.module("../../shared/provider-model-id-transform", () => ({
   transformModelForProvider: transformModelForProviderMock,
 }))
 
+mock.module("../../shared/model-availability", () => ({
+  readCachedModelCatalog: readCachedModelCatalogMock,
+  resolveKnownCachedModel: resolveKnownCachedModelMock,
+}))
+
 mock.module("../../shared/model-error-classifier", () => ({
   selectFallbackProvider: selectFallbackProviderMock,
 }))
 
 import {
   clearPendingModelFallback,
+  clearSessionFallbackChain,
   createModelFallbackHook,
   setSessionFallbackChain,
   setPendingModelFallback,
@@ -64,13 +72,19 @@ describe("model fallback hook", () => {
   beforeEach(() => {
     readConnectedProvidersCacheMock.mockReturnValue(null)
     readProviderModelsCacheMock.mockReturnValue(null)
+    readCachedModelCatalogMock.mockReturnValue(new Set())
     readConnectedProvidersCacheMock.mockClear()
     readProviderModelsCacheMock.mockClear()
+    readCachedModelCatalogMock.mockClear()
     selectFallbackProviderMock.mockClear()
+    resolveKnownCachedModelMock.mockImplementation((_target: string, availableModels: Set<string>) => availableModels.size > 0 ? null : "known")
 
     clearPendingModelFallback("ses_model_fallback_main")
     clearPendingModelFallback("ses_model_fallback_ghcp")
     clearPendingModelFallback("ses_model_fallback_google")
+    clearSessionFallbackChain("ses_model_fallback_main")
+    clearSessionFallbackChain("ses_model_fallback_ghcp")
+    clearSessionFallbackChain("ses_model_fallback_google")
   })
 
   test("applies pending fallback on chat.message by overriding model", async () => {
@@ -108,6 +122,49 @@ describe("model fallback hook", () => {
     expect(output.message["model"]).toEqual({
       providerID: "anthropic",
       modelID: "claude-opus-4-6",
+    })
+  })
+
+  test("skips unknown fallback models before applying the next valid fallback", async () => {
+    readCachedModelCatalogMock.mockReturnValue(new Set([
+      "openai/gpt-5.4",
+    ]))
+    resolveKnownCachedModelMock.mockImplementation((target: string, availableModels: Set<string>) =>
+      availableModels.has(target) ? target : null
+    )
+
+    setSessionFallbackChain("ses_model_fallback_main", [
+      { providers: ["opencode"], model: "qwen3.6-plus-free" },
+      { providers: ["openai"], model: "gpt-5.4" },
+    ])
+
+    const hook = createModelFallbackHook() as unknown as {
+      "chat.message"?: (
+        input: { sessionID: string },
+        output: { message: Record<string, unknown>; parts: Array<{ type: string; text?: string }> },
+      ) => Promise<void>
+    }
+
+    const set = setPendingModelFallback(
+      "ses_model_fallback_main",
+      "Explore (Code Search)",
+      "openai",
+      "gpt-5.3-codex-spark",
+    )
+    expect(set).toBe(true)
+
+    const output = {
+      message: {
+        model: { providerID: "openai", modelID: "gpt-5.3-codex-spark" },
+      },
+      parts: [{ type: "text", text: "continue" }],
+    }
+
+    await hook["chat.message"]?.({ sessionID: "ses_model_fallback_main" }, output)
+
+    expect(output.message["model"]).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.4",
     })
   })
 

@@ -2,7 +2,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "bun:test"
 import type { OhMyOpenCodeConfig } from "../../config"
-import { resolveRunAgent, waitForEventProcessorShutdown } from "./runner"
+import { resolveRunAgent, resolveRunPromptAgent, waitForEventProcessorShutdown } from "./runner"
 
 const createConfig = (overrides: Partial<OhMyOpenCodeConfig> = {}): OhMyOpenCodeConfig => ({
   ...overrides,
@@ -79,6 +79,18 @@ describe("resolveRunAgent", () => {
 
     // then
     expect(agent).toBe("Sisyphus (Ultraworker)")
+  })
+})
+
+describe("resolveRunPromptAgent", () => {
+  it("keeps reserved explore on the runtime key for session prompt payloads", () => {
+    expect(resolveRunPromptAgent("Explore (Code Search)")).toBe("explore")
+    expect(resolveRunPromptAgent("explore")).toBe("explore")
+  })
+
+  it("keeps non-reserved agents on canonical display names", () => {
+    expect(resolveRunPromptAgent("Prometheus (Plan Builder)")).toBe("Prometheus (Plan Builder)")
+    expect(resolveRunPromptAgent("prometheus")).toBe("Prometheus (Plan Builder)")
   })
 })
 

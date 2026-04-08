@@ -5,6 +5,7 @@ import { readConnectedProvidersCache, readProviderModelsCache } from "../../shar
 import { selectFallbackProvider } from "../../shared/model-error-classifier"
 import { transformModelForProvider } from "../../shared/provider-model-id-transform"
 import { log } from "../../shared/logger"
+import { readCachedModelCatalog, resolveKnownCachedModel } from "../../shared/model-availability"
 import { getTaskToastManager } from "../../features/task-toast-manager"
 import type { ChatMessageInput, ChatMessageHandlerOutput } from "../../plugin/chat-message"
 
@@ -133,6 +134,7 @@ export function getNextFallback(
   const connectedSet = connectedProviders
     ? new Set(connectedProviders.map((provider) => provider.toLowerCase()))
     : null
+  const knownModels = readCachedModelCatalog()
 
   const isReachable = (entry: FallbackEntry): boolean => {
     if (!connectedSet) return true
@@ -159,6 +161,12 @@ export function getNextFallback(
 
     const providerID = selectFallbackProvider(fallback.providers, state.providerID)
     const modelID = transformModelForProvider(providerID, fallback.model)
+    const fullModel = `${providerID}/${modelID}`
+
+    if (knownModels.size > 0 && !resolveKnownCachedModel(fullModel, knownModels)) {
+      log("[model-fallback] Skipping unknown fallback for session: " + sessionID + ", attempt: " + attemptCount + ", model: " + fullModel)
+      continue
+    }
 
     const isNoOpFallback =
       providerID.toLowerCase() === state.providerID.toLowerCase() &&

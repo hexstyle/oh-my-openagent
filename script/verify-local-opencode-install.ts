@@ -5,6 +5,7 @@ import os from "node:os"
 import { join, resolve } from "node:path"
 import { createOpencodeClient, createOpencodeServer } from "@opencode-ai/sdk"
 
+import { loadEffectiveUserConfig } from "../src/custom-opencode/user-config-layers"
 import { getAgentDisplayName } from "../src/shared/agent-display-names"
 import {
   getManagedLivePluginEntries,
@@ -51,64 +52,36 @@ type ListedAgent = {
   model?: string | { providerID?: string; modelID?: string }
 }
 
-const expectedAgents: RuntimeAgentExpectation[] = [
-  {
-    displayName: getAgentDisplayName("sisyphus"),
-    model: "anthropic/claude-opus-4-6",
-    mode: "core",
-  },
-  {
-    displayName: getAgentDisplayName("hephaestus"),
-    model: "openai/gpt-5.4",
-    mode: "core",
-  },
-  {
-    displayName: getAgentDisplayName("prometheus"),
-    model: "anthropic/claude-opus-4-6",
-    mode: "core",
-  },
-  {
-    displayName: getAgentDisplayName("atlas"),
-    model: "openai/gpt-5.4",
-    mode: "core",
-  },
-  {
-    displayName: getAgentDisplayName("sisyphus-junior"),
-    model: "openai/gpt-5.3-codex-spark",
-    mode: "subagent",
-  },
-  {
-    displayName: getAgentDisplayName("oracle"),
-    model: "anthropic/claude-opus-4-6",
-    mode: "subagent",
-  },
-  {
-    displayName: getAgentDisplayName("librarian"),
-    model: "openai/gpt-5.4",
-    mode: "subagent",
-  },
-  {
-    configKey: "explore",
-    displayName: getAgentDisplayName("explore"),
-    model: "openai/gpt-5.3-codex-spark",
-    mode: "subagent",
-  },
-  {
-    displayName: getAgentDisplayName("multimodal-looker"),
-    model: "openai/gpt-5.4",
-    mode: "subagent",
-  },
-  {
-    displayName: getAgentDisplayName("metis"),
-    model: "anthropic/claude-opus-4-6",
-    mode: "subagent",
-  },
-  {
-    displayName: getAgentDisplayName("momus"),
-    model: "anthropic/claude-opus-4-6",
-    mode: "subagent",
-  },
-]
+function buildExpectedAgents(pluginConfig: Record<string, unknown>): RuntimeAgentExpectation[] {
+  const agents = (pluginConfig.agents ?? {}) as Record<string, { model?: unknown }>
+  const expected: Array<{ key: string; configKey?: string; mode: "subagent" | "core" }> = [
+    { key: "sisyphus", mode: "core" },
+    { key: "hephaestus", mode: "core" },
+    { key: "prometheus", mode: "core" },
+    { key: "atlas", mode: "core" },
+    { key: "sisyphus-junior", mode: "subagent" },
+    { key: "oracle", mode: "subagent" },
+    { key: "librarian", mode: "subagent" },
+    { key: "explore", configKey: "explore", mode: "subagent" },
+    { key: "multimodal-looker", mode: "subagent" },
+    { key: "metis", mode: "subagent" },
+    { key: "momus", mode: "subagent" },
+  ]
+
+  return expected.map((entry) => {
+    const model = agents[entry.key]?.model
+    if (typeof model !== "string" || model.length === 0) {
+      fail(`Effective plugin config is missing model for agent ${entry.key}`)
+    }
+
+    return {
+      configKey: entry.configKey,
+      displayName: getAgentDisplayName(entry.key),
+      model,
+      mode: entry.mode,
+    }
+  })
+}
 
 const forbiddenRuntimeAgentKeys = [
   "sisyphus",
@@ -270,6 +243,7 @@ async function main(): Promise<void> {
   const liveHostPath = join(configDir, "opencode.json")
   const livePluginPath = join(configDir, "oh-my-openagent.json")
   const legacyPluginPath = join(configDir, "oh-my-opencode.json")
+  const ignoredCanonicalJsoncPath = join(configDir, "oh-my-openagent.jsonc")
   const runtimePackagePath = join(cacheDir, "package.json")
   const configSchemaLink = join(configDir, "node_modules", "oh-my-openagent")
 
@@ -285,6 +259,10 @@ async function main(): Promise<void> {
   assert(
     deepEqualJson(livePlugin, pluginAsset),
     `Live plugin config drifted from managed asset: ${livePluginPath}`,
+  )
+  assert(
+    !existsSync(ignoredCanonicalJsoncPath),
+    `Unsupported canonical JSONC config shadows managed mode: ${ignoredCanonicalJsoncPath}`,
   )
   assert(!existsSync(legacyPluginPath), `Legacy plugin config still exists: ${legacyPluginPath}`)
 
@@ -316,6 +294,11 @@ async function main(): Promise<void> {
       "Codex CLI auth exists, but OpenCode auth store is missing the synced OpenAI OAuth entry",
     )
   }
+
+  const effectiveUserConfig = loadEffectiveUserConfig(configDir, {})
+  const expectedAgents = buildExpectedAgents(
+    (effectiveUserConfig.effectiveConfig as Record<string, unknown> | null) ?? pluginAsset,
+  )
 
   console.log("[verify] querying live runtime")
   const runtimeState = await getLiveRuntimeState()

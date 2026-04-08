@@ -2,7 +2,7 @@ import type { PluginInput } from "@opencode-ai/plugin"
 import type { BackgroundManager } from "../../features/background-agent"
 import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
 import { isAgentRegistered } from "../../features/claude-code-session-state"
-import { normalizeAgentForPrompt } from "../../shared/agent-display-names"
+import { normalizeAgentForSessionPrompt } from "../../shared/agent-display-names"
 import { log } from "../../shared/logger"
 import { createInternalAgentTextPart, resolveInheritedPromptTools } from "../../shared"
 import { HOOK_NAME } from "./hook-name"
@@ -77,12 +77,12 @@ export async function injectBoulderContinuation(input: {
     const promptContext = await resolveRecentPromptContextForSession(ctx, sessionID)
     const inheritedTools = resolveInheritedPromptTools(sessionID, promptContext.tools)
 
-		await ctx.client.session.promptAsync({
-			path: { id: sessionID },
-			body: {
-				agent: normalizeAgentForPrompt(continuationAgent) ?? continuationAgent,
-				...(promptContext.model !== undefined ? { model: promptContext.model } : {}),
-				...(inheritedTools ? { tools: inheritedTools } : {}),
+    await ctx.client.session.promptAsync({
+      path: { id: sessionID },
+      body: {
+        agent: normalizeAgentForSessionPrompt(continuationAgent) ?? continuationAgent,
+        ...(promptContext.model !== undefined ? { model: promptContext.model } : {}),
+        ...(inheritedTools ? { tools: inheritedTools } : {}),
         parts: [createInternalAgentTextPart(prompt)],
       },
       query: { directory: ctx.directory },

@@ -1,12 +1,14 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
+import { loadEffectiveUserConfig } from "../../../custom-opencode/user-config-layers"
 import { OhMyOpenCodeConfigSchema } from "../../../config"
 import { detectPluginConfigFile, getOpenCodeConfigDir, parseJsonc } from "../../../shared"
-import { CHECK_IDS, CHECK_NAMES, PACKAGE_NAME } from "../constants"
+import { CHECK_IDS, CHECK_NAMES } from "../constants"
 import type { CheckResult, DoctorIssue } from "../types"
 import { loadAvailableModelsFromCache } from "./model-resolution-cache"
 import { getModelResolutionInfoWithOverrides } from "./model-resolution"
+import { loadOmoConfig } from "./model-resolution-config"
 import type { OmoConfig } from "./model-resolution-types"
 
 const USER_CONFIG_DIR = getOpenCodeConfigDir({ binary: "opencode" })
@@ -14,52 +16,57 @@ const PROJECT_CONFIG_DIR = join(process.cwd(), ".opencode")
 
 interface ConfigValidationResult {
   exists: boolean
-  path: string | null
+  paths: string[]
   valid: boolean
   config: OmoConfig | null
   errors: string[]
 }
 
-function findConfigPath(): string | null {
-  const projectConfig = detectPluginConfigFile(PROJECT_CONFIG_DIR)
-  if (projectConfig.format !== "none") return projectConfig.path
-
-  const userConfig = detectPluginConfigFile(USER_CONFIG_DIR)
-  if (userConfig.format !== "none") return userConfig.path
-
-  return null
-}
-
 function validateConfig(): ConfigValidationResult {
-  const configPath = findConfigPath()
-  if (!configPath) {
-    return { exists: false, path: null, valid: true, config: null, errors: [] }
+  const projectConfig = detectPluginConfigFile(PROJECT_CONFIG_DIR)
+  const effectiveUserConfig = loadEffectiveUserConfig(USER_CONFIG_DIR, {})
+  const ignoredCanonicalJsoncPath = join(USER_CONFIG_DIR, "oh-my-openagent.jsonc")
+  const paths = [
+    existsSync(effectiveUserConfig.managedPath) ? effectiveUserConfig.managedPath : null,
+    effectiveUserConfig.localOverridePath,
+    projectConfig.format !== "none" ? projectConfig.path : null,
+  ].filter((value): value is string => Boolean(value))
+
+  if (paths.length === 0) {
+    return { exists: false, paths: [], valid: true, config: null, errors: [] }
   }
 
-  try {
-    const content = readFileSync(configPath, "utf-8")
-    const rawConfig = parseJsonc<OmoConfig>(content)
-    const schemaResult = OhMyOpenCodeConfigSchema.safeParse(rawConfig)
+  const errors: string[] = []
+  for (const pathValue of paths) {
+    try {
+      const content = readFileSync(pathValue, "utf-8")
+      const rawConfig = parseJsonc<OmoConfig>(content)
+      const schemaResult = OhMyOpenCodeConfigSchema.safeParse(rawConfig)
 
-    if (!schemaResult.success) {
-      return {
-        exists: true,
-        path: configPath,
-        valid: false,
-        config: rawConfig,
-        errors: schemaResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`),
+      if (!schemaResult.success) {
+        errors.push(
+          `${pathValue}: ${schemaResult.error.issues
+            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+            .join(", ")}`,
+        )
       }
+    } catch (error) {
+      errors.push(`${pathValue}: ${error instanceof Error ? error.message : "Failed to parse config"}`)
     }
+  }
 
-    return { exists: true, path: configPath, valid: true, config: rawConfig, errors: [] }
-  } catch (error) {
-    return {
-      exists: true,
-      path: configPath,
-      valid: false,
-      config: null,
-      errors: [error instanceof Error ? error.message : "Failed to parse config"],
-    }
+  if (existsSync(ignoredCanonicalJsoncPath)) {
+    errors.push(
+      `${ignoredCanonicalJsoncPath}: unsupported canonical JSONC config; use oh-my-openagent.local.jsonc instead`,
+    )
+  }
+
+  return {
+    exists: true,
+    paths,
+    valid: errors.length === 0,
+    config: errors.length === 0 ? loadOmoConfig() : null,
+    errors,
   }
 }
 
@@ -145,7 +152,7 @@ export async function checkConfig(): Promise<CheckResult> {
       name: CHECK_NAMES[CHECK_IDS.CONFIG],
       status: "fail",
       message: `Configuration invalid (${issues.length} issue${issues.length > 1 ? "s" : ""})`,
-      details: validation.path ? [`Path: ${validation.path}`] : undefined,
+      details: validation.paths.map((pathValue) => `Path: ${pathValue}`),
       issues,
     }
   }
@@ -158,7 +165,7 @@ export async function checkConfig(): Promise<CheckResult> {
     name: CHECK_NAMES[CHECK_IDS.CONFIG],
     status: issues.length > 0 ? "warn" : "pass",
     message: issues.length > 0 ? `${issues.length} configuration warning(s)` : "Configuration is valid",
-    details: validation.path ? [`Path: ${validation.path}`] : undefined,
+    details: validation.paths.map((pathValue) => `Path: ${pathValue}`),
     issues,
   }
 }

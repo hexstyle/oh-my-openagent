@@ -78,6 +78,10 @@ export function getRuntimeFallbackTier(model: string): RuntimeFallbackTier {
     return "spark"
   }
 
+  if (/(^|\/)big-pickle(?:\(|$)/i.test(normalized)) {
+    return "free"
+  }
+
   if (/(^|\/)[^/]+-free(?:\(|$)/i.test(normalized)) {
     return "free"
   }

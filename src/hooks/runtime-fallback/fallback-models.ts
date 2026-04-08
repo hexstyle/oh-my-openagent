@@ -5,6 +5,7 @@ import { HOOK_NAME } from "./constants"
 import { log } from "../../shared/logger"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { normalizeFallbackModels, flattenToFallbackModelStrings } from "../../shared/model-resolver"
+import { readCachedModelCatalog, resolveKnownCachedModel } from "../../shared/model-availability"
 
 /**
  * Returns fallback model strings for the runtime-fallback system.
@@ -19,7 +20,35 @@ export function getFallbackModelsForSession(
   if (!pluginConfig) return []
 
   const raw = getRawFallbackModelsForSession(sessionID, agent, pluginConfig)
-  return flattenToFallbackModelStrings(raw) ?? []
+  const flattened = flattenToFallbackModelStrings(raw) ?? []
+  if (flattened.length === 0) {
+    return flattened
+  }
+
+  const knownModels = readCachedModelCatalog()
+  if (knownModels.size === 0) {
+    return flattened
+  }
+
+  const filtered = flattened.filter((model) => resolveKnownCachedModel(model, knownModels))
+  if (filtered.length === 0) {
+    log(`[${HOOK_NAME}] Preserving unfiltered fallback_models because cached catalog could not confirm any candidate`, {
+      sessionID,
+      agent,
+      candidateCount: flattened.length,
+    })
+    return flattened
+  }
+
+  if (filtered.length !== flattened.length) {
+    log(`[${HOOK_NAME}] Filtered unknown fallback models from session fallback chain`, {
+      sessionID,
+      agent,
+      removed: flattened.filter((model) => !filtered.includes(model)),
+    })
+  }
+
+  return filtered
 }
 
 /**

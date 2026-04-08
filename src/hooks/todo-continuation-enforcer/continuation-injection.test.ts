@@ -81,4 +81,42 @@ describe("injectContinuation", () => {
     // then
     expect(injected).toBe(false)
   })
+
+  test("uses the explore runtime key when reinjecting an Explore session", async () => {
+    // given
+    let capturedAgent: string | undefined
+    const ctx = {
+      directory: "/tmp/test",
+      client: {
+        session: {
+          todo: async () => ({ data: [{ id: "1", content: "todo", status: "pending", priority: "high" }] }),
+          promptAsync: async (input: {
+            body: {
+              agent?: string
+            }
+          }) => {
+            capturedAgent = input.body.agent
+            return {}
+          },
+        },
+      },
+    }
+    const sessionStateStore = {
+      getExistingState: () => ({ inFlight: false, lastInjectedAt: 0, consecutiveFailures: 0 }),
+    }
+
+    // when
+    await injectContinuation({
+      ctx: ctx as never,
+      sessionID: "ses_explore_continuation",
+      resolvedInfo: {
+        agent: "Explore (Code Search)",
+        model: { providerID: "openai", modelID: "gpt-5.3-codex-spark" },
+      },
+      sessionStateStore: sessionStateStore as never,
+    })
+
+    // then
+    expect(capturedAgent).toBe("explore")
+  })
 })

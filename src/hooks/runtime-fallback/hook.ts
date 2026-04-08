@@ -69,13 +69,20 @@ export function createRuntimeFallbackHook(
   recoveryInterval.unref()
 
   const eventHandler = async ({ event }: { event: { type: string; properties?: unknown } }) => {
-    if (event.type === "message.updated") {
-      if (!config.enabled) return
-      const props = event.properties as Record<string, unknown> | undefined
-      await messageUpdateHandler(props)
-      return
+    try {
+      if (event.type === "message.updated") {
+        if (!config.enabled) return
+        const props = event.properties as Record<string, unknown> | undefined
+        await messageUpdateHandler(props)
+        return
+      }
+      await baseEventHandler({ event })
+    } catch (error) {
+      log(`[${HOOK_NAME}] Swallowed event handler error`, {
+        eventType: event.type,
+        error: String(error),
+      })
     }
-    await baseEventHandler({ event })
   }
 
   const dispose = () => {

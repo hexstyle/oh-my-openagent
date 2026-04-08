@@ -14,7 +14,10 @@ import {
 } from "../../features/hook-message-injector"
 import { log } from "../../shared/logger"
 import { isSqliteBackend } from "../../shared/opencode-storage-detection"
-import { getAgentConfigKey } from "../../shared/agent-display-names"
+import {
+  getAgentConfigKey,
+  normalizeAgentForSessionPrompt,
+} from "../../shared/agent-display-names"
 
 import {
   CONTINUATION_PROMPT,
@@ -157,9 +160,11 @@ ${todoList}`
   }
 
   try {
+    const promptAgent = normalizeAgentForSessionPrompt(agentName)
+
     log(`[${HOOK_NAME}] Injecting continuation`, {
       sessionID,
-      agent: agentName,
+      agent: promptAgent ?? agentName,
       model,
       incompleteCount: freshIncompleteCount,
     })
@@ -169,7 +174,7 @@ ${todoList}`
     await ctx.client.session.promptAsync({
       path: { id: sessionID },
       body: {
-        agent: agentName,
+        ...(promptAgent ? { agent: promptAgent } : {}),
         ...(model !== undefined ? { model } : {}),
         ...(inheritedTools ? { tools: inheritedTools } : {}),
         parts: [createInternalAgentTextPart(prompt)],

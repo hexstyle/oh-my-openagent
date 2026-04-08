@@ -13,6 +13,13 @@ import {
 } from "../../features/claude-code-session-state"
 import type { ContextCollector } from "../../features/context-injector"
 
+function isKeywordMessageAlreadyInjected(
+  promptText: string,
+  keywordMessage: string,
+): boolean {
+  return keywordMessage.trim().length > 0 && promptText.includes(keywordMessage)
+}
+
 export function createKeywordDetectorHook(ctx: PluginInput, _collector?: ContextCollector) {
   function getRuntimeVariant(input: { variant?: string }, message: Record<string, unknown>): string | undefined {
     if (typeof message["variant"] === "string") {
@@ -65,6 +72,17 @@ export function createKeywordDetectorHook(ctx: PluginInput, _collector?: Context
       }
 
       if (detectedKeywords.length === 0) {
+        return
+      }
+
+      detectedKeywords = detectedKeywords.filter(
+        (keyword) => !isKeywordMessageAlreadyInjected(promptText, keyword.message),
+      )
+
+      if (detectedKeywords.length === 0) {
+        log(`[keyword-detector] Skipping duplicate keyword injection`, {
+          sessionID: input.sessionID,
+        })
         return
       }
 

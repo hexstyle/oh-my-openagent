@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { detectConfigFile, detectPluginConfigFile, parseJsonc, parseJsoncSafe, readJsoncFile } from "./jsonc-parser"
+import {
+  detectConfigFile,
+  detectLocalOverrideConfigFile,
+  detectPluginConfigFile,
+  parseJsonc,
+  parseJsoncSafe,
+  readJsoncFile,
+} from "./jsonc-parser"
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
@@ -362,6 +369,45 @@ describe("detectPluginConfigFile", () => {
     expect(result.format).toBe("jsonc")
     expect(result.path).toBe(join(testDir, "oh-my-openagent.jsonc"))
     expect(result.legacyPath).toBeUndefined()
+
+    rmSync(testDir, { recursive: true, force: true })
+  })
+})
+
+describe("detectLocalOverrideConfigFile", () => {
+  const testDir = join(__dirname, ".test-detect-local-override")
+
+  test("prefers local jsonc override when present", () => {
+    if (!existsSync(testDir)) mkdirSync(testDir, { recursive: true })
+    writeFileSync(join(testDir, "oh-my-openagent.local.jsonc"), "{}")
+
+    const result = detectLocalOverrideConfigFile(testDir)
+
+    expect(result.format).toBe("jsonc")
+    expect(result.path).toBe(join(testDir, "oh-my-openagent.local.jsonc"))
+
+    rmSync(testDir, { recursive: true, force: true })
+  })
+
+  test("falls back to local json override when jsonc is absent", () => {
+    if (!existsSync(testDir)) mkdirSync(testDir, { recursive: true })
+    writeFileSync(join(testDir, "oh-my-openagent.local.json"), "{}")
+
+    const result = detectLocalOverrideConfigFile(testDir)
+
+    expect(result.format).toBe("json")
+    expect(result.path).toBe(join(testDir, "oh-my-openagent.local.json"))
+
+    rmSync(testDir, { recursive: true, force: true })
+  })
+
+  test("returns none when no local override config exists", () => {
+    if (!existsSync(testDir)) mkdirSync(testDir, { recursive: true })
+
+    const result = detectLocalOverrideConfigFile(testDir)
+
+    expect(result.format).toBe("none")
+    expect(result.path).toBe(join(testDir, "oh-my-openagent.local.json"))
 
     rmSync(testDir, { recursive: true, force: true })
   })

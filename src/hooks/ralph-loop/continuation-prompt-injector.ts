@@ -8,6 +8,7 @@ import {
 	normalizeSDKResponse,
 	resolveInheritedPromptTools,
 } from "../../shared"
+import { normalizeAgentForSessionPrompt } from "../../shared/agent-display-names"
 
 type MessageInfo = {
 	agent?: string
@@ -68,11 +69,12 @@ export async function injectContinuationPrompt(
 	}
 
 	const inheritedTools = resolveInheritedPromptTools(sourceSessionID, tools)
+  const promptAgent = normalizeAgentForSessionPrompt(agent)
 
 	await ctx.client.session.promptAsync({
 		path: { id: options.sessionID },
 		body: {
-			...(agent !== undefined ? { agent } : {}),
+			...(promptAgent !== undefined ? { agent: promptAgent } : {}),
 			...(model !== undefined ? { model } : {}),
 			...(inheritedTools ? { tools: inheritedTools } : {}),
 			parts: [createInternalAgentTextPart(options.prompt)],

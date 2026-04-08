@@ -21,7 +21,7 @@
         },
         "gpt-5.3-codex-spark": {
           "limit": {
-            "context": 200000,
+            "context": 128000,
             "output": 64000
           }
         }

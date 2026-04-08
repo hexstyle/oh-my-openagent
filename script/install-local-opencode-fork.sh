@@ -52,9 +52,21 @@ CACHE_DIR="$HOME/.cache/opencode"
 DATA_DIR="$HOME/.local/share/opencode"
 AUTH_DIR="$DATA_DIR"
 AUTH_FILE="$AUTH_DIR/auth.json"
+LOCAL_OVERRIDE_BACKUP=""
+LOCAL_OVERRIDE_RESTORE_NAME=""
 
 if (( RESET )); then
   say "Resetting existing OpenCode install while preserving auth"
+  for ext in jsonc json; do
+    candidate="$CONFIG_DIR/oh-my-openagent.local.$ext"
+    if [[ -f "$candidate" ]]; then
+      LOCAL_OVERRIDE_BACKUP="$(mktemp "${TMPDIR:-/tmp}/oh-my-openagent.local.XXXXXX.$ext")"
+      cp "$candidate" "$LOCAL_OVERRIDE_BACKUP"
+      LOCAL_OVERRIDE_RESTORE_NAME="oh-my-openagent.local.$ext"
+      say "Preserving local model override config"
+      break
+    fi
+  done
   opencode uninstall -f >/dev/null 2>&1 || true
   brew uninstall --force opencode >/dev/null 2>&1 || true
   rm -rf "$CONFIG_DIR" "$CACHE_DIR"
@@ -91,6 +103,15 @@ mkdir -p "$CONFIG_DIR/node_modules"
 rm -rf "$CONFIG_DIR/node_modules/oh-my-openagent" "$CONFIG_DIR/node_modules/oh-my-opencode"
 ln -sfn "$ROOT_DIR" "$CONFIG_DIR/node_modules/oh-my-openagent"
 
+if [[ -n "$LOCAL_OVERRIDE_BACKUP" && -n "$LOCAL_OVERRIDE_RESTORE_NAME" ]]; then
+  mkdir -p "$CONFIG_DIR"
+  cp "$LOCAL_OVERRIDE_BACKUP" "$CONFIG_DIR/$LOCAL_OVERRIDE_RESTORE_NAME"
+  rm -f "$LOCAL_OVERRIDE_BACKUP"
+fi
+
+say "Preparing local model override config"
+bun run script/prepare-local-opencode-model-config.ts
+
 say "Syncing managed OpenCode config"
 bun run script/sync-custom-opencode-assets.ts --target "$CONFIG_DIR"
 
@@ -107,6 +128,9 @@ fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 
 say "Importing Codex OAuth into OpenCode auth"
 bun --eval "import { syncCodexCliAuthToOpenCodeAuth } from '$ROOT_DIR/src/shared/codex-auth-bootstrap.ts'; syncCodexCliAuthToOpenCodeAuth();"
+
+say "Validating effective model config"
+bun run script/validate-effective-model-config.ts
 
 say "Verifying live runtime"
 bun run script/verify-local-opencode-install.ts

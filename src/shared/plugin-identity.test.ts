@@ -1,5 +1,11 @@
 import { describe, it, expect } from "bun:test"
-import { PLUGIN_NAME, CONFIG_BASENAME, LOG_FILENAME, CACHE_DIR_NAME } from "./plugin-identity"
+import {
+  PLUGIN_NAME,
+  CONFIG_BASENAME,
+  LOCAL_OVERRIDE_CONFIG_BASENAME,
+  LOG_FILENAME,
+  CACHE_DIR_NAME,
+} from "./plugin-identity"
 
 describe("plugin-identity constants", () => {
   describe("PLUGIN_NAME", () => {
@@ -32,6 +38,12 @@ describe("plugin-identity constants", () => {
 
       // then
       expect(LOG_FILENAME).toBe("oh-my-opencode.log")
+    })
+  })
+
+  describe("LOCAL_OVERRIDE_CONFIG_BASENAME", () => {
+    it("equals oh-my-openagent.local", () => {
+      expect(LOCAL_OVERRIDE_CONFIG_BASENAME).toBe("oh-my-openagent.local")
     })
   })
 

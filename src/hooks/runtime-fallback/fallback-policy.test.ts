@@ -40,14 +40,14 @@ describe("runtime fallback policy", () => {
           "openai/gpt-5.4",
           "openai/gpt-5.3-codex-spark",
           "opencode/nemotron-3-super-free",
-          "opencode/mimo-v2-pro-free",
+          "opencode/big-pickle",
         ],
         action: "limit_fallback",
       }),
     ).toEqual([
       "openai/gpt-5.3-codex-spark",
       "opencode/nemotron-3-super-free",
-      "opencode/mimo-v2-pro-free",
+      "opencode/big-pickle",
     ])
   })
 
@@ -58,11 +58,11 @@ describe("runtime fallback policy", () => {
         fallbackModels: [
           "openai/gpt-5.3-codex-spark",
           "opencode/nemotron-3-super-free",
-          "opencode/mimo-v2-pro-free",
+          "opencode/big-pickle",
         ],
         action: "limit_fallback",
       }),
-    ).toEqual(["opencode/mimo-v2-pro-free"])
+    ).toEqual(["opencode/big-pickle"])
   })
 
   it("probes only higher-priority non-free models when the session is running on spark or free", () => {
@@ -79,7 +79,7 @@ describe("runtime fallback policy", () => {
       "openai/gpt-5.3-codex-spark",
     ])
     expect(getRuntimeFallbackTier("openai/gpt-5.3-codex-spark")).toBe("spark")
-    expect(getRuntimeFallbackTier("opencode/mimo-v2-pro-free")).toBe("free")
+    expect(getRuntimeFallbackTier("opencode/big-pickle")).toBe("free")
     expect(getRuntimeFallbackTier("openai/gpt-5.4")).toBe("paid")
   })
 })

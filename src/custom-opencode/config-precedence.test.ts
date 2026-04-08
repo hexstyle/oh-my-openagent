@@ -119,4 +119,87 @@ describe("custom OpenCode config precedence compatibility", () => {
     expect(config.categories?.writing?.textVerbosity).toBe(managedWritingCategory?.textVerbosity)
     expect(config.disabled_tools).toEqual(["bash"])
   })
+
+  it("applies local user overrides on top of the managed base before project overrides", () => {
+    const projectDir = makeTempDir("config-precedence-local-project")
+    const userConfigDir = makeTempDir("config-precedence-local-user")
+    const projectConfigDir = join(projectDir, ".opencode")
+
+    mkdirSync(projectConfigDir, { recursive: true })
+    process.env.OPENCODE_CONFIG_DIR = userConfigDir
+
+    const managedUserConfig = JSON.parse(readFileSync(managedPluginConfigPath, "utf-8"))
+    writeJson(join(userConfigDir, "oh-my-openagent.json"), managedUserConfig)
+    writeFileSync(
+      join(userConfigDir, "oh-my-openagent.local.jsonc"),
+      `{
+        // local model override
+        "agents": {
+          "sisyphus-junior": {
+            "model": "openai/gpt-5.4",
+            "variant": "medium",
+            "fallback_models": [
+              "openai/gpt-5.4",
+              "openai/gpt-5.3-codex-spark"
+            ]
+          }
+        }
+      }\n`,
+      "utf-8",
+    )
+
+    writeJson(join(projectConfigDir, "oh-my-openagent.json"), {
+      agents: {
+        "sisyphus-junior": {
+          textVerbosity: "high",
+        },
+      },
+    })
+
+    const config = loadPluginConfig(projectDir, {})
+
+    expect(config.agents?.["sisyphus-junior"]?.model).toBe("openai/gpt-5.4")
+    expect(config.agents?.["sisyphus-junior"]?.variant).toBe("medium")
+    expect(config.agents?.["sisyphus-junior"]?.fallback_models).toEqual([
+      "openai/gpt-5.4",
+      "openai/gpt-5.3-codex-spark",
+    ])
+    expect(config.agents?.["sisyphus-junior"]?.textVerbosity).toBe("high")
+  })
+
+  it("ignores canonical user jsonc when the managed json base exists and uses the local override basename instead", () => {
+    const projectDir = makeTempDir("config-precedence-ignore-user-jsonc-project")
+    const userConfigDir = makeTempDir("config-precedence-ignore-user-jsonc-user")
+
+    process.env.OPENCODE_CONFIG_DIR = userConfigDir
+
+    const managedUserConfig = JSON.parse(readFileSync(managedPluginConfigPath, "utf-8"))
+    writeJson(join(userConfigDir, "oh-my-openagent.json"), managedUserConfig)
+    writeFileSync(
+      join(userConfigDir, "oh-my-openagent.jsonc"),
+      `{
+        "agents": {
+          "prometheus": {
+            "model": "github-copilot/gpt-5-mini"
+          }
+        }
+      }\n`,
+      "utf-8",
+    )
+    writeFileSync(
+      join(userConfigDir, "oh-my-openagent.local.jsonc"),
+      `{
+        "agents": {
+          "prometheus": {
+            "model": "openai/gpt-5.4"
+          }
+        }
+      }\n`,
+      "utf-8",
+    )
+
+    const config = loadPluginConfig(projectDir, {})
+
+    expect(config.agents?.prometheus?.model).toBe("openai/gpt-5.4")
+  })
 })

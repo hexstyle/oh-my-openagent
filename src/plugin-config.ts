@@ -8,10 +8,15 @@ import {
   addConfigLoadError,
   parseJsonc,
   detectPluginConfigFile,
+  detectLocalOverrideConfigFile,
   migrateConfigFile,
 } from "./shared";
 import { migrateLegacyConfigFile } from "./shared/migrate-legacy-config-file";
-import { CONFIG_BASENAME, LEGACY_CONFIG_BASENAME } from "./shared/plugin-identity";
+import {
+  CONFIG_BASENAME,
+  LEGACY_CONFIG_BASENAME,
+  LOCAL_OVERRIDE_CONFIG_BASENAME,
+} from "./shared/plugin-identity";
 
 const PARTIAL_STRING_ARRAY_KEYS = new Set([
   "disabled_mcps",
@@ -169,33 +174,45 @@ export function loadPluginConfig(
   directory: string,
   ctx: unknown
 ): OhMyOpenCodeConfig {
-  // User-level config path - prefer .jsonc over .json
   const configDir = getOpenCodeConfigDir({ binary: "opencode" });
-  const userDetected = detectPluginConfigFile(configDir);
-  let userConfigPath =
-    userDetected.format !== "none"
-      ? userDetected.path
-      : path.join(configDir, `${CONFIG_BASENAME}.json`);
+  const managedUserConfigPath = path.join(configDir, `${CONFIG_BASENAME}.json`);
+  const canonicalJsoncPath = path.join(configDir, `${CONFIG_BASENAME}.jsonc`);
+  let userConfigPath = managedUserConfigPath;
+  let userConfig = loadConfigFromPath(userConfigPath, ctx);
 
-  if (userDetected.legacyPath) {
-    log("Canonical plugin config detected alongside legacy config. Remove the legacy file to avoid confusion.", {
-      canonicalPath: userDetected.path,
-      legacyPath: userDetected.legacyPath,
+  if (fs.existsSync(canonicalJsoncPath)) {
+    log("Ignoring canonical JSONC config in managed mode. Use the local override basename instead.", {
+      ignoredPath: canonicalJsoncPath,
+      supportedOverridePath: path.join(configDir, `${LOCAL_OVERRIDE_CONFIG_BASENAME}.jsonc`),
     });
   }
 
-  // Auto-copy legacy config file to canonical name if needed
-  if (userDetected.format !== "none" && path.basename(userDetected.path).startsWith(LEGACY_CONFIG_BASENAME)) {
-    const migrated = migrateLegacyConfigFile(userDetected.path);
-    const canonicalPath = path.join(
-      path.dirname(userDetected.path),
-      `${CONFIG_BASENAME}${path.extname(userDetected.path)}`
-    );
-    // Only switch to canonical path if migration succeeded OR canonical file already exists
-    if (migrated || fs.existsSync(canonicalPath)) {
-      userConfigPath = canonicalPath;
+  if (!userConfig) {
+    const userDetected = detectPluginConfigFile(configDir);
+    userConfigPath =
+      userDetected.format !== "none"
+        ? userDetected.path
+        : managedUserConfigPath;
+
+    if (userDetected.legacyPath) {
+      log("Canonical plugin config detected alongside legacy config. Remove the legacy file to avoid confusion.", {
+        canonicalPath: userDetected.path,
+        legacyPath: userDetected.legacyPath,
+      });
     }
-    // Otherwise keep loading from the legacy path that was detected
+
+    if (userDetected.format !== "none" && path.basename(userDetected.path).startsWith(LEGACY_CONFIG_BASENAME)) {
+      const migrated = migrateLegacyConfigFile(userDetected.path);
+      const canonicalPath = path.join(
+        path.dirname(userDetected.path),
+        `${CONFIG_BASENAME}${path.extname(userDetected.path)}`
+      );
+      if (migrated || fs.existsSync(canonicalPath)) {
+        userConfigPath = canonicalPath;
+      }
+    }
+
+    userConfig = loadConfigFromPath(userConfigPath, ctx);
   }
 
   // Project-level config path - prefer .jsonc over .json
@@ -227,10 +244,16 @@ export function loadPluginConfig(
     // Otherwise keep loading from the legacy path that was detected
   }
 
-  // Load user config first (base). Parse empty config through Zod to apply field defaults.
-  const userConfig = loadConfigFromPath(userConfigPath, ctx);
   let config: OhMyOpenCodeConfig =
     userConfig ?? OhMyOpenCodeConfigSchema.parse({});
+
+  const localOverrideDetected = detectLocalOverrideConfigFile(configDir);
+  if (localOverrideDetected.format !== "none") {
+    const localOverrideConfig = loadConfigFromPath(localOverrideDetected.path, ctx);
+    if (localOverrideConfig) {
+      config = mergeConfigs(config, localOverrideConfig);
+    }
+  }
 
   // Override with project config
   const projectConfig = loadConfigFromPath(projectConfigPath, ctx);

@@ -23,6 +23,7 @@ export const AGENT_DISPLAY_NAMES: Record<string, string> = {
 }
 
 export const PRESERVE_CONFIG_KEY_AGENTS = new Set(["explore"])
+export const PRIMARY_RUNTIME_AGENTS = new Set(["sisyphus", "hephaestus", "prometheus", "atlas"])
 
 /**
  * Get display name for an agent config key.
@@ -91,6 +92,34 @@ export function normalizeAgentForPrompt(agentName: string | undefined): string |
 }
 
 /**
+ * Normalize an agent name for session prompt APIs (`session.prompt` / `session.promptAsync`).
+ * Reserved runtime agents such as `explore` must stay on their internal execution key.
+ * All other known agents are normalized to their canonical display names.
+ */
+export function normalizeAgentForSessionPrompt(agentName: string | undefined): string | undefined {
+  if (typeof agentName !== "string") {
+    return undefined
+  }
+
+  const trimmed = agentName.trim()
+  if (!trimmed) {
+    return undefined
+  }
+
+  const configKey = getAgentConfigKey(trimmed)
+  if (PRESERVE_CONFIG_KEY_AGENTS.has(configKey)) {
+    return configKey
+  }
+
+  const displayName = getAgentDisplayName(configKey)
+  if (displayName !== configKey) {
+    return displayName
+  }
+
+  return trimmed
+}
+
+/**
  * Normalize an agent name for execution paths that must preserve internal runtime keys.
  * Reserved runtime agents (for example `explore`) are always mapped to their config key.
  * All other agent names are preserved as provided, aside from trimming.
@@ -111,4 +140,17 @@ export function normalizeAgentForExecution(agentName: string | undefined): strin
   }
 
   return trimmed
+}
+
+export function isPrimaryRuntimeAgent(agentName: string | undefined): boolean {
+  if (typeof agentName !== "string") {
+    return false
+  }
+
+  const trimmed = agentName.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  return PRIMARY_RUNTIME_AGENTS.has(getAgentConfigKey(trimmed))
 }

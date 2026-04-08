@@ -1,6 +1,7 @@
 declare const require: (name: string) => any
 const { describe, test, expect, beforeEach, afterEach, spyOn } = require("bun:test")
 import { getSessionPromptParams, clearSessionPromptParams } from "../../shared/session-prompt-params-state"
+import { normalizeAgentForSessionPrompt } from "../../shared/agent-display-names"
 import { tmpdir } from "node:os"
 import type { PluginInput } from "@opencode-ai/plugin"
 import type { BackgroundTask, ResumeInput } from "./types"
@@ -866,7 +867,7 @@ describe("BackgroundManager.notifyParentSession - dynamic message lookup", () =>
       .notifyParentSession(task)
 
     //#then
-    expect(capturedBody?.agent).toBe("sisyphus")
+    expect(capturedBody?.agent).toBe("Sisyphus (Ultraworker)")
     expect(capturedBody?.model).toEqual({ providerID: "anthropic", modelID: "claude-opus-4-6" })
 
     manager.shutdown()
@@ -897,7 +898,7 @@ describe("BackgroundManager.notifyParentSession - dynamic message lookup", () =>
     const promptBody = buildNotificationPromptBody(task, currentMessage)
 
     // then - uses currentMessage values, not task.parentModel/parentAgent
-    expect(promptBody.agent).toBe("sisyphus")
+    expect(promptBody.agent).toBe("Sisyphus (Ultraworker)")
     expect(promptBody.model).toEqual({ providerID: "anthropic", modelID: "claude-opus-4-6" })
   })
 
@@ -952,7 +953,7 @@ describe("BackgroundManager.notifyParentSession - dynamic message lookup", () =>
     const promptBody = buildNotificationPromptBody(task, currentMessage)
 
     // then - model not passed due to incomplete data
-    expect(promptBody.agent).toBe("sisyphus")
+    expect(promptBody.agent).toBe("Sisyphus (Ultraworker)")
     expect("model" in promptBody).toBe(false)
   })
 
@@ -977,7 +978,7 @@ describe("BackgroundManager.notifyParentSession - dynamic message lookup", () =>
     const promptBody = buildNotificationPromptBody(task, null)
 
     // then - falls back to task.parentAgent, no model
-    expect(promptBody.agent).toBe("sisyphus")
+    expect(promptBody.agent).toBe("Sisyphus (Ultraworker)")
     expect("model" in promptBody).toBe(false)
   })
 })
@@ -1196,7 +1197,7 @@ function buildNotificationPromptBody(
     : undefined
 
   if (agent !== undefined) {
-    body.agent = agent
+    body.agent = normalizeAgentForSessionPrompt(agent) ?? agent
   }
   if (model !== undefined) {
     body.model = model
@@ -1881,7 +1882,10 @@ describe("BackgroundManager - Non-blocking Queue Integration", () => {
       // when
       const startTime = Date.now()
       const task1 = await manager.launch(input)
-      const task2 = await manager.launch(input)
+      const task2 = await manager.launch({
+        ...input,
+        description: "Second task",
+      })
       const endTime = Date.now()
 
       // then
@@ -1907,12 +1911,14 @@ describe("BackgroundManager - Non-blocking Queue Integration", () => {
         get: async () => ({ data: { directory: "/test/dir" } }),
         prompt: async () => ({}),
         promptAsync: async (args: { path: { id: string }; body: Record<string, unknown> }) => {
-          promptBodies.push(args.body)
-          if (promptBodies.length === 1) {
-            resolveFirstPromptStarted?.()
-          }
-          if (promptBodies.length === 2) {
-            resolveSecondPromptStarted?.()
+          if (args.body.agent === "test-agent") {
+            promptBodies.push(args.body)
+            if (promptBodies.length === 1) {
+              resolveFirstPromptStarted?.()
+            }
+            if (promptBodies.length === 2) {
+              resolveSecondPromptStarted?.()
+            }
           }
           return {}
         },
@@ -2148,7 +2154,10 @@ describe("BackgroundManager - Non-blocking Queue Integration", () => {
       }
 
       // when
-      const result = manager.launch(input)
+      const result = manager.launch({
+        ...input,
+        description: "Second task",
+      })
 
       // then
       await expect(result).rejects.toThrow("background_task.maxDepth=3")
@@ -2178,7 +2187,10 @@ describe("BackgroundManager - Non-blocking Queue Integration", () => {
       await manager.launch(input)
 
       // when
-      const result = manager.launch(input)
+      const result = manager.launch({
+        ...input,
+        description: "Second task",
+      })
 
       // then
       await expect(result).rejects.toThrow("background_task.maxDescendants=1")
@@ -3989,7 +4001,7 @@ describe("BackgroundManager.handleEvent - session.error", () => {
     manager.shutdown()
   })
 
-  test("retry path releases current concurrency slot and prefers current provider in fallback entry", async () => {
+  test("retry path backs off on transient errors without consuming the fallback chain", async () => {
     //#given
     const manager = createBackgroundManager()
     const concurrencyManager = getConcurrencyManager(manager)
@@ -4027,11 +4039,11 @@ describe("BackgroundManager.handleEvent - session.error", () => {
 
     //#then
     expect(task.status).toBe("pending")
-    expect(task.attemptCount).toBe(1)
+    expect(task.attemptCount).toBe(0)
+    expect(task.transientRetryCount).toBe(1)
     expect(task.model).toEqual({
       providerID: "anthropic",
-      modelID: "claude-opus-4-6",
-      variant: "max",
+      modelID: "claude-opus-4-6-thinking",
     })
     expect(task.concurrencyKey).toBeUndefined()
     expect(concurrencyManager.getCount(concurrencyKey)).toBe(0)
@@ -4065,11 +4077,11 @@ describe("BackgroundManager.handleEvent - session.error", () => {
 
     //#then
     expect(task.status).toBe("pending")
-    expect(task.attemptCount).toBe(1)
+    expect(task.attemptCount).toBe(0)
+    expect(task.transientRetryCount).toBe(1)
     expect(task.model).toEqual({
       providerID: "anthropic",
-      modelID: "claude-opus-4-6",
-      variant: "max",
+      modelID: "claude-opus-4-6-thinking",
     })
 
     manager.shutdown()
@@ -4110,11 +4122,57 @@ describe("BackgroundManager.handleEvent - session.error", () => {
 
     //#then
     expect(task.status).toBe("pending")
-    expect(task.attemptCount).toBe(1)
+    expect(task.attemptCount).toBe(0)
+    expect(task.transientRetryCount).toBe(1)
     expect(task.model).toEqual({
       providerID: "anthropic",
-      modelID: "claude-opus-4-6",
-      variant: "max",
+      modelID: "claude-opus-4-6-thinking",
+    })
+
+    manager.shutdown()
+  })
+
+  test("model-not-found errors switch to the next distinct fallback immediately", async () => {
+    //#given
+    const manager = createBackgroundManager()
+    stubProcessKey(manager)
+
+    const sessionID = "ses_message_updated_model_not_found"
+    const task = createRetryTask(manager, {
+      id: "task-message-updated-model-not-found",
+      sessionID,
+      description: "task that should skip to the next model",
+      fallbackChain: [
+        { providers: ["anthropic"], model: "claude-opus-4-6-thinking", variant: "max" },
+        { providers: ["openai"], model: "gpt-5.3-codex-spark" },
+      ],
+    })
+
+    //#when
+    manager.handleEvent({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "msg_model_not_found",
+          sessionID,
+          role: "assistant",
+          error: {
+            name: "ProviderModelNotFoundError",
+            data: {
+              message: "Model not found: anthropic/claude-opus-4-6-thinking.",
+            },
+          },
+        },
+      },
+    })
+
+    //#then
+    expect(task.status).toBe("pending")
+    expect(task.attemptCount).toBe(2)
+    expect(task.transientRetryCount).toBe(0)
+    expect(task.model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.3-codex-spark",
     })
 
     manager.shutdown()

@@ -136,4 +136,24 @@ describe("runtime fallback transient backoff", () => {
     const state = deps.sessionStates.get(sessionID)
     expect(state?.currentModel).toBe("openai/gpt-5.3-codex-spark")
   })
+
+  it("uses the explore runtime key for auto-retry prompt payloads", async () => {
+    const promptCalls: Array<unknown> = []
+    const abortCalls: string[] = []
+    const deps = createDeps({
+      promptCalls,
+      abortCalls,
+      retryWindowSeconds: 0.025,
+    })
+    const sessionID = "ses_transient_explore"
+    deps.sessionStates.set(sessionID, createFallbackState("openai/gpt-5.3-codex-spark"))
+
+    const helpers = createAutoRetryHelpers(deps)
+    const retried = await helpers.retryCurrentModel(sessionID, "Explore (Code Search)", "session.error")
+
+    expect(retried).toBe(true)
+
+    const firstPrompt = promptCalls[0] as { body?: { agent?: string } } | undefined
+    expect(firstPrompt?.body?.agent).toBe("explore")
+  })
 })

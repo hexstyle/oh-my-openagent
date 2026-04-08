@@ -4,6 +4,31 @@ import { log } from "./logger"
 import { getOpenCodeCacheDir } from "./data-path"
 import * as connectedProvidersCache from "./connected-providers-cache"
 import { normalizeSDKResponse } from "./normalize-sdk-response"
+import { parseFallbackModelEntry } from "./fallback-chain-from-models"
+
+let cachedModelCatalog: Set<string> | undefined
+
+function getCachedModelStatus(entry: unknown): string | null {
+	if (typeof entry !== "object" || entry === null) {
+		return null
+	}
+
+	const status = (entry as { status?: unknown }).status
+	if (typeof status !== "string") {
+		return null
+	}
+
+	return status.trim().toLowerCase()
+}
+
+function isUsableCachedModelEntry(entry: unknown): boolean {
+	const status = getCachedModelStatus(entry)
+	if (!status) {
+		return true
+	}
+
+	return !["deprecated", "disabled", "removed"].some((token) => status.includes(token))
+}
 
 /**
  * Fuzzy match a target model name against available models
@@ -201,7 +226,7 @@ export async function fetchAvailableModels(
 					? modelItem 
 					: modelItem?.id
 				
-				if (modelId) {
+				if (modelId && isUsableCachedModelEntry(modelItem)) {
 					modelSet.add(`${providerId}/${modelId}`)
 				}
 			}
@@ -241,7 +266,10 @@ export async function fetchAvailableModels(
 				const models = provider?.models
 				if (!models || typeof models !== "object") continue
 
-				for (const modelKey of Object.keys(models)) {
+				for (const [modelKey, modelEntry] of Object.entries(models)) {
+					if (!isUsableCachedModelEntry(modelEntry)) {
+						continue
+					}
 					modelSet.add(`${providerId}/${modelKey}`)
 				}
 			}
@@ -283,7 +311,91 @@ export async function fetchAvailableModels(
 	return modelSet
 }
 
-export function __resetModelCache(): void {}
+export function __resetModelCache(): void {
+	cachedModelCatalog = undefined
+}
+
+export function readCachedModelCatalog(): Set<string> {
+	if (cachedModelCatalog) {
+		return cachedModelCatalog
+	}
+
+	const modelSet = new Set<string>()
+	const providerModelsCache = connectedProvidersCache.readProviderModelsCache()
+
+	if (providerModelsCache) {
+		for (const [providerID, modelEntries] of Object.entries(providerModelsCache.models)) {
+			for (const modelEntry of modelEntries) {
+				const modelID = typeof modelEntry === "string" ? modelEntry : modelEntry?.id
+				if (modelID && isUsableCachedModelEntry(modelEntry)) {
+					modelSet.add(`${providerID}/${modelID}`)
+				}
+			}
+		}
+
+		if (modelSet.size > 0) {
+			cachedModelCatalog = modelSet
+			return cachedModelCatalog
+		}
+	}
+
+	const cacheFile = join(getOpenCodeCacheDir(), "models.json")
+	if (!existsSync(cacheFile)) {
+		cachedModelCatalog = modelSet
+		return cachedModelCatalog
+	}
+
+	try {
+		const content = readFileSync(cacheFile, "utf-8")
+		const data = JSON.parse(content) as Record<string, { models?: Record<string, unknown> }>
+
+		for (const [providerID, providerData] of Object.entries(data)) {
+			const models = providerData?.models
+			if (!models || typeof models !== "object") {
+				continue
+			}
+
+			for (const [modelID, modelEntry] of Object.entries(models)) {
+				if (!isUsableCachedModelEntry(modelEntry)) {
+					continue
+				}
+				modelSet.add(`${providerID}/${modelID}`)
+			}
+		}
+	} catch (err) {
+		log("[readCachedModelCatalog] error", { error: String(err) })
+	}
+
+	cachedModelCatalog = modelSet
+	return cachedModelCatalog
+}
+
+export function resolveKnownCachedModel(
+	target: string,
+	availableModels: Set<string> = readCachedModelCatalog(),
+): string | null {
+	if (!target || availableModels.size === 0) {
+		return null
+	}
+
+	const parsed = parseFallbackModelEntry(target, undefined)
+	if (parsed) {
+		for (const provider of parsed.providers) {
+			const fullTarget = `${provider}/${parsed.model}`
+			const exactProviderMatch = fuzzyMatchModel(fullTarget, availableModels, [provider])
+			if (exactProviderMatch) {
+				return exactProviderMatch
+			}
+
+			const providerModelMatch = fuzzyMatchModel(parsed.model, availableModels, [provider])
+			if (providerModelMatch) {
+				return providerModelMatch
+			}
+		}
+	}
+
+	return fuzzyMatchModel(target, availableModels)
+}
 
 export function isModelCacheAvailable(): boolean {
 	if (connectedProvidersCache.hasProviderModelsCache()) {

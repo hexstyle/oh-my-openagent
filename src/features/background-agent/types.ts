@@ -49,6 +49,12 @@ export interface BackgroundTask {
   fallbackChain?: FallbackEntry[]
   /** Number of fallback retry attempts made */
   attemptCount?: number
+  /** Number of delayed transient retries attempted on the current model */
+  transientRetryCount?: number
+  /** Timestamp when the transient retry window started */
+  transientRetryStartedAt?: number
+  /** Last scheduled transient retry delay */
+  transientRetryDelayMs?: number
   /** Active concurrency slot key */
   concurrencyKey?: string
   /** Persistent key for re-acquiring concurrency on resume */

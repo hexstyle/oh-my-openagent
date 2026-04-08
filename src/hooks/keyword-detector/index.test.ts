@@ -77,6 +77,27 @@ describe("keyword-detector message transform", () => {
     expect(textPart!.text).toContain("[search-mode]")
   })
 
+  test("should not duplicate search message when chat.message runs twice", async () => {
+    // given - the same prompt passes through chat.message twice
+    const collector = new ContextCollector()
+    const sessionID = "search-repeat-session"
+    getMainSessionSpy = spyOn(sessionState, "getMainSessionID").mockReturnValue(sessionID)
+    const hook = createKeywordDetectorHook(createMockPluginInput(), collector)
+    const output = {
+      message: {} as Record<string, unknown>,
+      parts: [{ type: "text", text: "find the package manifest" }],
+    }
+
+    // when - the hook runs twice on the same prompt payload
+    await hook["chat.message"]({ sessionID }, output)
+    await hook["chat.message"]({ sessionID }, output)
+
+    // then - the mode prefix should appear only once
+    const textPart = output.parts.find(p => p.type === "text")
+    expect(textPart).toBeDefined()
+    expect((textPart!.text?.match(/\[search-mode\]/g) ?? []).length).toBe(1)
+  })
+
   test("should NOT transform when no keywords detected", async () => {
     // given - no keywords in message
     const collector = new ContextCollector()
@@ -239,6 +260,28 @@ describe("keyword-detector session filtering", () => {
     // then - ultrawork should preserve the already resolved runtime variant
     expect(output.message.variant).toBe("low")
     expect(toastCalls).toContain("Ultrawork Mode Activated")
+  })
+
+  test("should not re-inject ultrawork message or duplicate toast on repeated chat.message passes", async () => {
+    // given - an ultrawork prompt is transformed once already
+    setMainSession("main-456")
+
+    const toastCalls: string[] = []
+    const hook = createKeywordDetectorHook(createMockPluginInput({ toastCalls }))
+    const output = {
+      message: {} as Record<string, unknown>,
+      parts: [{ type: "text", text: "ultrawork investigate this flow" }],
+    }
+
+    // when - the same output is processed twice
+    await hook["chat.message"]({ sessionID: "main-456" }, output)
+    await hook["chat.message"]({ sessionID: "main-456" }, output)
+
+    // then - we keep a single injected block and a single toast
+    const textPart = output.parts.find(p => p.type === "text")
+    expect(textPart).toBeDefined()
+    expect((textPart!.text?.match(/YOU MUST LEVERAGE ALL AVAILABLE AGENTS/g) ?? []).length).toBe(1)
+    expect(toastCalls).toEqual(["Ultrawork Mode Activated"])
   })
 })
 

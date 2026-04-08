@@ -2,6 +2,7 @@ import { updateSessionAgent } from "../../features/claude-code-session-state"
 import {
   getCompactionAgentConfigCheckpoint,
 } from "../../shared/compaction-agent-config-checkpoint"
+import { normalizeAgentForSessionPrompt } from "../../shared/agent-display-names"
 import { createInternalAgentTextPart } from "../../shared/internal-initiator-marker"
 import { log } from "../../shared/logger"
 import { setSessionModel } from "../../shared/session-model-state"
@@ -77,11 +78,13 @@ export function createRecoveryLogic(
     }
 
     try {
+      const promptAgent = normalizeAgentForSessionPrompt(expectedPromptConfig.agent)
+
       await ctx.client.session.promptAsync({
         path: { id: sessionID },
         body: {
           noReply: true,
-          agent: expectedPromptConfig.agent,
+          ...(promptAgent ? { agent: promptAgent } : {}),
           ...(model ? { model } : {}),
           ...(tools ? { tools } : {}),
           parts: [createInternalAgentTextPart(AGENT_RECOVERY_PROMPT)],

@@ -3,7 +3,7 @@ import type { AgentConfig, CategoryConfig, GeneratedOmoConfig, ProviderAvailabil
 const OPENAI_ONLY_AGENT_OVERRIDES: Record<string, AgentConfig> = {
   explore: { model: "openai/gpt-5.3-codex-spark" },
   librarian: { model: "openai/gpt-5.4", variant: "medium" },
-  "sisyphus-junior": { model: "openai/gpt-5.3-codex-spark" },
+  "sisyphus-junior": { model: "openai/gpt-5.4", variant: "medium" },
 }
 
 const OPENAI_ONLY_CATEGORY_OVERRIDES: Record<string, CategoryConfig> = {

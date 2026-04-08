@@ -3,8 +3,10 @@ import {
   AGENT_DISPLAY_NAMES,
   getAgentDisplayName,
   getAgentConfigKey,
+  isPrimaryRuntimeAgent,
   normalizeAgentForExecution,
   normalizeAgentForPrompt,
+  normalizeAgentForSessionPrompt,
 } from "./agent-display-names"
 
 describe("getAgentDisplayName", () => {
@@ -232,5 +234,28 @@ describe("normalizeAgentForExecution", () => {
 
   it("leaves non-reserved agent names unchanged", () => {
     expect(normalizeAgentForExecution("oracle")).toBe("oracle")
+  })
+})
+
+describe("normalizeAgentForSessionPrompt", () => {
+  it("normalizes non-reserved agents to canonical display names", () => {
+    expect(normalizeAgentForSessionPrompt("atlas")).toBe("Atlas (Plan Executor)")
+  })
+
+  it("preserves the explore runtime key for session prompt payloads", () => {
+    expect(normalizeAgentForSessionPrompt("Explore (Code Search)")).toBe("explore")
+  })
+})
+
+describe("isPrimaryRuntimeAgent", () => {
+  it("returns true for primary runtime agents", () => {
+    expect(isPrimaryRuntimeAgent("Prometheus (Plan Builder)")).toBe(true)
+    expect(isPrimaryRuntimeAgent("atlas")).toBe(true)
+  })
+
+  it("returns false for subagents and unknown names", () => {
+    expect(isPrimaryRuntimeAgent("Explore (Code Search)")).toBe(false)
+    expect(isPrimaryRuntimeAgent("librarian")).toBe(false)
+    expect(isPrimaryRuntimeAgent("custom-agent")).toBe(false)
   })
 })

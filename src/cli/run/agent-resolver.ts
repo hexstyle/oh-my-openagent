@@ -1,7 +1,11 @@
 import pc from "picocolors"
 import type { RunOptions } from "./types"
 import type { OhMyOpenCodeConfig } from "../../config"
-import { getAgentConfigKey, getAgentDisplayName } from "../../shared/agent-display-names"
+import {
+  getAgentConfigKey,
+  getAgentDisplayName,
+  normalizeAgentForSessionPrompt,
+} from "../../shared/agent-display-names"
 
 const CORE_AGENT_ORDER = ["sisyphus", "hephaestus", "prometheus", "atlas"] as const
 const DEFAULT_AGENT = "sisyphus"
@@ -86,3 +90,6 @@ export const resolveRunAgent = (
 
   return resolved.resolvedName
 }
+
+export const resolveRunPromptAgent = (agent: string): string =>
+  normalizeAgentForSessionPrompt(agent) ?? agent

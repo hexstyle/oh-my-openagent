@@ -47,8 +47,8 @@ export function normalizeAgentName(agent: string | undefined): string | undefine
 
 export function resolveAgentForSession(sessionID: string, eventAgent?: string): string | undefined {
   return (
-    normalizeAgentName(eventAgent) ??
     normalizeAgentName(getSessionAgent(sessionID)) ??
+    normalizeAgentName(eventAgent) ??
     detectAgentFromSession(sessionID)
   )
 }

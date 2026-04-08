@@ -1,7 +1,11 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { parse, ParseError, printParseErrorCode } from "jsonc-parser"
-import { CONFIG_BASENAME, LEGACY_CONFIG_BASENAME } from "./plugin-identity"
+import {
+  CONFIG_BASENAME,
+  LEGACY_CONFIG_BASENAME,
+  LOCAL_OVERRIDE_CONFIG_BASENAME,
+} from "./plugin-identity"
 
 export interface JsoncParseResult<T> {
   data: T | null
@@ -87,4 +91,11 @@ export function detectPluginConfigFile(dir: string): {
   }
 
   return { format: "none", path: join(dir, `${CONFIG_BASENAME}.json`) }
+}
+
+export function detectLocalOverrideConfigFile(dir: string): {
+  format: "json" | "jsonc" | "none"
+  path: string
+} {
+  return detectConfigFile(join(dir, LOCAL_OVERRIDE_CONFIG_BASENAME))
 }

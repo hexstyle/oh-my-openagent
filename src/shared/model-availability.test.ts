@@ -10,6 +10,8 @@ let fetchAvailableModels: (client?: unknown, options?: { connectedProviders?: st
 let fuzzyMatchModel: (target: string, available: Set<string>, providers?: string[]) => string | null
 let isModelAvailable: (targetModel: string, availableModels: Set<string>) => boolean
 let getConnectedProviders: (client: unknown) => Promise<string[]>
+let readCachedModelCatalog: () => Set<string>
+let resolveKnownCachedModel: (target: string, availableModels?: Set<string>) => string | null
 let isAnyFallbackModelAvailable: (
 	fallbackChain: Array<{ providers: string[]; model: string }>,
 	availableModels: Set<string>,
@@ -26,6 +28,8 @@ beforeAll(async () => {
     fuzzyMatchModel,
     isModelAvailable,
     getConnectedProviders,
+    readCachedModelCatalog,
+    resolveKnownCachedModel,
   } = await import("./model-availability"))
 	;({
 		isAnyFallbackModelAvailable,
@@ -401,6 +405,97 @@ describe("fuzzyMatchModel", () => {
 	})
 })
 
+describe("readCachedModelCatalog", () => {
+	let tempDir: string
+	let originalXdgCache: string | undefined
+	let providerModelsCacheSpy: { mockRestore(): void } | undefined
+
+	beforeEach(() => {
+		__resetModelCache()
+		tempDir = mkdtempSync(join(tmpdir(), "opencode-test-"))
+		originalXdgCache = process.env.XDG_CACHE_HOME
+		process.env.XDG_CACHE_HOME = tempDir
+		providerModelsCacheSpy = spyOn(connectedProvidersCache, "readProviderModelsCache").mockReturnValue(null)
+	})
+
+	afterEach(() => {
+		providerModelsCacheSpy?.mockRestore()
+		if (originalXdgCache !== undefined) {
+			process.env.XDG_CACHE_HOME = originalXdgCache
+		} else {
+			delete process.env.XDG_CACHE_HOME
+		}
+		rmSync(tempDir, { recursive: true, force: true })
+	})
+
+	it("reads every provider/model pair from models.json when provider-models cache is absent", () => {
+		const cacheDir = join(tempDir, "opencode")
+		require("fs").mkdirSync(cacheDir, { recursive: true })
+		writeFileSync(join(cacheDir, "models.json"), JSON.stringify({
+			openai: { id: "openai", models: { "gpt-5.3-codex-spark": { id: "gpt-5.3-codex-spark" } } },
+			opencode: { id: "opencode", models: { "nemotron-3-super-free": { id: "nemotron-3-super-free" } } },
+		}))
+
+		const result = readCachedModelCatalog()
+
+		expect(result).toEqual(new Set([
+			"openai/gpt-5.3-codex-spark",
+			"opencode/nemotron-3-super-free",
+		]))
+	})
+
+	it("skips deprecated cached models from models.json", () => {
+		const cacheDir = join(tempDir, "opencode")
+		require("fs").mkdirSync(cacheDir, { recursive: true })
+		writeFileSync(join(cacheDir, "models.json"), JSON.stringify({
+			opencode: {
+				id: "opencode",
+				models: {
+					"nemotron-3-super-free": { id: "nemotron-3-super-free" },
+					"qwen3.6-plus-free": { id: "qwen3.6-plus-free", status: "deprecated" },
+				},
+			},
+		}))
+
+		const result = readCachedModelCatalog()
+
+		expect(result).toEqual(new Set([
+			"opencode/nemotron-3-super-free",
+		]))
+	})
+
+	it("skips deprecated provider-models cache entries", () => {
+		providerModelsCacheSpy?.mockRestore()
+		providerModelsCacheSpy = spyOn(connectedProvidersCache, "readProviderModelsCache").mockReturnValue({
+			models: {
+				opencode: [
+					{ id: "nemotron-3-super-free" },
+					{ id: "qwen3.6-plus-free", status: "deprecated" },
+				],
+			},
+			connected: ["opencode"],
+			updatedAt: new Date().toISOString(),
+		})
+
+		const result = readCachedModelCatalog()
+
+		expect(result).toEqual(new Set([
+			"opencode/nemotron-3-super-free",
+		]))
+	})
+
+	it("resolves provider-qualified fallback strings against the cached catalog", () => {
+		const availableModels = new Set([
+			"openai/gpt-5.3-codex-spark",
+			"opencode/nemotron-3-super-free",
+		])
+
+		expect(resolveKnownCachedModel("openai/gpt-5.3-codex-spark", availableModels)).toBe("openai/gpt-5.3-codex-spark")
+		expect(resolveKnownCachedModel("openai/gpt-5.3-codex-spark(low)", availableModels)).toBe("openai/gpt-5.3-codex-spark")
+		expect(resolveKnownCachedModel("opencode/qwen3.6-plus-free", availableModels)).toBeNull()
+	})
+})
+
 describe("getConnectedProviders", () => {
 	// given SDK client with connected providers
 	// when provider.list returns data
@@ -727,6 +822,26 @@ describe("fetchAvailableModels with provider-models cache (whitelist-filtered)",
 		expect(result.has("anthropic/claude-sonnet-4-6")).toBe(false)
 	})
 
+	it("should ignore deprecated provider-models cache entries", async () => {
+		writeProviderModelsCache({
+			models: {
+				opencode: [
+					{ id: "nemotron-3-super-free" },
+					{ id: "qwen3.6-plus-free", status: "deprecated" },
+				],
+			},
+			connected: ["opencode"],
+		})
+
+		const result = await fetchAvailableModels(undefined, {
+			connectedProviders: ["opencode"],
+		})
+
+		expect(result).toEqual(new Set([
+			"opencode/nemotron-3-super-free",
+		]))
+	})
+
 	// given provider-models cache exists but has no models (API failure)
 	// when fetchAvailableModels called
 	// then falls back to models.json so fuzzy matching can still work
@@ -764,6 +879,25 @@ describe("fetchAvailableModels with provider-models cache (whitelist-filtered)",
 		expect(result.has("opencode/big-pickle")).toBe(true)
 		expect(result.has("opencode/gpt-5-nano")).toBe(true)
 		expect(result.has("opencode/gpt-5.4")).toBe(true)
+	})
+
+	it("should ignore deprecated models.json entries when provider-models cache is absent", async () => {
+		writeModelsCache({
+			opencode: {
+				models: {
+					"nemotron-3-super-free": {},
+					"qwen3.6-plus-free": { status: "deprecated" },
+				},
+			},
+		})
+
+		const result = await fetchAvailableModels(undefined, {
+			connectedProviders: ["opencode"],
+		})
+
+		expect(result).toEqual(new Set([
+			"opencode/nemotron-3-super-free",
+		]))
 	})
 
 	// given provider-models cache with whitelist

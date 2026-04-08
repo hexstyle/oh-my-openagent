@@ -70,10 +70,10 @@ describe("runtime fallback recovery probe", () => {
     const sessionID = "ses_recovery_probe"
     const state = createFallbackState("anthropic/claude-opus-4-6", [
       "openai/gpt-5.3-codex-spark",
-      "opencode/mimo-v2-pro-free",
+      "opencode/big-pickle",
     ])
 
-    state.currentModel = "opencode/mimo-v2-pro-free"
+    state.currentModel = "opencode/big-pickle"
     state.fallbackIndex = 1
     state.failedModels.set("anthropic/claude-opus-4-6", Date.now())
     state.failedModels.set("openai/gpt-5.3-codex-spark", Date.now())

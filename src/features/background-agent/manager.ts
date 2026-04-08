@@ -72,7 +72,10 @@ import {
   resolveSubagentSpawnContext,
   type SubagentSpawnContext,
 } from "./subagent-spawn-limits"
-import { normalizeAgentForExecution } from "../../shared/agent-display-names"
+import {
+  normalizeAgentForExecution,
+  normalizeAgentForSessionPrompt,
+} from "../../shared/agent-display-names"
 
 type OpencodeClient = PluginInput["client"]
 
@@ -239,6 +242,7 @@ export class BackgroundManager {
   private completionTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
   private completedTaskSummaries: Map<string, Array<{id: string, description: string, status: string, error?: string}>> = new Map()
   private idleDeferralTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
+  private transientRetryTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
   private notificationQueueByParent: Map<string, Promise<void>> = new Map()
   private parentStatusReports: Map<string, { lastSentAt: number; lastDigest: string }> = new Map()
   private rootDescendantCounts: Map<string, number>
@@ -1067,6 +1071,12 @@ export class BackgroundManager {
       this.idleDeferralTimers.delete(task.id)
     }
 
+    const transientRetryTimer = this.transientRetryTimers.get(task.id)
+    if (transientRetryTimer) {
+      clearTimeout(transientRetryTimer)
+      this.transientRetryTimers.delete(task.id)
+    }
+
     this.cleanupPendingByParent(task)
     this.clearNotificationsForTask(task.id)
     const toastManager = getTaskToastManager()
@@ -1326,6 +1336,7 @@ export class BackgroundManager {
       concurrencyManager: this.concurrencyManager,
       client: this.client,
       idleDeferralTimers: this.idleDeferralTimers,
+      transientRetryTimers: this.transientRetryTimers,
       queuesByKey: this.queuesByKey,
       processKey: (key: string) => this.processKey(key),
     })
@@ -1348,6 +1359,7 @@ export class BackgroundManager {
       concurrencyManager: this.concurrencyManager,
       client: this.client,
       idleDeferralTimers: this.idleDeferralTimers,
+      transientRetryTimers: this.transientRetryTimers,
       queuesByKey: this.queuesByKey,
       processKey: (key: string) => this.processKey(key),
     })
@@ -1630,6 +1642,12 @@ export class BackgroundManager {
       this.idleDeferralTimers.delete(task.id)
     }
 
+    const transientRetryTimer = this.transientRetryTimers.get(task.id)
+    if (transientRetryTimer) {
+      clearTimeout(transientRetryTimer)
+      this.transientRetryTimers.delete(task.id)
+    }
+
     if (abortSession && task.sessionID) {
       // Awaited to prevent dangling promise during subagent teardown (Bun/WebKit SIGABRT)
       await this.client.session.abort({
@@ -1747,6 +1765,12 @@ export class BackgroundManager {
     if (idleTimer) {
       clearTimeout(idleTimer)
       this.idleDeferralTimers.delete(task.id)
+    }
+
+    const transientRetryTimer = this.transientRetryTimers.get(task.id)
+    if (transientRetryTimer) {
+      clearTimeout(transientRetryTimer)
+      this.transientRetryTimers.delete(task.id)
     }
 
     if (task.sessionID) {
@@ -1944,10 +1968,11 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
         }
 
         const resolvedTools = resolveInheritedPromptTools(task.parentSessionID, tools)
+        const promptAgent = normalizeAgentForSessionPrompt(agent)
 
         log("[background-agent] notifyParentSession context:", {
           taskId: task.id,
-          resolvedAgent: agent,
+          resolvedAgent: promptAgent ?? agent,
           resolvedModel: model,
         })
 
@@ -1959,7 +1984,7 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
             path: { id: task.parentSessionID },
             body: {
               noReply: !shouldReply,
-              ...(agent !== undefined ? { agent } : {}),
+              ...(promptAgent !== undefined ? { agent: promptAgent } : {}),
               ...(model !== undefined ? { model } : {}),
               ...(resolvedTools ? { tools: resolvedTools } : {}),
               parts: [createInternalAgentTextPart(notification)],
@@ -2030,6 +2055,11 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
         if (idleTimer) {
           clearTimeout(idleTimer)
           this.idleDeferralTimers.delete(taskId)
+        }
+        const transientRetryTimer = this.transientRetryTimers.get(taskId)
+        if (transientRetryTimer) {
+          clearTimeout(transientRetryTimer)
+          this.transientRetryTimers.delete(taskId)
         }
         if (wasPending) {
           const key = task.model
@@ -2277,6 +2307,11 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
       clearTimeout(timer)
     }
     this.idleDeferralTimers.clear()
+
+    for (const timer of this.transientRetryTimers.values()) {
+      clearTimeout(timer)
+    }
+    this.transientRetryTimers.clear()
 
     for (const sessionID of trackedSessionIDs) {
       subagentSessions.delete(sessionID)

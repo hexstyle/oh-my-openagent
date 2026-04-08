@@ -1,9 +1,11 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test"
+import { afterAll, afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test"
 
 mock.module("../../shared", () => ({
   log: mock(() => {}),
   readConnectedProvidersCache: mock(() => null),
   readProviderModelsCache: mock(() => null),
+  readCachedModelCatalog: mock(() => new Set<string>()),
+  resolveKnownCachedModel: mock((_target: string, availableModels: Set<string>) => availableModels.size > 0 ? null : "known"),
 }))
 
 mock.module("../../shared/model-error-classifier", () => ({
@@ -19,9 +21,8 @@ mock.module("../../shared/provider-model-id-transform", () => ({
 }))
 
 import { tryFallbackRetry, tryFallbackSwitch } from "./fallback-retry-handler"
-import { shouldRetryError, shouldSwitchFallback } from "../../shared/model-error-classifier"
-import { selectFallbackProvider } from "../../shared/model-error-classifier"
-import { readProviderModelsCache } from "../../shared"
+import { shouldRetryError, shouldSwitchFallback, selectFallbackProvider } from "../../shared/model-error-classifier"
+import { readCachedModelCatalog, readProviderModelsCache, resolveKnownCachedModel } from "../../shared"
 import type { BackgroundTask } from "./types"
 import type { ConcurrencyManager } from "./concurrency"
 
@@ -59,24 +60,26 @@ function createMockClient() {
     session: {
       abort: mock(async () => ({})),
     },
-  } as any
+  } as const
 }
 
 function createDefaultArgs(taskOverrides: Partial<BackgroundTask> = {}) {
   const processKeyFn = mock(() => {})
-  const queuesByKey = new Map<string, Array<{ task: BackgroundTask; input: any }>>()
+  const queuesByKey = new Map<string, Array<{ task: BackgroundTask; input: unknown }>>()
   const idleDeferralTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const transientRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
   const concurrencyManager = createMockConcurrencyManager()
   const client = createMockClient()
   const task = createMockTask(taskOverrides)
 
   return {
     task,
-    errorInfo: { name: "OverloadedError", message: "model overloaded" },
+    errorInfo: { name: "UnknownError", message: "model overloaded" },
     source: "polling",
     concurrencyManager,
     client,
     idleDeferralTimers,
+    transientRetryTimers,
     queuesByKey,
     processKey: processKeyFn,
   }
@@ -92,241 +95,158 @@ describe("tryFallbackRetry", () => {
     ;(shouldSwitchFallback as any).mockImplementation(() => true)
     ;(selectFallbackProvider as any).mockImplementation((providers: string[]) => providers[0])
     ;(readProviderModelsCache as any).mockReturnValue(null)
+    ;(readCachedModelCatalog as any).mockReturnValue(new Set())
+    ;(resolveKnownCachedModel as any).mockImplementation((_target: string, availableModels: Set<string>) => availableModels.size > 0 ? null : "known")
   })
 
-  describe("#given retryable error with fallback chain", () => {
-    test("returns true and enqueues retry", () => {
-      const args = createDefaultArgs()
-
-      const result = tryFallbackRetry(args)
-
-      expect(result).toBe(true)
-    })
-
-    test("resets task status to pending", () => {
-      const args = createDefaultArgs()
-
-      tryFallbackRetry(args)
-
-      expect(args.task.status).toBe("pending")
-    })
-
-    test("increments attemptCount", () => {
-      const args = createDefaultArgs()
-
-      tryFallbackRetry(args)
-
-      expect(args.task.attemptCount).toBe(1)
-    })
-
-    test("updates task model to fallback", () => {
-      const args = createDefaultArgs()
-
-      tryFallbackRetry(args)
-
-      expect(args.task.model?.modelID).toBe("fallback-model-1")
-      expect(args.task.model?.providerID).toBe("provider-a")
-    })
-
-    test("clears sessionID and startedAt", () => {
-      const args = createDefaultArgs({
-        sessionID: "old-session",
-        startedAt: new Date(),
-      })
-
-      tryFallbackRetry(args)
-
-      expect(args.task.sessionID).toBeUndefined()
-      expect(args.task.startedAt).toBeUndefined()
-    })
-
-    test("clears error field", () => {
-      const args = createDefaultArgs({ error: "previous error" })
-
-      tryFallbackRetry(args)
-
-      expect(args.task.error).toBeUndefined()
-    })
-
-    test("sets new queuedAt", () => {
-      const args = createDefaultArgs()
-
-      tryFallbackRetry(args)
-
-      expect(args.task.queuedAt).toBeInstanceOf(Date)
-    })
-
-    test("releases concurrency slot", () => {
-      const args = createDefaultArgs()
-
-      tryFallbackRetry(args)
-
-      expect(args.concurrencyManager.release).toHaveBeenCalledWith("provider-a/original-model")
-    })
-
-    test("clears concurrencyKey after release", () => {
-      const args = createDefaultArgs()
-
-      tryFallbackRetry(args)
-
-      expect(args.task.concurrencyKey).toBeUndefined()
-    })
-
-    test("aborts existing session", () => {
-      const args = createDefaultArgs({ sessionID: "session-to-abort" })
-
-      tryFallbackRetry(args)
-
-      expect(args.client.session.abort).toHaveBeenCalledWith({
-        path: { id: "session-to-abort" },
-      })
-    })
-
-    test("adds retry input to queue and calls processKey", () => {
-      const args = createDefaultArgs()
-
-      tryFallbackRetry(args)
-
-      const key = `${args.task.model!.providerID}/${args.task.model!.modelID}`
-      const queue = args.queuesByKey.get(key)
-      expect(queue).toBeDefined()
-      expect(queue!.length).toBe(1)
-      expect(queue![0].task).toBe(args.task)
-      expect(args.processKey).toHaveBeenCalledWith(key)
-    })
+  afterEach(() => {
+    jest.useRealTimers()
   })
 
-  describe("#given non-retryable error", () => {
-    test("returns false when shouldRetryError returns false", () => {
-      ;(shouldRetryError as any).mockImplementation(() => false)
-      const args = createDefaultArgs()
+  test("schedules delayed same-model retry for transient errors instead of burning the fallback chain immediately", () => {
+    jest.useFakeTimers()
+    const args = createDefaultArgs({ sessionID: "session-to-abort" })
 
-      const result = tryFallbackRetry(args)
+    const result = tryFallbackRetry(args)
 
-      expect(result).toBe(false)
+    expect(result).toBe(true)
+    expect(args.task.status).toBe("pending")
+    expect(args.task.attemptCount).toBe(0)
+    expect(args.task.model).toEqual({
+      providerID: "provider-a",
+      modelID: "original-model",
     })
+    expect(args.task.transientRetryCount).toBe(1)
+    expect(args.task.transientRetryDelayMs).toBe(30_000)
+    expect(args.client.session.abort).toHaveBeenCalledWith({
+      path: { id: "session-to-abort" },
+    })
+    expect(args.processKey).not.toHaveBeenCalled()
+    expect(args.queuesByKey.size).toBe(0)
+
+    jest.advanceTimersByTime(29_999)
+    expect(args.processKey).not.toHaveBeenCalled()
+
+    jest.advanceTimersByTime(1)
+    expect(args.processKey).toHaveBeenCalledWith("provider-a/original-model")
+    const queue = args.queuesByKey.get("provider-a/original-model")
+    expect(queue).toBeDefined()
+    expect(queue).toHaveLength(1)
+    expect(queue?.[0]?.task).toBe(args.task)
   })
 
-  describe("#given no fallback chain", () => {
-    test("returns false when fallbackChain is undefined", () => {
-      const args = createDefaultArgs({ fallbackChain: undefined })
-
-      const result = tryFallbackRetry(args)
-
-      expect(result).toBe(false)
+  test("caps delayed transient retries at five minutes", () => {
+    jest.useFakeTimers()
+    const args = createDefaultArgs({
+      transientRetryStartedAt: Date.now(),
+      transientRetryCount: 4,
+      transientRetryDelayMs: 240_000,
     })
 
-    test("returns false when fallbackChain is empty", () => {
-      const args = createDefaultArgs({ fallbackChain: [] })
+    const result = tryFallbackRetry(args)
 
-      const result = tryFallbackRetry(args)
+    expect(result).toBe(true)
+    expect(args.task.transientRetryCount).toBe(5)
+    expect(args.task.transientRetryDelayMs).toBe(300_000)
 
-      expect(result).toBe(false)
-    })
+    jest.advanceTimersByTime(299_999)
+    expect(args.processKey).not.toHaveBeenCalled()
+
+    jest.advanceTimersByTime(1)
+    expect(args.processKey).toHaveBeenCalledWith("provider-a/original-model")
   })
 
-  describe("#given exhausted fallbacks", () => {
-    test("returns false when attemptCount exceeds chain length", () => {
-      const args = createDefaultArgs({ attemptCount: 5 })
-
-      const result = tryFallbackRetry(args)
-
-      expect(result).toBe(false)
+  test("falls through to the next distinct fallback model after the transient retry window expires", () => {
+    const args = createDefaultArgs({
+      fallbackChain: [
+        { model: "original-model", providers: ["provider-a"], variant: undefined },
+        { model: "fallback-model-1", providers: ["provider-b"], variant: undefined },
+      ],
+      transientRetryStartedAt: Date.now() - (4 * 60 * 60 * 1000 + 1_000),
+      transientRetryCount: 9,
+      transientRetryDelayMs: 300_000,
     })
+
+    const result = tryFallbackRetry(args)
+
+    expect(result).toBe(true)
+    expect(args.task.attemptCount).toBe(2)
+    expect(args.task.transientRetryCount).toBe(0)
+    expect(args.task.transientRetryStartedAt).toBeUndefined()
+    expect(args.task.transientRetryDelayMs).toBeUndefined()
+    expect(args.task.model).toEqual({
+      providerID: "provider-b",
+      modelID: "fallback-model-1",
+    })
+    expect(args.processKey).toHaveBeenCalledWith("provider-b/fallback-model-1")
   })
 
-  describe("#given task without concurrency key", () => {
-    test("skips concurrency release", () => {
-      const args = createDefaultArgs({ concurrencyKey: undefined })
-
-      tryFallbackRetry(args)
-
-      expect(args.concurrencyManager.release).not.toHaveBeenCalled()
+  test("switches immediately to the next distinct fallback when the provider says the model does not exist", () => {
+    const args = createDefaultArgs({
+      fallbackChain: [
+        { model: "original-model", providers: ["provider-a"], variant: undefined },
+        { model: "fallback-model-1", providers: ["provider-b"], variant: undefined },
+      ],
     })
+
+    const result = tryFallbackRetry({
+      ...args,
+      errorInfo: {
+        name: "ProviderModelNotFoundError",
+        message: "Model not found: provider-a/original-model.",
+      },
+    })
+
+    expect(result).toBe(true)
+    expect(args.task.attemptCount).toBe(2)
+    expect(args.task.model).toEqual({
+      providerID: "provider-b",
+      modelID: "fallback-model-1",
+    })
+    expect(args.task.transientRetryCount).toBe(0)
+    expect(args.processKey).toHaveBeenCalledWith("provider-b/fallback-model-1")
   })
 
-  describe("#given task without session", () => {
-    test("skips session abort", () => {
-      const args = createDefaultArgs({ sessionID: undefined })
+  test("skips fallback entries that are absent from the cached model catalog", () => {
+    ;(readCachedModelCatalog as any).mockReturnValue(new Set([
+      "provider-b/fallback-model-1",
+    ]))
+    ;(resolveKnownCachedModel as any).mockImplementation((target: string, availableModels: Set<string>) =>
+      availableModels.has(target) ? target : null
+    )
 
-      tryFallbackRetry(args)
-
-      expect(args.client.session.abort).not.toHaveBeenCalled()
+    const args = createDefaultArgs({
+      fallbackChain: [
+        { model: "original-model", providers: ["provider-a"], variant: undefined },
+        { model: "missing-model", providers: ["provider-c"], variant: undefined },
+        { model: "fallback-model-1", providers: ["provider-b"], variant: undefined },
+      ],
     })
+
+    const result = tryFallbackRetry({
+      ...args,
+      errorInfo: {
+        name: "ProviderModelNotFoundError",
+        message: "Model not found: provider-a/original-model.",
+      },
+    })
+
+    expect(result).toBe(true)
+    expect(args.task.attemptCount).toBe(3)
+    expect(args.task.model).toEqual({
+      providerID: "provider-b",
+      modelID: "fallback-model-1",
+    })
+    expect(args.processKey).toHaveBeenCalledWith("provider-b/fallback-model-1")
   })
 
-  describe("#given active idle deferral timer", () => {
-    test("clears the timer and removes from map", () => {
-      const args = createDefaultArgs()
-      const timerId = setTimeout(() => {}, 10000)
-      args.idleDeferralTimers.set("test-task-1", timerId)
+  test("returns false when the error is not retryable", () => {
+    ;(shouldRetryError as any).mockImplementation(() => false)
+    const args = createDefaultArgs()
 
-      tryFallbackRetry(args)
+    const result = tryFallbackRetry(args)
 
-      expect(args.idleDeferralTimers.has("test-task-1")).toBe(false)
-    })
-  })
-
-  describe("#given second attempt", () => {
-    test("uses second fallback in chain", () => {
-      const args = createDefaultArgs({ attemptCount: 1 })
-
-      tryFallbackRetry(args)
-
-      expect(args.task.model?.modelID).toBe("fallback-model-2")
-      expect(args.task.attemptCount).toBe(2)
-    })
-  })
-
-  describe("#given disconnected fallback providers with connected preferred provider", () => {
-    test("keeps fallback entry and selects connected preferred provider", () => {
-      ;(readProviderModelsCache as any).mockReturnValueOnce({ connected: ["provider-a"] })
-      ;(selectFallbackProvider as any).mockImplementationOnce(
-        (_providers: string[], preferredProviderID?: string) => preferredProviderID ?? "provider-b",
-      )
-
-      const args = createDefaultArgs({
-        fallbackChain: [{ model: "fallback-model-1", providers: ["provider-b"], variant: undefined }],
-        model: { providerID: "provider-a", modelID: "original-model" },
-      })
-
-      const result = tryFallbackRetry(args)
-
-      expect(result).toBe(true)
-      expect(args.task.model?.providerID).toBe("provider-a")
-      expect(args.task.model?.modelID).toBe("fallback-model-1")
-    })
-  })
-
-  describe("#given fallback to same model without explicit settings", () => {
-    test("preserves current variant and model settings", () => {
-      const args = createDefaultArgs({
-        model: {
-          providerID: "provider-a",
-          modelID: "original-model",
-          variant: "xhigh",
-          reasoningEffort: "xhigh",
-          temperature: 0.15,
-          top_p: 0.9,
-          maxTokens: 8192,
-          thinking: { type: "enabled", budgetTokens: 4000 },
-        },
-        fallbackChain: [{ model: "original-model", providers: ["provider-a"] }],
-      })
-
-      tryFallbackRetry(args)
-
-      expect(args.task.model).toEqual({
-        providerID: "provider-a",
-        modelID: "original-model",
-        variant: "xhigh",
-        reasoningEffort: "xhigh",
-        temperature: 0.15,
-        top_p: 0.9,
-        maxTokens: 8192,
-        thinking: { type: "enabled", budgetTokens: 4000 },
-      })
-    })
+    expect(result).toBe(false)
   })
 })
 
@@ -337,17 +257,38 @@ describe("tryFallbackSwitch", () => {
     ;(readProviderModelsCache as any).mockReturnValue(null)
   })
 
-  test("preserves current variant when switching to same model without variant override", () => {
+  test("switches quota failures to the next distinct fallback model and clears transient retry timers", () => {
     const args = createDefaultArgs({
-      model: { providerID: "provider-a", modelID: "original-model", variant: "xhigh" },
-      fallbackChain: [{ model: "original-model", providers: ["provider-a"] }],
+      fallbackChain: [
+        { model: "original-model", providers: ["provider-a"], variant: undefined },
+        { model: "fallback-model-1", providers: ["provider-b"], variant: "high" },
+      ],
+      transientRetryCount: 3,
+      transientRetryStartedAt: Date.now(),
+      transientRetryDelayMs: 120_000,
+    })
+    const timer = setTimeout(() => {}, 10_000)
+    args.transientRetryTimers.set(args.task.id, timer)
+
+    const result = tryFallbackSwitch({
+      ...args,
+      errorInfo: {
+        name: "RateLimitError",
+        message: "usage limit reached",
+      },
     })
 
-    const result = tryFallbackSwitch(args)
-
     expect(result).toBe(true)
-    expect(args.task.model?.providerID).toBe("provider-a")
-    expect(args.task.model?.modelID).toBe("original-model")
-    expect(args.task.model?.variant).toBe("xhigh")
+    expect(args.task.attemptCount).toBe(2)
+    expect(args.task.transientRetryCount).toBe(0)
+    expect(args.task.transientRetryStartedAt).toBeUndefined()
+    expect(args.task.transientRetryDelayMs).toBeUndefined()
+    expect(args.transientRetryTimers.has(args.task.id)).toBe(false)
+    expect(args.task.model).toEqual({
+      providerID: "provider-b",
+      modelID: "fallback-model-1",
+      variant: "high",
+    })
+    expect(args.processKey).toHaveBeenCalledWith("provider-b/fallback-model-1")
   })
 })

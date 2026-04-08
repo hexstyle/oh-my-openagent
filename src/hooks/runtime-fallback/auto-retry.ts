@@ -25,7 +25,12 @@ import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { buildRetryModelPayload } from "./retry-model-payload"
 import { getLastUserRetryParts } from "./last-user-retry-parts"
 import { extractSessionMessages } from "./session-messages"
-import { getAgentDisplayName } from "../../shared/agent-display-names"
+import {
+  isPrimaryRuntimeAgent,
+  normalizeAgentForPrompt,
+  normalizeAgentForExecution,
+  normalizeAgentForSessionPrompt,
+} from "../../shared/agent-display-names"
 import { getRecoveryProbeCandidates } from "./fallback-policy"
 
 const SESSION_TTL_MS = 30 * 60 * 1000
@@ -36,6 +41,26 @@ const EXTERNAL_WATCHDOG_LOG = join(tmpdir(), "oh-my-opencode-watchdog.log")
 
 declare function setTimeout(callback: () => void | Promise<void>, delay?: number): RuntimeFallbackTimeout
 declare function clearTimeout(timeout: RuntimeFallbackTimeout): void
+
+export function selectExternalWatchdogModel(
+  currentModel: string,
+  fallbackModels: string[],
+): string | undefined {
+  return currentModel || fallbackModels.find((candidate) => candidate)
+}
+
+export function resolveExternalWatchdogAgent(resolvedAgent: string | undefined): string {
+  const executionAgent = normalizeAgentForExecution(resolvedAgent)
+  if (!executionAgent) {
+    return ""
+  }
+
+  if (!isPrimaryRuntimeAgent(executionAgent)) {
+    return executionAgent
+  }
+
+  return normalizeAgentForPrompt(executionAgent) ?? executionAgent
+}
 
 export function createAutoRetryHelpers(deps: HookDeps) {
   const {
@@ -74,16 +99,6 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     }
   }
 
-  const selectNextExternalWatchdogModel = (currentModel: string, fallbackModels: string[]): string | undefined => {
-    for (const candidate of fallbackModels) {
-      if (candidate && candidate !== currentModel) {
-        return candidate
-      }
-    }
-
-    return currentModel || undefined
-  }
-
   const splitWatchdogCliModel = (model: string): {
     model: string
     variant?: string
@@ -117,8 +132,17 @@ export function createAutoRetryHelpers(deps: HookDeps) {
       return
     }
 
+    if (!args.resolvedAgent || !isPrimaryRuntimeAgent(args.resolvedAgent)) {
+      log(`[${HOOK_NAME}] Skipping external watchdog for non-primary or unresolved agent`, {
+        sessionID: args.sessionID,
+        source: args.source,
+        resolvedAgent: args.resolvedAgent,
+      })
+      return
+    }
+
     const fallbackModels = getFallbackModelsForSession(args.sessionID, args.resolvedAgent, pluginConfig)
-    const nextModel = selectNextExternalWatchdogModel(args.currentModel, fallbackModels)
+    const nextModel = selectExternalWatchdogModel(args.currentModel, fallbackModels)
     if (!nextModel) {
       log(`[${HOOK_NAME}] Skipping external watchdog arm without fallback model`, {
         sessionID: args.sessionID,
@@ -156,7 +180,7 @@ export function createAutoRetryHelpers(deps: HookDeps) {
       return
     }
 
-    const agentDisplayName = args.resolvedAgent ? getAgentDisplayName(args.resolvedAgent) : ""
+    const cliAgent = resolveExternalWatchdogAgent(args.resolvedAgent)
     const cliModel = splitWatchdogCliModel(nextModel)
     const shellScript = `
 sleep "$1"
@@ -200,7 +224,7 @@ fi
           ctx.directory,
           cliModel.model,
           cliModel.variant ?? "",
-          agentDisplayName,
+          cliAgent,
           EXTERNAL_WATCHDOG_LOG,
         ],
         {
@@ -216,7 +240,7 @@ fi
         timeoutMs: args.timeoutMs,
         nextModel: cliModel.model,
         variant: cliModel.variant,
-        agentDisplayName: agentDisplayName || undefined,
+        agentDisplayName: cliAgent || undefined,
         logFile: EXTERNAL_WATCHDOG_LOG,
       })
     } catch (error) {
@@ -490,7 +514,7 @@ fi
         })
 
         const retryAgent = resolvedAgent ?? getSessionAgent(sessionID)
-        const retryAgentDisplayName = retryAgent ? getAgentDisplayName(retryAgent) : undefined
+        const retryPromptAgent = normalizeAgentForSessionPrompt(retryAgent)
         sessionAwaitingFallbackResult.add(sessionID)
         scheduleSessionFallbackTimeout(sessionID, {
           resolvedAgent: retryAgent,
@@ -501,7 +525,7 @@ fi
         await ctx.client.session.promptAsync({
           path: { id: sessionID },
           body: {
-            ...(retryAgentDisplayName ? { agent: retryAgentDisplayName } : {}),
+            ...(retryPromptAgent ? { agent: retryPromptAgent } : {}),
             ...retryModelPayload,
             parts: retryParts,
           },

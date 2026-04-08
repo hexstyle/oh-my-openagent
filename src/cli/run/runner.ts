@@ -6,14 +6,14 @@ import { createServerConnection } from "./server-connection"
 import { resolveSession } from "./session-resolver"
 import { createJsonOutputManager } from "./json-output"
 import { executeOnCompleteHook } from "./on-complete-hook"
-import { resolveRunAgent } from "./agent-resolver"
+import { resolveRunAgent, resolveRunPromptAgent } from "./agent-resolver"
 import { resolveRunModel } from "./model-resolver"
 import { pollForCompletion } from "./poll-for-completion"
 import { loadAgentProfileColors } from "./agent-profile-colors"
 import { suppressRunInput } from "./stdin-suppression"
 import { createTimestampedStdoutController } from "./timestamp-output"
 
-export { resolveRunAgent }
+export { resolveRunAgent, resolveRunPromptAgent }
 
 const EVENT_PROCESSOR_SHUTDOWN_TIMEOUT_MS = 2_000
 
@@ -48,6 +48,7 @@ export async function run(options: RunOptions): Promise<number> {
 
   const pluginConfig = loadPluginConfig(directory, { command: "run" })
   const resolvedAgent = resolveRunAgent(options, pluginConfig)
+  const promptAgent = resolveRunPromptAgent(resolvedAgent)
   const abortController = new AbortController()
 
   try {
@@ -103,7 +104,7 @@ export async function run(options: RunOptions): Promise<number> {
       await client.session.promptAsync({
         path: { id: sessionID },
         body: {
-          agent: resolvedAgent,
+          agent: promptAgent,
           ...(resolvedModel ? { model: resolvedModel } : {}),
           tools: {
             question: false,

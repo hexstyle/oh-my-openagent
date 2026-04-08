@@ -1,4 +1,12 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test"
+
+const readCachedModelCatalogMock = mock(() => new Set<string>())
+const resolveKnownCachedModelMock = mock((_target: string, availableModels: Set<string>) => availableModels.size > 0 ? null : "known")
+
+mock.module("../../shared/model-availability", () => ({
+  readCachedModelCatalog: readCachedModelCatalogMock,
+  resolveKnownCachedModel: resolveKnownCachedModelMock,
+}))
 
 import { getFallbackModelsForSession } from "./fallback-models"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
@@ -6,6 +14,12 @@ import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 describe("runtime-fallback fallback-models", () => {
   afterEach(() => {
     SessionCategoryRegistry.clear()
+    readCachedModelCatalogMock.mockReturnValue(new Set())
+    resolveKnownCachedModelMock.mockImplementation((_target: string, availableModels: Set<string>) => availableModels.size > 0 ? null : "known")
+  })
+
+  afterAll(() => {
+    mock.restore()
   })
 
   test("uses category fallback_models when session category is registered", () => {
@@ -62,5 +76,34 @@ describe("runtime-fallback fallback-models", () => {
 
     //#then
     expect(result).toEqual([])
+  })
+
+  test("filters unknown fallback models when the cached catalog is available", () => {
+    readCachedModelCatalogMock.mockReturnValue(new Set([
+      "openai/gpt-5.3-codex-spark",
+      "opencode/nemotron-3-super-free",
+    ]))
+    resolveKnownCachedModelMock.mockImplementation((target: string, availableModels: Set<string>) =>
+      availableModels.has(target) ? target : null
+    )
+
+    const pluginConfig = {
+      agents: {
+        explore: {
+          fallback_models: [
+            "openai/gpt-5.3-codex-spark",
+            "opencode/qwen3.6-plus-free",
+            "opencode/nemotron-3-super-free",
+          ],
+        },
+      },
+    } as any
+
+    const result = getFallbackModelsForSession("ses_runtime_fallback_filtered", "explore", pluginConfig)
+
+    expect(result).toEqual([
+      "openai/gpt-5.3-codex-spark",
+      "opencode/nemotron-3-super-free",
+    ])
   })
 })
