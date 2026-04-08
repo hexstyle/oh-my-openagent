@@ -6,6 +6,7 @@ import {
   readCurrentTopLevelTask,
 } from "../../features/boulder-state"
 import { getSessionAgent, isAgentRegistered, subagentSessions } from "../../features/claude-code-session-state"
+import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
 import { getAgentConfigKey } from "../../shared/agent-display-names"
 import { log } from "../../shared/logger"
 import { injectBoulderContinuation } from "./boulder-continuation-injector"
@@ -19,10 +20,16 @@ const MAX_CONSECUTIVE_PROMPT_FAILURES = 10
 const RETRY_DELAY_MS = CONTINUATION_COOLDOWN_MS + 1000
 
 function hasRunningBackgroundTasks(sessionID: string, options?: AtlasHookOptions): boolean {
-  const backgroundManager = options?.backgroundManager
-  return backgroundManager
-    ? backgroundManager.getTasksByParentSession(sessionID).some((task: { status: string }) => task.status === "running")
-    : false
+  const backgroundTasks = inspectParentSessionTasks({
+    backgroundManager: options?.backgroundManager,
+    sessionID,
+    logScope: HOOK_NAME,
+  })
+  if (!backgroundTasks.available) {
+    return true
+  }
+
+  return backgroundTasks.hasRunningTasks
 }
 
 async function injectContinuation(input: {

@@ -50,6 +50,10 @@ export interface MessageInfo {
   tools?: Record<string, ToolPermission>
 }
 
+export interface SessionMessage {
+  info?: MessageInfo
+}
+
 export interface ResolvedMessageInfo {
   agent?: string
   model?: { providerID: string; modelID: string }

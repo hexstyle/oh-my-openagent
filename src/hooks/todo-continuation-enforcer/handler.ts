@@ -50,14 +50,21 @@ export function createTodoContinuationHandler(args: {
       const sessionID = props?.sessionID as string | undefined
       if (!sessionID) return
 
-      await handleSessionIdle({
-        ctx,
-        sessionID,
-        sessionStateStore,
-        backgroundManager,
-        skipAgents,
-        isContinuationStopped,
-      })
+      try {
+        await handleSessionIdle({
+          ctx,
+          sessionID,
+          sessionStateStore,
+          backgroundManager,
+          skipAgents,
+          isContinuationStopped,
+        })
+      } catch (error) {
+        log(`[${HOOK_NAME}] session.idle handling failed`, {
+          sessionID,
+          error: String(error),
+        })
+      }
       return
     }
 

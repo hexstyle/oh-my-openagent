@@ -13,11 +13,16 @@ import {
   hasVisibleAssistantEventContent,
   hasVisibleAssistantResponse,
 } from "./visible-assistant-response"
+import {
+  clearRecentCompletionState,
+  recordLastUserMessageID,
+  shouldSuppressRecentCompletionReplay,
+} from "./recent-completion-guard"
 
 export { hasVisibleAssistantResponse } from "./visible-assistant-response"
 
 export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
-  const { ctx, config, pluginConfig, sessionStates, sessionLastAccess, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionStatusRetryKeys } = deps
+  const { ctx, config, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionStatusRetryKeys } = deps
   const checkVisibleResponse = hasVisibleAssistantResponse(extractAutoRetrySignal)
   const timeoutEnabled = config.timeout_seconds > 0
 
@@ -102,6 +107,21 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
     })
 
     if (sessionID && role === "user") {
+      const messageID = typeof info?.id === "string" ? info.id : undefined
+      if (await shouldSuppressRecentCompletionReplay({
+        ctx,
+        sessionID,
+        info,
+        source: "message.updated.user",
+        sessionRecentCompletionUntil,
+        sessionLastUserMessageIDs,
+        currentUserMessageID: messageID,
+      })) {
+        return
+      }
+
+      recordLastUserMessageID(sessionID, messageID, sessionLastUserMessageIDs)
+      clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
       sessionAwaitingFallbackResult.delete(sessionID)
       sessionStatusRetryKeys.delete(sessionID)
       await armActiveSessionWatchdog({
@@ -138,6 +158,18 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         return
       }
 
+      if (await shouldSuppressRecentCompletionReplay({
+        ctx,
+        sessionID,
+        info,
+        source: "message.updated.assistant",
+        sessionRecentCompletionUntil,
+        sessionLastUserMessageIDs,
+      })) {
+        return
+      }
+
+      clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
       await armActiveSessionWatchdog({
         sessionID,
         role,
@@ -170,6 +202,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
     }
 
     if (sessionID && role === "assistant" && error) {
+      clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
       sessionAwaitingFallbackResult.delete(sessionID)
       if (sessionRetryInFlight.has(sessionID) && !retrySignal) {
         log(`[${HOOK_NAME}] message.updated fallback skipped (retry in flight)`, { sessionID })

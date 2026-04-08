@@ -1,10 +1,11 @@
-import { describe, it, expect, afterEach } from "bun:test"
+import { describe, it, expect, afterEach, spyOn } from "bun:test"
 
 import { createEventHandler } from "./event"
 import { createChatMessageHandler } from "./chat-message"
 import { _resetForTesting, setMainSession } from "../features/claude-code-session-state"
 import { clearPendingModelFallback, createModelFallbackHook } from "../hooks/model-fallback/hook"
 import { getSessionPromptParams, setSessionPromptParams } from "../shared/session-prompt-params-state"
+import * as loggerModule from "../shared/logger"
 
 type EventInput = { event: { type: string; properties?: unknown } }
 
@@ -393,6 +394,73 @@ afterEach(() => {
 })
 
 describe("createEventHandler - event forwarding", () => {
+	it("logs readable hook failure details instead of an empty error object", async () => {
+		const logCalls: Array<{ message: string; data?: unknown }> = []
+		const logSpy = spyOn(loggerModule, "log").mockImplementation((message: string, data?: unknown) => {
+			logCalls.push({ message, data })
+		})
+
+		const eventHandler = createEventHandler({
+			ctx: {} as never,
+			pluginConfig: {} as never,
+			firstMessageVariantGate: {
+				markSessionCreated: () => {},
+				clear: () => {},
+			},
+			managers: {
+				tmuxSessionManager: {
+					onSessionCreated: async () => {},
+					onSessionDeleted: async () => {},
+				},
+			} as never,
+			hooks: {
+				autoUpdateChecker: {
+					event: async () => {
+						throw new Error("hook boom")
+					},
+				},
+				claudeCodeHooks: { event: async () => {} },
+				backgroundNotificationHook: { event: async () => {} },
+				sessionNotification: async () => {},
+				todoContinuationEnforcer: { handler: async () => {} },
+				unstableAgentBabysitter: { event: async () => {} },
+				contextWindowMonitor: { event: async () => {} },
+				directoryAgentsInjector: { event: async () => {} },
+				directoryReadmeInjector: { event: async () => {} },
+				rulesInjector: { event: async () => {} },
+				thinkMode: { event: async () => {} },
+				anthropicContextWindowLimitRecovery: { event: async () => {} },
+				agentUsageReminder: { event: async () => {} },
+				categorySkillReminder: { event: async () => {} },
+				interactiveBashSession: { event: async () => {} },
+				ralphLoop: { event: async () => {} },
+				stopContinuationGuard: { event: async () => {} },
+				compactionTodoPreserver: { event: async () => {} },
+				atlasHook: { handler: async () => {} },
+			} as never,
+		})
+
+		await eventHandler({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "ses_hook_failure" },
+			},
+		})
+
+		expect(logCalls).toContainEqual({
+			message: "[event] hook execution failed",
+			data: {
+				hook: "autoUpdateChecker",
+				eventType: "session.idle",
+				sessionID: "ses_hook_failure",
+				errorName: "Error",
+				errorMessage: "hook boom",
+			},
+		})
+
+		logSpy.mockRestore()
+	})
+
 	it("forwards session.deleted to write-existing-file-guard hook", async () => {
 		//#given
 		const forwardedEvents: EventInput[] = []

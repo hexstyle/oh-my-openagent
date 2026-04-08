@@ -343,6 +343,27 @@ describe("todo-continuation-enforcer", () => {
     expect(promptCalls).toHaveLength(0)
   })
 
+  test("should skip idle handling when background task inspection fails", async () => {
+    const sessionID = "main-background-manager-error"
+    setMainSession(sessionID)
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {
+      backgroundManager: {
+        getTasksByParentSession: () => {
+          throw new Error("background task registry unavailable")
+        },
+      } as any,
+    })
+
+    await expect(hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })).resolves.toBeUndefined()
+
+    await fakeTimers.advanceBy(3000)
+
+    expect(promptCalls).toHaveLength(0)
+  })
+
   test("should inject for any session with incomplete todos", async () => {
     fakeTimers.restore()
     //#given — any session, not necessarily main session

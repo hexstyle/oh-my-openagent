@@ -8,6 +8,10 @@ import { getFallbackModelsForSession } from "./fallback-models"
 import { normalizeRetryStatusMessage, extractRetryAttempt } from "../../shared/retry-status-utils"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
+import {
+  clearRecentCompletionState,
+  shouldSuppressRecentCompletionReplay,
+} from "./recent-completion-guard"
 
 const ACTIVE_SESSION_STATUS_TYPES = new Set(["busy", "running"])
 
@@ -17,9 +21,12 @@ export function createSessionStatusHandler(
   sessionStatusRetryKeys: Map<string, string>,
 ) {
   const {
+    ctx,
     pluginConfig,
     sessionStates,
     sessionLastAccess,
+    sessionLastUserMessageIDs,
+    sessionRecentCompletionUntil,
     sessionRetryInFlight,
   } = deps
 
@@ -33,6 +40,17 @@ export function createSessionStatusHandler(
     if (!sessionID) return
 
     if (timeoutEnabled && status?.type && ACTIVE_SESSION_STATUS_TYPES.has(status.type)) {
+      if (await shouldSuppressRecentCompletionReplay({
+        ctx,
+        sessionID,
+        source: "session.status.active",
+        sessionRecentCompletionUntil,
+        sessionLastUserMessageIDs,
+      })) {
+        return
+      }
+
+      clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
       const resolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent)
       let state = sessionStates.get(sessionID)
       if (!state) {

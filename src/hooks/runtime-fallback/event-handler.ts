@@ -10,9 +10,10 @@ import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
 import { createSessionStatusHandler } from "./session-status-handler"
 import { extractEventModelString } from "./event-model"
+import { clearRecentCompletionState, markSessionRecentlyCompleted } from "./recent-completion-guard"
 
 export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
-  const { config, pluginConfig, sessionStates, sessionLastAccess, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionFallbackTimeouts, sessionStatusRetryKeys } = deps
+  const { config, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionFallbackTimeouts, sessionStatusRetryKeys } = deps
   const sessionStatusHandler = createSessionStatusHandler(deps, helpers, sessionStatusRetryKeys)
   const timeoutEnabled = config.timeout_seconds > 0
 
@@ -143,6 +144,8 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       log(`[${HOOK_NAME}] Cleaning up session state`, { sessionID })
       sessionStates.delete(sessionID)
       sessionLastAccess.delete(sessionID)
+      sessionLastUserMessageIDs.delete(sessionID)
+      sessionRecentCompletionUntil.delete(sessionID)
       sessionRetryInFlight.delete(sessionID)
       sessionAwaitingFallbackResult.delete(sessionID)
       helpers.clearSessionFallbackTimeout(sessionID)
@@ -155,6 +158,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     const sessionID = props?.sessionID as string | undefined
     if (!sessionID) return
 
+    clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
     helpers.clearSessionFallbackTimeout(sessionID)
 
     if (sessionRetryInFlight.has(sessionID) || sessionAwaitingFallbackResult.has(sessionID)) {
@@ -195,6 +199,8 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     if (hadTimeout) {
       log(`[${HOOK_NAME}] Cleared fallback timeout after session completion`, { sessionID })
     }
+
+    markSessionRecentlyCompleted(sessionID, sessionRecentCompletionUntil)
   }
 
   const handleSessionError = async (props: Record<string, unknown> | undefined) => {
@@ -218,6 +224,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     }
 
     sessionAwaitingFallbackResult.delete(sessionID)
+    clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
     helpers.clearSessionFallbackTimeout(sessionID)
 
     log(`[${HOOK_NAME}] session.error received`, {

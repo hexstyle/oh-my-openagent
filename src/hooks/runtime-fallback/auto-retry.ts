@@ -32,6 +32,8 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     options,
     sessionStates,
     sessionLastAccess,
+    sessionLastUserMessageIDs,
+    sessionRecentCompletionUntil,
     sessionRetryInFlight,
     sessionAwaitingFallbackResult,
     sessionFallbackTimeouts,
@@ -438,6 +440,8 @@ fi
       if (now - lastAccess > SESSION_TTL_MS) {
         sessionStates.delete(sessionID)
         sessionLastAccess.delete(sessionID)
+        sessionLastUserMessageIDs.delete(sessionID)
+        sessionRecentCompletionUntil.delete(sessionID)
         sessionRetryInFlight.delete(sessionID)
         sessionAwaitingFallbackResult.delete(sessionID)
         clearSessionFallbackTimeout(sessionID)

@@ -1,10 +1,10 @@
 import type { PluginInput } from "@opencode-ai/plugin"
 
 import type { BackgroundManager } from "../../features/background-agent"
+import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
 import { getSessionAgent } from "../../features/claude-code-session-state"
 import {
   createInternalAgentTextPart,
-  normalizeSDKResponse,
   resolveInheritedPromptTools,
 } from "../../shared"
 import {
@@ -24,8 +24,9 @@ import {
 import { isCompactionGuardActive } from "./compaction-guard"
 import { getMessageDir } from "./message-directory"
 import { getIncompleteCount } from "./todo"
-import type { ResolvedMessageInfo, Todo } from "./types"
+import type { ResolvedMessageInfo } from "./types"
 import type { SessionStateStore } from "./session-state"
+import { fetchSessionTodos } from "./session-data"
 
 function hasWritePermission(tools: Record<string, ToolPermission> | undefined): boolean {
   const editPermission = tools?.edit
@@ -66,21 +67,27 @@ export async function injectContinuation(args: {
     return
   }
 
-  const hasRunningBgTasks = backgroundManager
-    ? backgroundManager.getTasksByParentSession(sessionID).some((task: { status: string }) => task.status === "running")
-    : false
+  const backgroundTasks = inspectParentSessionTasks({
+    backgroundManager,
+    sessionID,
+    logScope: HOOK_NAME,
+  })
+  if (!backgroundTasks.available) {
+    log(`[${HOOK_NAME}] Skipped injection: background task state unavailable`, { sessionID })
+    return
+  }
 
-  if (hasRunningBgTasks) {
+  if (backgroundTasks.hasRunningTasks) {
     log(`[${HOOK_NAME}] Skipped injection: background tasks running`, { sessionID })
     return
   }
 
-  let todos: Todo[] = []
-  try {
-    const response = await ctx.client.session.todo({ path: { id: sessionID } })
-    todos = normalizeSDKResponse(response, [] as Todo[], { preferResponseOnMissingData: true })
-  } catch (error) {
-    log(`[${HOOK_NAME}] Failed to fetch todos`, { sessionID, error: String(error) })
+  const todos = await fetchSessionTodos({
+    ctx,
+    sessionID,
+    source: "continuation.injection",
+  })
+  if (!todos) {
     return
   }
 

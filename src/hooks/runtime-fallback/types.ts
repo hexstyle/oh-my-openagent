@@ -71,6 +71,8 @@ export interface HookDeps {
   pluginConfig: OhMyOpenCodeConfig | undefined
   sessionStates: Map<string, FallbackState>
   sessionLastAccess: Map<string, number>
+  sessionLastUserMessageIDs: Map<string, string>
+  sessionRecentCompletionUntil: Map<string, number>
   sessionRetryInFlight: Set<string>
   sessionAwaitingFallbackResult: Set<string>
   sessionFallbackTimeouts: Map<string, RuntimeFallbackTimeout>

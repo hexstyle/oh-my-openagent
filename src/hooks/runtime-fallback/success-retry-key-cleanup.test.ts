@@ -40,6 +40,8 @@ function createDeps(messagesResponse: unknown): HookDeps {
     pluginConfig: {},
     sessionStates: new Map(),
     sessionLastAccess: new Map(),
+    sessionLastUserMessageIDs: new Map(),
+    sessionRecentCompletionUntil: new Map(),
     sessionRetryInFlight: new Set(),
     sessionAwaitingFallbackResult: new Set(),
     sessionFallbackTimeouts: new Map(),

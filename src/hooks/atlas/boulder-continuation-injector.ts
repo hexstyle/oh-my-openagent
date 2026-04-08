@@ -1,5 +1,6 @@
 import type { PluginInput } from "@opencode-ai/plugin"
 import type { BackgroundManager } from "../../features/background-agent"
+import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
 import { isAgentRegistered } from "../../features/claude-code-session-state"
 import { normalizeAgentForPrompt } from "../../shared/agent-display-names"
 import { log } from "../../shared/logger"
@@ -36,11 +37,17 @@ export async function injectBoulderContinuation(input: {
     sessionState,
   } = input
 
-  const hasRunningBgTasks = backgroundManager
-    ? backgroundManager.getTasksByParentSession(sessionID).some((t: { status: string }) => t.status === "running")
-    : false
+  const backgroundTasks = inspectParentSessionTasks({
+    backgroundManager,
+    sessionID,
+    logScope: HOOK_NAME,
+  })
+  if (!backgroundTasks.available) {
+    log(`[${HOOK_NAME}] Skipped injection: background task state unavailable`, { sessionID })
+    return
+  }
 
-  if (hasRunningBgTasks) {
+  if (backgroundTasks.hasRunningTasks) {
     log(`[${HOOK_NAME}] Skipped injection: background tasks running`, { sessionID })
     return
   }

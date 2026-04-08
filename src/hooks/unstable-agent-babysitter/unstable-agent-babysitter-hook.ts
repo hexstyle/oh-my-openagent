@@ -1,4 +1,5 @@
 import type { BackgroundManager } from "../../features/background-agent"
+import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
 import { getMainSessionID, getSessionAgent } from "../../features/claude-code-session-state"
 import { log } from "../../shared/logger"
 import { createInternalAgentTextPart, resolveInheritedPromptTools } from "../../shared"
@@ -128,13 +129,18 @@ export function createUnstableAgentBabysitterHook(ctx: BabysitterContext, option
     const mainSessionID = getMainSessionID()
     if (!mainSessionID || sessionID !== mainSessionID) return
 
-    const tasks = options.backgroundManager.getTasksByParentSession(mainSessionID)
-    if (tasks.length === 0) return
+    const backgroundTasks = inspectParentSessionTasks({
+      backgroundManager: options.backgroundManager,
+      sessionID: mainSessionID,
+      logScope: HOOK_NAME,
+    })
+    if (!backgroundTasks.available) return
+    if (backgroundTasks.tasks.length === 0) return
 
     const timeoutMs = options.config?.timeout_ms ?? DEFAULT_TIMEOUT_MS
     const now = Date.now()
 
-    for (const task of tasks) {
+    for (const task of backgroundTasks.tasks) {
       if (task.status !== "running") continue
       if (!isUnstableTask(task)) continue
 

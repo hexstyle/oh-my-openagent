@@ -1,20 +1,21 @@
 import type { PluginInput } from "@opencode-ai/plugin"
 import type { BackgroundManager } from "../../features/background-agent"
 import { getSessionAgent } from "../../features/claude-code-session-state"
-import { normalizeSDKResponse } from "../../shared"
 import { log } from "../../shared/logger"
 import { getAgentConfigKey } from "../../shared/agent-display-names"
+import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
 
 import { ABORT_WINDOW_MS, CONTINUATION_COOLDOWN_MS, DEFAULT_SKIP_AGENTS, FAILURE_RESET_WINDOW_MS, HOOK_NAME, MAX_CONSECUTIVE_FAILURES } from "./constants"
 import { isLastAssistantMessageAborted } from "./abort-detection"
 import { hasUnansweredQuestion } from "./pending-question-detection"
 import { shouldStopForStagnation } from "./stagnation-detection"
 import { getIncompleteCount } from "./todo"
-import type { MessageInfo, ResolvedMessageInfo, Todo } from "./types"
+import type { ResolvedMessageInfo } from "./types"
 import { resolveLatestMessageInfo } from "./resolve-message-info"
 import { acknowledgeCompactionGuard, isCompactionGuardActive } from "./compaction-guard"
 import type { SessionStateStore } from "./session-state"
 import { startCountdown } from "./countdown"
+import { fetchSessionMessages, fetchSessionTodos } from "./session-data"
 
 export async function handleSessionIdle(args: {
   ctx: PluginInput
@@ -52,21 +53,27 @@ export async function handleSessionIdle(args: {
     state.abortDetectedAt = undefined
   }
 
-  const hasRunningBgTasks = backgroundManager
-    ? backgroundManager.getTasksByParentSession(sessionID).some((task: { status: string }) => task.status === "running")
-    : false
+  const backgroundTasks = inspectParentSessionTasks({
+    backgroundManager,
+    sessionID,
+    logScope: HOOK_NAME,
+  })
+  if (!backgroundTasks.available) {
+    log(`[${HOOK_NAME}] Skipped: background task state unavailable`, { sessionID })
+    return
+  }
 
-  if (hasRunningBgTasks) {
+  if (backgroundTasks.hasRunningTasks) {
     log(`[${HOOK_NAME}] Skipped: background tasks running`, { sessionID })
     return
   }
 
-  try {
-    const messagesResp = await ctx.client.session.messages({
-      path: { id: sessionID },
-      query: { directory: ctx.directory },
-    })
-    const messages = normalizeSDKResponse(messagesResp, [] as Array<{ info?: MessageInfo }>)
+  const messages = await fetchSessionMessages({
+    ctx,
+    sessionID,
+    source: "session.idle.preflight",
+  })
+  if (messages) {
     if (isLastAssistantMessageAborted(messages)) {
       log(`[${HOOK_NAME}] Skipped: last assistant message was aborted (API fallback)`, { sessionID })
       return
@@ -75,21 +82,18 @@ export async function handleSessionIdle(args: {
       log(`[${HOOK_NAME}] Skipped: pending question awaiting user response`, { sessionID })
       return
     }
-  } catch (error) {
-    log(`[${HOOK_NAME}] Messages fetch failed, continuing`, { sessionID, error: String(error) })
   }
 
-  let todos: Todo[] = []
-  try {
-    const response = await ctx.client.session.todo({ path: { id: sessionID } })
-    todos = normalizeSDKResponse(response, [] as Todo[], { preferResponseOnMissingData: true })
-  } catch (error) {
-    log(`[${HOOK_NAME}] Todo fetch failed`, { sessionID, error: String(error) })
+  const todos = await fetchSessionTodos({
+    ctx,
+    sessionID,
+    source: "session.idle.preflight",
+  })
+  if (!todos) {
     return
   }
 
   if (!todos || todos.length === 0) {
-    sessionStateStore.resetContinuationProgress(sessionID)
     sessionStateStore.resetContinuationProgress(sessionID)
     log(`[${HOOK_NAME}] No todos`, { sessionID })
     return
@@ -97,7 +101,6 @@ export async function handleSessionIdle(args: {
 
   const incompleteCount = getIncompleteCount(todos)
   if (incompleteCount === 0) {
-    sessionStateStore.resetContinuationProgress(sessionID)
     sessionStateStore.resetContinuationProgress(sessionID)
     log(`[${HOOK_NAME}] All todos complete`, { sessionID, total: todos.length })
     return
@@ -129,15 +132,9 @@ export async function handleSessionIdle(args: {
     return
   }
 
-  let resolvedInfo: ResolvedMessageInfo | undefined
-  let encounteredCompaction = false
-  try {
-    const messageInfoResult = await resolveLatestMessageInfo(ctx, sessionID)
-    resolvedInfo = messageInfoResult.resolvedInfo
-    encounteredCompaction = messageInfoResult.encounteredCompaction
-  } catch (error) {
-    log(`[${HOOK_NAME}] Failed to fetch messages for agent check`, { sessionID, error: String(error) })
-  }
+  const messageInfoResult = resolveLatestMessageInfo(messages)
+  let resolvedInfo: ResolvedMessageInfo | undefined = messageInfoResult.resolvedInfo
+  const encounteredCompaction = messageInfoResult.encounteredCompaction
 
   const sessionAgent = getSessionAgent(sessionID)
   if (!resolvedInfo?.agent && sessionAgent) {

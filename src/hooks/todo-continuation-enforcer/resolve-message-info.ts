@@ -1,17 +1,12 @@
-import type { PluginInput } from "@opencode-ai/plugin"
+import type { ResolveLatestMessageInfoResult, SessionMessage } from "./types"
 
-import { normalizeSDKResponse } from "../../shared"
+export function resolveLatestMessageInfo(
+  messages: SessionMessage[] | null | undefined
+): ResolveLatestMessageInfoResult {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return { resolvedInfo: undefined, encounteredCompaction: false }
+  }
 
-import type { MessageInfo, ResolveLatestMessageInfoResult } from "./types"
-
-export async function resolveLatestMessageInfo(
-  ctx: PluginInput,
-  sessionID: string
-): Promise<ResolveLatestMessageInfoResult> {
-  const messagesResp = await ctx.client.session.messages({
-    path: { id: sessionID },
-  })
-  const messages = normalizeSDKResponse(messagesResp, [] as Array<{ info?: MessageInfo }>)
   let encounteredCompaction = false
 
   for (let i = messages.length - 1; i >= 0; i--) {

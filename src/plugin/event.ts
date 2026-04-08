@@ -450,7 +450,8 @@ export function createEventHandler(args: {
         hook: hookName,
         eventType: input.event.type,
         sessionID: getEventSessionID(input),
-        error,
+        errorName: extractErrorName(error),
+        errorMessage: extractErrorMessage(error),
       });
     }
   };

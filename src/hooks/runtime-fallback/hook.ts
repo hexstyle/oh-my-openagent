@@ -41,6 +41,8 @@ export function createRuntimeFallbackHook(
     pluginConfig,
     sessionStates: new Map(),
     sessionLastAccess: new Map(),
+    sessionLastUserMessageIDs: new Map(),
+    sessionRecentCompletionUntil: new Map(),
     sessionRetryInFlight: new Set(),
     sessionAwaitingFallbackResult: new Set(),
     sessionFallbackTimeouts: new Map(),
@@ -77,6 +79,8 @@ export function createRuntimeFallbackHook(
 
     deps.sessionStates.clear()
     deps.sessionLastAccess.clear()
+    deps.sessionLastUserMessageIDs.clear()
+    deps.sessionRecentCompletionUntil.clear()
     deps.sessionRetryInFlight.clear()
     deps.sessionAwaitingFallbackResult.clear()
     deps.sessionFallbackTimeouts.clear()
