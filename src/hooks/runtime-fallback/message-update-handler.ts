@@ -297,14 +297,19 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
 
       const action = getRuntimeFallbackAction(error, config.retry_on_errors)
 
-      if (action === "retry_same_model") {
-        const retried = await helpers.retryCurrentModel(sessionID, resolvedAgent, "message.updated")
+      if (action === "retry_same_model" || action === "retry_same_model_delayed") {
+        const retried = await helpers.retryCurrentModel(sessionID, resolvedAgent, "message.updated", {
+          immediate: action === "retry_same_model",
+        })
         if (retried) {
           return
         }
       }
 
-      const effectiveAction = action === "retry_same_model" ? "fallback_chain" : action
+      const effectiveAction =
+        action === "retry_same_model" || action === "retry_same_model_delayed"
+          ? "fallback_chain"
+          : action
       const errorAwareFallbackModels = selectFallbackModelsForAction({
         currentModel: state.currentModel,
         fallbackModels,

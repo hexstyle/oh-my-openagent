@@ -156,4 +156,35 @@ describe("runtime fallback transient backoff", () => {
     const firstPrompt = promptCalls[0] as { body?: { agent?: string } } | undefined
     expect(firstPrompt?.body?.agent).toBe("explore")
   })
+
+  it("can defer opaque transient retries instead of dispatching promptAsync immediately", async () => {
+    const promptCalls: Array<unknown> = []
+    const abortCalls: string[] = []
+    const deps = createDeps({
+      promptCalls,
+      abortCalls,
+      retryWindowSeconds: 0.2,
+    })
+    const sessionID = "ses_transient_delayed_unknown"
+    deps.sessionStates.set(sessionID, createFallbackState("openai/gpt-5.4"))
+
+    const helpers = createAutoRetryHelpers(deps)
+    const retried = await helpers.retryCurrentModel(sessionID, undefined, "session.error", {
+      immediate: false,
+    })
+
+    expect(retried).toBe(true)
+    expect(promptCalls).toHaveLength(0)
+
+    await sleep(20)
+
+    expect(abortCalls).toHaveLength(0)
+    expect(promptCalls).toHaveLength(1)
+    expect(
+      (promptCalls[0] as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+    ).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.4",
+    })
+  })
 })

@@ -9,20 +9,45 @@ import {
 } from "./fallback-policy"
 
 describe("runtime fallback policy", () => {
-  it("retries the same model for network and unknown errors before falling back", () => {
+  it("retries the same model immediately for explicit network faults before falling back", () => {
     expect(
       getRuntimeFallbackAction(
         { message: "socket hang up while calling provider" },
         [402, 429, 500, 502, 503, 504],
       ),
     ).toBe("retry_same_model")
+  })
 
+  it("routes agent-not-found errors directly to fallback_chain without same-model retry", () => {
+    expect(
+      getRuntimeFallbackAction(
+        { name: "UnknownError", message: 'Agent not found: "Explore (Code Search)"' },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("fallback_chain")
+
+    expect(
+      getRuntimeFallbackAction(
+        { name: "UnknownError", message: "agent not found: explore" },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("fallback_chain")
+  })
+
+  it("backs off delayed same-model retries for opaque UnknownError failures", () => {
     expect(
       getRuntimeFallbackAction(
         { name: "UnknownError", message: "provider returned an unexpected failure" },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model")
+    ).toBe("retry_same_model_delayed")
+
+    expect(
+      getRuntimeFallbackAction(
+        { name: "UnknownError" },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("retry_same_model_delayed")
   })
 
   it("routes quota and cooldown failures to spark then free models", () => {

@@ -424,6 +424,141 @@ describe("runtime-fallback", () => {
       expect(fallbackLogs[1]?.data).toMatchObject({ from: "anthropic/claude-opus-4.6", to: "openai/gpt-5.4" })
     })
 
+    test("opaque UnknownError schedules delayed same-model retry instead of immediate promptAsync storm", async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
+            }),
+            promptAsync: async (input) => {
+              promptCalls.push(input as Record<string, unknown>)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({
+            notify_on_fallback: false,
+            transient_retry_initial_delay_seconds: 0.01,
+            transient_retry_max_delay_seconds: 0.05,
+          }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback([
+            "openai/gpt-5.4",
+            "openai/gpt-5.3-codex-spark",
+          ]),
+        },
+      )
+      const sessionID = "test-session-unknown-delayed"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "openai/gpt-5.4" } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            error: {
+              name: "UnknownError",
+            },
+          },
+        },
+      })
+
+      expect(promptCalls).toHaveLength(0)
+
+      const delayLog = logCalls.find((call) =>
+        call.msg.includes("Deferring opaque transient retry on current model"),
+      )
+      expect(delayLog).toBeDefined()
+
+      await new Promise((resolve) => setTimeout(resolve, 20))
+
+      expect(promptCalls).toHaveLength(1)
+      expect(
+        (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
+      ).toEqual({
+        providerID: "openai",
+        modelID: "gpt-5.4",
+      })
+
+      const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
+      expect(fallbackLogs).toHaveLength(0)
+    })
+
+    test("agent-not-found UnknownError falls back immediately without same-model retry", async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "Search for usages." }] }],
+            }),
+            promptAsync: async (input) => {
+              promptCalls.push(input as Record<string, unknown>)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({ notify_on_fallback: false }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback([
+            "openai/gpt-5.4",
+            "openai/gpt-5.3-codex-spark",
+          ]),
+        },
+      )
+      const sessionID = "test-session-agent-not-found"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "anthropic/claude-opus-4-6" } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            agent: "Explore (Code Search)",
+            error: {
+              name: "UnknownError",
+              message: 'Agent not found: "Explore (Code Search)"',
+            },
+          },
+        },
+      })
+
+      // Must dispatch promptAsync immediately (fallback_chain, not retry_same_model_delayed).
+      expect(promptCalls).toHaveLength(1)
+
+      // Must NOT log a deferred-retry message — this is a hard fallback, not a transient retry.
+      const deferLog = logCalls.find((call) =>
+        call.msg.includes("Deferring opaque transient retry on current model"),
+      )
+      expect(deferLog).toBeUndefined()
+
+      // The fallback prompt must target the first fallback model, not the failing one.
+      const body = promptCalls[0]?.body as {
+        model?: { providerID?: string; modelID?: string }
+        agent?: string
+      } | undefined
+      expect(body?.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" })
+
+      // Agent must be normalised to the config key so opencode can resolve it.
+      expect(body?.agent).toBe("explore")
+    })
+
     test("should bootstrap session.error fallback from session category model and preserve variant", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(

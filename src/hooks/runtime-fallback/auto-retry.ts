@@ -557,11 +557,16 @@ fi
     sessionID: string,
     resolvedAgent: string | undefined,
     source: string,
+    options?: {
+      immediate?: boolean
+    },
   ): Promise<boolean> => {
     const state = sessionStates.get(sessionID)
     if (!state) {
       return false
     }
+
+    const immediate = options?.immediate ?? true
 
     if (!canKeepRetryingTransiently(state, config)) {
       log(`[${HOOK_NAME}] Transient retry window exhausted before retry dispatch`, {
@@ -572,7 +577,7 @@ fi
       return false
     }
 
-    if (state.transientRetryCount === 0) {
+    if (immediate && state.transientRetryCount === 0) {
       markTransientRetryDispatched(state)
       log(`[${HOOK_NAME}] Retrying current model immediately after transient error`, {
         sessionID,
@@ -585,6 +590,14 @@ fi
         transientRetry: true,
       })
       return true
+    }
+
+    if (!immediate && state.transientRetryCount === 0) {
+      log(`[${HOOK_NAME}] Deferring opaque transient retry on current model`, {
+        sessionID,
+        source,
+        currentModel: state.currentModel,
+      })
     }
 
     scheduleTransientRetry(sessionID, resolvedAgent, source)

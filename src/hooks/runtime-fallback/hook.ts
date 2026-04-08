@@ -111,5 +111,6 @@ export function createRuntimeFallbackHook(
     event: eventHandler,
     "chat.message": chatMessageHandler,
     dispose,
+    _deps: deps,
   } as RuntimeFallbackHook
 }

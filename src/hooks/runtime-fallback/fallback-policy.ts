@@ -1,7 +1,11 @@
 import type { FallbackState } from "./types"
 import { classifyErrorType, extractStatusCode, getErrorMessage } from "./error-classifier"
 
-export type RuntimeFallbackAction = "retry_same_model" | "fallback_chain" | "limit_fallback"
+export type RuntimeFallbackAction =
+  | "retry_same_model"
+  | "retry_same_model_delayed"
+  | "fallback_chain"
+  | "limit_fallback"
 export type RuntimeFallbackTier = "paid" | "spark" | "free"
 
 const LIMIT_STATUS_CODES = new Set([402, 429])
@@ -56,16 +60,16 @@ export function getRuntimeFallbackAction(error: unknown, retryOnErrors: number[]
     return "fallback_chain"
   }
 
-  if (errorType === "unknown_error") {
-    return "retry_same_model"
-  }
-
   if (statusCode !== undefined && TRANSIENT_STATUS_CODES.has(statusCode)) {
     return "retry_same_model"
   }
 
   if (NETWORK_ERROR_PATTERNS.some((pattern) => pattern.test(message))) {
     return "retry_same_model"
+  }
+
+  if (errorType === "unknown_error") {
+    return "retry_same_model_delayed"
   }
 
   return "fallback_chain"
