@@ -1,6 +1,7 @@
 import type { HookDeps } from "./types"
 import type { AutoRetryHelpers } from "./auto-retry"
 import { HOOK_NAME } from "./constants"
+import { MAX_TRANSIENT_SAME_MODEL_RETRIES } from "./constants"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, extractAutoRetrySignal, containsErrorContent } from "./error-classifier"
 import { createFallbackState } from "./fallback-state"
@@ -9,6 +10,7 @@ import { getFallbackModelsForSession } from "./fallback-models"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
 import { extractEventModelString } from "./event-model"
+import { getRuntimeFallbackAction, selectFallbackModelsForAction } from "./fallback-policy"
 import {
   hasVisibleAssistantEventContent,
   hasVisibleAssistantResponse,
@@ -294,12 +296,26 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         }
       }
 
+      const action = getRuntimeFallbackAction(error, config.retry_on_errors)
+
+      if (action === "retry_same_model" && state.transientRetryCount < MAX_TRANSIENT_SAME_MODEL_RETRIES) {
+        await helpers.retryCurrentModel(sessionID, resolvedAgent, "message.updated")
+        return
+      }
+
+      const effectiveAction = action === "retry_same_model" ? "fallback_chain" : action
+      const errorAwareFallbackModels = selectFallbackModelsForAction({
+        currentModel: state.currentModel,
+        fallbackModels,
+        action: effectiveAction,
+      })
+
       await dispatchFallbackRetry(deps, helpers, {
         sessionID,
         state,
-        fallbackModels,
+        fallbackModels: errorAwareFallbackModels,
         resolvedAgent,
-        source: "message.updated",
+        source: `message.updated.${effectiveAction}`,
       })
     }
   }

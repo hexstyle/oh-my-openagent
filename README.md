@@ -1,63 +1,41 @@
 # oh-my-openagent
 
-This fork is based on the upstream project and assumes the upstream feature set, docs, and concepts unless this repository says otherwise.
+This fork keeps the upstream package identity, but changes the local install/runtime contract for OpenCode.
 
 Upstream reference at the last synced README:
 
 - https://github.com/code-yeongyu/oh-my-openagent/blob/51194e943487a1783db7ca9524e514ae93472bf7/README.md
 
-What this fork changes:
+## What changes in this fork
 
-- self-configures `Codex` and `Claude` for `OpenCode`
-- installs from zero with one local script
-- keeps `Codex` and `Claude` in the config by default, even before login
-- imports `Codex` OAuth into `OpenCode` automatically when `~/.codex/auth.json` exists
-- keeps `Claude` auth on-demand through `opencode auth login -p anthropic`
-- caps configured large-model context windows at `200000`
-- adds runtime retry and fallback behavior for flaky networking, TLS/certificate failures, free-tier interruptions, and model limit failures
-- removes duplicated user-visible agent names from the runtime and keeps only canonical display names
+- the OpenCode host/plugin config is managed from this repo
+- clean installs are pinned to this local checkout via `file://<repo-root>`
+- `Codex` OAuth is imported into OpenCode automatically when `~/.codex/auth.json` exists
+- `Claude` stays configured by default and can be authorized later with `opencode auth login -p anthropic`
+- runtime agent names are canonical user-facing names only, in the form `Agent (Role)`
+- runtime fallback is policy-driven:
+  - transient network/unknown failures retry once on the current model
+  - quota/cooldown/limit failures fall back to `gpt-5.3-codex-spark`, then to free models
+  - when a session is pushed down to spark/free, background recovery probes higher-priority models and can move the session back up when they become available again
 
-## Fork Model Layout
+Primary model picture in this fork:
 
-Primary target picture in this fork:
-
-| Agent | Primary model |
-| --- | --- |
-| `Sisyphus (Ultraworker)` | `anthropic/claude-opus-4-6` |
-| `Hephaestus (Deep Agent)` | `openai/gpt-5.4` |
-| `Prometheus (Plan Builder)` | `anthropic/claude-opus-4-6` |
-| `Atlas (Plan Executor)` | `openai/gpt-5.4` |
-| `Oracle (Strategic Advisor)` | `anthropic/claude-opus-4-6` |
-| `Librarian (OSS Research)` | `openai/gpt-5.4` |
-| `Explore (Code Search)` | `openai/gpt-5.4` |
-| `Multimodal Looker (Document Vision)` | `openai/gpt-5.4` |
-| `Metis (Plan Consultant)` | `anthropic/claude-opus-4-6` |
-| `Momus (Plan Critic)` | `anthropic/claude-opus-4-6` |
-| `Sisyphus Junior (Focused Executor)` | `openai/gpt-5.4` |
-
-Fallback policy in this fork:
-
-- `Opus` roles prefer `Claude Opus` first, then `GPT-5.4`
-- `GPT-5.4` roles stay on `GPT-5.4` first
+- planning/review/controller roles prefer `anthropic/claude-opus-4-6`
+- execution/search roles prefer `openai/gpt-5.4`
 - `gpt-5.3-codex-spark` is the paid emergency fallback
-- free `OpenCode` models remain behind `spark`
-- fallback handlers classify transient network and quota-style failures and retry/fail over instead of leaving the session wedged
+- free models stay behind `spark`
+- configured large-model context limits stay capped at `200000`
 
-## Prerequisites
+## Install
+
+Prerequisites:
 
 - macOS with `Homebrew`
 - `git`
 - network access
-- optional but recommended: `Codex` already logged in locally so the script can import OpenAI OAuth automatically
+- optional but recommended: existing `Codex` login on this machine
 
-Notes:
-
-- `Claude` is included in the managed config by default, but login remains user-triggered. When needed, run `opencode auth login -p anthropic`.
-- If `OpenAI` auth must be refreshed later, run `opencode auth login -p openai`.
-
-## Installation
-
-Clone the fork and run the installer:
+Clone and install:
 
 ```bash
 git clone --branch dev https://github.com/hexstyle/oh-my-openagent.git
@@ -65,111 +43,44 @@ cd oh-my-openagent
 ./script/install-local-opencode-fork.sh --reset
 ```
 
-If the repo is already cloned locally:
+If the repo is already cloned:
 
 ```bash
 cd /path/to/oh-my-openagent
 ./script/install-local-opencode-fork.sh --reset
 ```
 
-`--reset` is the intended clean path. It removes the existing `OpenCode` install and config, preserves the auth store, reinstalls `OpenCode`, builds this fork, writes the managed config, pins the runtime to the local fork via `file://...`, imports `Codex` OAuth, and runs a live verification pass.
+`--reset` is the supported clean path. It rebuilds the fork, syncs the managed config, pins OpenCode to this local checkout, imports `Codex` OAuth when present, and runs a live verification pass.
 
-## What The Script Verifies
+## Use
 
-The installer ends by running `script/verify-local-opencode-install.ts`. That verifier checks:
+Check current auth:
 
-- live host config matches `assets/custom-opencode/opencode.json`, except for the expected local `file://` plugin pin
-- live plugin config matches `assets/custom-opencode/oh-my-opencode.json`
-- runtime package does not pull the published `oh-my-openagent`
-- runtime is loading this local fork
-- canonical agent names are the only user-visible names
-- runtime agent modes and pinned primary models match the managed config
-- `Codex` OAuth is bridged into `OpenCode` when available
-- `Claude` and `OpenAI` smoke runs succeed when their auth entries exist
+```bash
+opencode auth list
+```
 
-## Auth Behavior
-
-`Codex`:
-
-- the fork reads `~/.codex/auth.json`
-- if present, it syncs the OpenAI OAuth entry into `~/.local/share/opencode/auth.json`
-- this happens during install and during plugin startup
-
-`Claude`:
-
-- the Anthropic models are configured from day one
-- if auth is missing or expired, add it on demand with:
+If Anthropic auth is missing or expired:
 
 ```bash
 opencode auth login -p anthropic
 ```
 
-Show current runtime auth:
+If OpenAI auth needs to be refreshed manually:
 
 ```bash
-opencode auth list
+opencode auth login -p openai
 ```
 
-## Managed Files
-
-Source of truth inside this fork:
-
-- `assets/custom-opencode/opencode.json`
-- `assets/custom-opencode/oh-my-opencode.json`
-
-Live files written by the installer:
-
-- `~/.config/opencode/opencode.json`
-- `~/.config/opencode/oh-my-openagent.json`
-
-Important runtime detail:
-
-- the committed asset uses `oh-my-openagent` as the plugin id
-- the installer rewrites the live host config to `file:///absolute/path/to/this/repo`
-- this is required so clean installs always run the local fork, not a published npm copy
-
-## Canonical Agent Naming
-
-User-visible agent names in this fork must stay canonical:
-
-- `Agent (Role)`
-
-Examples:
-
-- `Sisyphus (Ultraworker)`
-- `Prometheus (Plan Builder)`
-- `Oracle (Strategic Advisor)`
-
-Short aliases, plain names, and duplicate runtime labels are intentionally forbidden from user-visible runtime lists. The only allowed internal exception is the `explore` config key, which is preserved to avoid colliding with an OpenCode core agent key while still exposing the canonical display name `Explore (Code Search)`.
-
-## Developer Notes
-
-When changing this fork, start with:
-
-- `AGENTS.md`
-- `assets/custom-opencode/AGENTS.md`
-- `script/AGENTS.md`
-- `src/cli/config-manager/AGENTS.md`
-- `src/plugin-handlers/AGENTS.md`
-- `src/shared/AGENTS.md`
-
-Those files explain where to edit:
-
-- managed assets
-- install-time config writing
-- runtime agent remapping
-- auth bootstrap
-- live verification rules
-
-## Manual Validation
-
-Useful commands after editing the fork:
+After pulling new changes in this fork, rerun:
 
 ```bash
-bun run build
-bun run script/verify-local-opencode-install.ts
 ./script/install-local-opencode-fork.sh --reset
-opencode auth list
-opencode run --agent 'Prometheus (Plan Builder)' 'Reply with OK only.'
-opencode run --agent 'Hephaestus (Deep Agent)' 'Reply with OK only.'
 ```
+
+## Notes
+
+- live config is written to `~/.config/opencode`
+- the live plugin entry is rewritten to `file:///absolute/path/to/this/repo`
+- only the managed JSON config surface is synced into the live OpenCode config dir
+- upstream feature docs still apply unless this fork says otherwise

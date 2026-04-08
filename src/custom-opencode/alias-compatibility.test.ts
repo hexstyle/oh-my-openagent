@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { basename, join } from "node:path"
 
 import { loadPluginConfig } from "../plugin-config"
 import { detectPluginConfigFile } from "../shared/jsonc-parser"
@@ -19,14 +19,6 @@ function writeJson(filePath: string, value: unknown) {
   writeFileSync(filePath, JSON.stringify(value, null, 2) + "\n", "utf-8")
 }
 
-function assertLegacyBasename(filePath: string, scope: string) {
-  if (!basename(filePath).startsWith("oh-my-opencode")) {
-    throw new Error(`${scope} must keep legacy oh-my-opencode basename support.`)
-  }
-
-  return filePath
-}
-
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true })
@@ -36,20 +28,20 @@ afterEach(() => {
 })
 
 describe("legacy alias and basename compatibility", () => {
-  it("prefers the legacy basename when both plugin config names exist in the same directory", () => {
+  it("prefers the canonical basename when both plugin config names exist in the same directory", () => {
     const configDir = makeTempDir("alias-compat-detect")
 
     writeJson(join(configDir, "oh-my-openagent.json"), {
       agents: {
         prometheus: {
-          model: "google/gemini-3-flash",
+          model: "openai/gpt-5.4",
         },
       },
     })
     writeJson(join(configDir, "oh-my-opencode.json"), {
       agents: {
         prometheus: {
-          model: "openai/gpt-5.4",
+          model: "anthropic/claude-opus-4-6",
         },
       },
     })
@@ -57,12 +49,11 @@ describe("legacy alias and basename compatibility", () => {
     const detected = detectPluginConfigFile(configDir)
 
     expect(detected.format).toBe("json")
-    expect(assertLegacyBasename(detected.path, "Plugin config detection")).toBe(
-      join(configDir, "oh-my-opencode.json")
-    )
+    expect(detected.path).toBe(join(configDir, "oh-my-openagent.json"))
+    expect(detected.legacyPath).toBe(join(configDir, "oh-my-opencode.json"))
   })
 
-  it("loads legacy user and project basenames even when canonical siblings are present", () => {
+  it("still loads legacy user and project basenames when no canonical sibling exists", () => {
     const projectDir = makeTempDir("alias-compat-project")
     const userConfigDir = makeTempDir("alias-compat-user")
     const projectConfigDir = join(projectDir, ".opencode")
@@ -78,26 +69,11 @@ describe("legacy alias and basename compatibility", () => {
         },
       },
     })
-    writeJson(join(userConfigDir, "oh-my-openagent.json"), {
-      agents: {
-        prometheus: {
-          model: "google/gemini-3-flash",
-          variant: "low",
-        },
-      },
-    })
 
     writeJson(join(projectConfigDir, "oh-my-opencode.json"), {
       agents: {
         prometheus: {
           prompt_append: "Project legacy override stays compatible.",
-        },
-      },
-    })
-    writeJson(join(projectConfigDir, "oh-my-openagent.json"), {
-      agents: {
-        prometheus: {
-          prompt_append: "Canonical sibling should not win while legacy compatibility is enabled.",
         },
       },
     })
@@ -111,9 +87,34 @@ describe("legacy alias and basename compatibility", () => {
     )
   })
 
-  it("fails loudly when legacy basename support disappears", () => {
-    expect(() =>
-      assertLegacyBasename("E:/tmp/oh-my-openagent.json", "Plugin config detection")
-    ).toThrow("Plugin config detection must keep legacy oh-my-opencode basename support.")
+  it("uses the canonical config when a legacy sibling is also present", () => {
+    const projectDir = makeTempDir("alias-compat-canonical-project")
+    const userConfigDir = makeTempDir("alias-compat-canonical-user")
+    const projectConfigDir = join(projectDir, ".opencode")
+
+    mkdirSync(projectConfigDir, { recursive: true })
+    process.env.OPENCODE_CONFIG_DIR = userConfigDir
+
+    writeJson(join(userConfigDir, "oh-my-openagent.json"), {
+      agents: {
+        prometheus: {
+          model: "openai/gpt-5.4",
+          variant: "high",
+        },
+      },
+    })
+    writeJson(join(userConfigDir, "oh-my-opencode.json"), {
+      agents: {
+        prometheus: {
+          model: "anthropic/claude-sonnet-4-6",
+          variant: "low",
+        },
+      },
+    })
+
+    const config = loadPluginConfig(projectDir, {})
+
+    expect(config.agents?.prometheus?.model).toBe("openai/gpt-5.4")
+    expect(config.agents?.prometheus?.variant).toBe("high")
   })
 })

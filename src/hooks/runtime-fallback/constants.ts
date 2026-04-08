@@ -57,4 +57,7 @@ export const RETRYABLE_ERROR_PATTERNS = [
  */
 export const HOOK_NAME = "runtime-fallback"
 
-export const MODEL_RECOVERY_INTERVAL_MS = 10 * 60 * 1000
+export const MAX_TRANSIENT_SAME_MODEL_RETRIES = 1
+export const MODEL_RECOVERY_INTERVAL_MS = 2 * 60 * 1000
+export const MODEL_RECOVERY_PROBE_MIN_INTERVAL_MS = 60 * 1000
+export const MODEL_RECOVERY_PROBE_TIMEOUT_MS = 30 * 1000

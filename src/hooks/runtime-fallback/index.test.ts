@@ -2361,7 +2361,7 @@ describe("runtime-fallback", () => {
       }
     }
 
-    test("should use agent-level fallback_models", async () => {
+    test("should retry the current model before agent-level fallback on transient provider errors", async () => {
       const input = createMockPluginInput()
       const hook = createRuntimeFallbackHook(input, {
         config: createMockConfig({ notify_on_fallback: false }),
@@ -2385,10 +2385,13 @@ describe("runtime-fallback", () => {
         },
       })
 
-      //#then - should prepare fallback to openai/gpt-5.4
+      //#then - transient 503 should retry the current model first
+      const retryLog = logCalls.find((c) => c.msg.includes("Retrying current model after transient error"))
+      expect(retryLog).toBeDefined()
+      expect(retryLog?.data).toMatchObject({ currentModel: "anthropic/claude-opus-4-5" })
+
       const fallbackLog = logCalls.find((c) => c.msg.includes("Preparing fallback"))
-      expect(fallbackLog).toBeDefined()
-      expect(fallbackLog?.data).toMatchObject({ from: "anthropic/claude-opus-4-5", to: "openai/gpt-5.4" })
+      expect(fallbackLog).toBeUndefined()
     })
 
     test("should detect agent from sessionID pattern", async () => {
@@ -2418,7 +2421,7 @@ describe("runtime-fallback", () => {
       expect(fallbackLog?.data).toMatchObject({ to: "openai/gpt-5.4" })
     })
 
-    test("should preserve resolved agent during auto-retry", async () => {
+    test("should preserve resolved agent during same-model transient auto-retry", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(
         createMockPluginInput({
@@ -2459,7 +2462,7 @@ describe("runtime-fallback", () => {
       expect(promptCalls.length).toBe(1)
       const callBody = promptCalls[0]?.body as Record<string, unknown>
       expect(callBody?.agent).toBe("Prometheus (Plan Builder)")
-      expect(callBody?.model).toEqual({ providerID: "github-copilot", modelID: "claude-opus-4.6" })
+      expect(callBody?.model).toEqual({ providerID: "anthropic", modelID: "claude-opus-4-6" })
     })
   })
 

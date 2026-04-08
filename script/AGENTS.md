@@ -10,6 +10,11 @@ This directory owns the reproducible local install and live verification flow fo
 - `verify-local-opencode-install.ts`
 - `sync-custom-opencode-assets.ts`
 
+`sync-custom-opencode-assets.ts` should copy only the managed host/plugin config surface:
+
+- `opencode.json`
+- generated live plugin config `oh-my-openagent.json` from repo source `assets/custom-opencode/oh-my-opencode.json`
+
 ## Install Contract
 
 `install-local-opencode-fork.sh --reset` is the supported clean setup path. Keep it able to:

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { existsSync } from "node:fs"
-import { copyFile, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -65,37 +65,23 @@ interface ManagedAssetTarget {
   relativePath: string
 }
 
+export const MANAGED_SYNC_TARGETS = [
+  {
+    sourceRelativePath: "opencode.json",
+    relativePath: "opencode.json",
+  },
+  {
+    sourceRelativePath: "oh-my-opencode.json",
+    relativePath: "oh-my-openagent.json",
+  },
+] as const
+
 function toPortableRelativePath(pathValue: string): string {
   return pathValue.split("\\").join("/")
 }
 
 function createRunId(timestamp: string): string {
   return timestamp.replace(/[.:]/g, "-")
-}
-
-async function listManagedAssetFiles(rootDir: string): Promise<string[]> {
-  const discovered: string[] = []
-
-  async function walk(currentDir: string): Promise<void> {
-    const entries = await readdir(currentDir, { withFileTypes: true })
-    entries.sort((left, right) => left.name.localeCompare(right.name))
-
-    for (const entry of entries) {
-      const entryPath = join(currentDir, entry.name)
-
-      if (entry.isDirectory()) {
-        await walk(entryPath)
-        continue
-      }
-
-      if (entry.isFile()) {
-        discovered.push(entryPath)
-      }
-    }
-  }
-
-  await walk(rootDir)
-  return discovered.sort((left, right) => left.localeCompare(right))
 }
 
 async function ensureDirectory(directoryPath: string, targetDir: string, createdDirectories: Set<string>): Promise<void> {
@@ -143,6 +129,25 @@ export function resolveManagedCustomOpenCodeAssetDir(assetRoot?: string): string
   throw new Error(`Managed asset directory not found. Tried: ${candidatePaths.join(", ")}`)
 }
 
+async function resolveManagedAssetTargets(assetRoot: string): Promise<ManagedAssetTarget[]> {
+  const targets: ManagedAssetTarget[] = []
+
+  for (const target of MANAGED_SYNC_TARGETS) {
+    const sourcePath = join(assetRoot, target.sourceRelativePath)
+    const sourceStats = await stat(sourcePath).catch(() => null)
+    if (!sourceStats?.isFile()) {
+      throw new Error(`Managed asset file not found: ${sourcePath}`)
+    }
+
+    targets.push({
+      sourcePath,
+      relativePath: target.relativePath,
+    })
+  }
+
+  return targets
+}
+
 export async function syncCustomOpenCodeAssets(
   options: SyncCustomOpenCodeAssetsOptions = {}
 ): Promise<SyncCustomOpenCodeAssetsResult> {
@@ -160,20 +165,7 @@ export async function syncCustomOpenCodeAssets(
   await ensureDirectory(stateDir, targetDir, createdDirectories)
   await ensureDirectory(backupDir, targetDir, createdDirectories)
 
-  const assetFiles = await listManagedAssetFiles(assetRoot)
-  const assetTargets: ManagedAssetTarget[] = []
-
-  for (const sourcePath of assetFiles) {
-    const relativePath = toPortableRelativePath(relative(assetRoot, sourcePath))
-    assetTargets.push({ sourcePath, relativePath })
-
-    if (relativePath === "oh-my-opencode.json") {
-      assetTargets.push({
-        sourcePath,
-        relativePath: "oh-my-openagent.json",
-      })
-    }
-  }
+  const assetTargets = await resolveManagedAssetTargets(assetRoot)
 
   const fileRecords: SyncedFileRecord[] = []
 
@@ -304,7 +296,7 @@ export function parseSyncCustomOpenCodeAssetArgs(argv: string[]): SyncCustomOpen
 
 function printUsage(): void {
   console.log("Usage: bun run script/sync-custom-opencode-assets.ts [--target <path>]")
-  console.log("Copies managed custom OpenCode assets into a target config directory with backups and a manifest.")
+  console.log("Copies the managed OpenCode host/plugin config assets into a target config directory with backups and a manifest.")
 }
 
 async function main(): Promise<void> {

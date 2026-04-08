@@ -97,7 +97,6 @@ ln -sfn "$ROOT_DIR" "$CONFIG_DIR/node_modules/oh-my-openagent"
 
 say "Syncing managed OpenCode config"
 bun run script/sync-custom-opencode-assets.ts --target "$CONFIG_DIR"
-rm -f "$CONFIG_DIR/oh-my-opencode.json" "$CONFIG_DIR/oh-my-opencode.jsonc"
 
 say "Pinning OpenCode host config to the local fork"
 node -e "

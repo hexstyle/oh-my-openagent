@@ -42,6 +42,7 @@ export interface FallbackState {
   fallbackModels: string[]
   failedModels: Map<string, number>
   attemptCount: number
+  transientRetryCount: number
   pendingFallbackModel?: string
 }
 
@@ -56,6 +57,11 @@ export interface RuntimeFallbackOptions {
   config?: RuntimeFallbackConfig
   pluginConfig?: OhMyOpenCodeConfig
   session_timeout_ms?: number
+  probeModelAvailability?: (args: {
+    sessionID: string
+    model: string
+    directory: string
+  }) => Promise<boolean>
 }
 
 export interface RuntimeFallbackHook {

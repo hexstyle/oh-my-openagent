@@ -16,11 +16,15 @@ Start here when changing models, agent names, or local install behavior:
 
 - `assets/custom-opencode/opencode.json`
 - `assets/custom-opencode/oh-my-opencode.json`
+- `README.md`
 - `script/install-local-opencode-fork.sh`
 - `script/verify-local-opencode-install.ts`
 - `src/shared/agent-display-names.ts`
 - `src/plugin-handlers/agent-key-remapper.ts`
 - `src/shared/codex-auth-bootstrap.ts`
+- `src/hooks/runtime-fallback/*`
+
+Keep `README.md` user-facing. Maintainer details, architectural tradeoffs, test lists, and runtime invariants belong here in `AGENTS.md`.
 
 ## Clean Install Contract
 
@@ -78,6 +82,36 @@ If you add or rename an agent, update:
 - `gpt-5.3-codex-spark` is the paid emergency fallback, not the default primary.
 - Configured large-model context limits stay capped at `200000`.
 - Free-model fallbacks remain behind the paid chain and must survive transient failures cleanly.
+
+## Runtime Fallback Policy
+
+The live fallback implementation is the in-process TypeScript hook under `src/hooks/runtime-fallback/*`.
+
+Do not reintroduce a second synced JS plugin layer for fallback/retry behavior.
+
+Current policy:
+
+- transient network/TLS/5xx/unknown failures retry once on the current model before switching
+- quota, cooldown, payment, usage-limit, and free-period failures skip directly to the limit path:
+  - first `gpt-5.3-codex-spark`
+  - then free fallback models
+- when a session is running on `spark` or a free model, background recovery probes may restore a higher-priority model
+- if a stalled session is still awaiting a fallback result when recovery succeeds, the hook may auto-resume the task on the recovered model
+
+When changing this area, inspect together:
+
+- `src/hooks/runtime-fallback/error-classifier.ts`
+- `src/hooks/runtime-fallback/fallback-policy.ts`
+- `src/hooks/runtime-fallback/fallback-state.ts`
+- `src/hooks/runtime-fallback/auto-retry.ts`
+- `src/hooks/runtime-fallback/event-handler.ts`
+- `src/hooks/runtime-fallback/message-update-handler.ts`
+
+Minimum regression coverage for fallback changes:
+
+```bash
+bun test src/hooks/runtime-fallback/error-classifier.test.ts src/hooks/runtime-fallback/fallback-policy.test.ts src/hooks/runtime-fallback/fallback-state.test.ts src/hooks/runtime-fallback/auto-retry.recovery-probe.test.ts src/hooks/runtime-fallback/index.test.ts src/hooks/runtime-fallback/session-status-handler.test.ts --bail
+```
 
 ## Auth Policy
 

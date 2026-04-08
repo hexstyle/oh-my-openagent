@@ -31,12 +31,14 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     fallbackModels: dedupeModels(fallbackModels),
     failedModels: new Map<string, number>(),
     attemptCount: 0,
+    transientRetryCount: 0,
     pendingFallbackModel: undefined,
   }
 }
 
 export function updateFallbackModels(state: FallbackState, fallbackModels: string[]): void {
   state.fallbackModels = dedupeModels(fallbackModels)
+  state.fallbackIndex = state.fallbackModels.indexOf(state.currentModel)
 }
 
 export function pruneExpiredFailedModels(state: FallbackState, cooldownSeconds: number, now = Date.now()): void {
@@ -52,6 +54,7 @@ export function pruneExpiredFailedModels(state: FallbackState, cooldownSeconds: 
 export function markFallbackResponseSuccess(state: FallbackState): void {
   state.pendingFallbackModel = undefined
   state.attemptCount = 0
+  state.transientRetryCount = 0
 }
 
 export function recoverPreferredModel(state: FallbackState, cooldownSeconds: number, now = Date.now()): string | undefined {
@@ -76,6 +79,7 @@ export function recoverPreferredModel(state: FallbackState, cooldownSeconds: num
     state.currentModel = candidate
     state.pendingFallbackModel = undefined
     state.attemptCount = 0
+    state.transientRetryCount = 0
     state.fallbackIndex = candidate === state.originalModel
       ? -1
       : state.fallbackModels.indexOf(candidate)
@@ -151,6 +155,7 @@ export function prepareFallback(
   state.fallbackIndex = fallbackModels.indexOf(nextModel)
   state.failedModels.set(failedModel, now)
   state.attemptCount++
+  state.transientRetryCount = 0
   state.currentModel = nextModel
   state.pendingFallbackModel = nextModel
 

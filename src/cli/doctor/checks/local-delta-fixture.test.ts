@@ -24,16 +24,17 @@ const reportPath = new URL("../../../../docs/fork/local-vs-upstream-delta.md", i
 const fixture = JSON.parse(readFileSync(fixturePath, "utf-8")) as DeltaFixture
 const report = readFileSync(reportPath, "utf-8")
 
-const REQUIRED_CATEGORY_IDS: Record<DeltaCategoryName, string[]> = {
+const REQUIRED_CATEGORY_IDS: Record<Exclude<DeltaCategoryName, "suspicious_runtime_drift">, string[]> = {
   config_only_deltas: [
-    "host-default-agent-prometheus",
-    "agent-category-model-pinning-role-specific",
-    "prompt-append-additions",
-    "supported-runtime-knob-differences",
+    "managed-local-config-assets",
+    "role-specific-model-policy",
+    "single-runtime-fallback-policy",
   ],
   plugin_code_deltas: [
-    "heartbeat-status-plugin",
-    "tls-certificate-retry-plugin",
+    "local-install-and-live-verification",
+    "codex-auth-bridge",
+    "canonical-agent-display-names",
+    "in-process-runtime-fallback",
   ],
   intended_extension_points: [
     "schema-supported-agent-and-runtime-overrides",
@@ -41,34 +42,21 @@ const REQUIRED_CATEGORY_IDS: Record<DeltaCategoryName, string[]> = {
     "explicit-plugin-array-registration",
     "legacy-alias-basename-compatibility",
   ],
-  suspicious_runtime_drift: [
-    "missing-visible-plugin-registration",
-    "unsupported-sisyphus-tasks-enabled",
-  ],
 }
 
 const REQUIRED_REPORT_SNIPPETS = [
-  "## Config-only deltas",
-  "## Plugin/code deltas",
+  "## Supported delta",
+  "## Managed config and install",
+  "## Runtime behavior retained",
+  "## Deliberately removed baggage",
   "## Intended extension points",
-  "## Suspicious runtime drift",
-  "`default_agent = prometheus`",
-  "`sisyphus`, `kimi-k2.5`",
-  "`prometheus`, `deepseek-ai/deepseek-r1`",
-  "`librarian`, `minimax-m2.7`",
-  "`atlas`, `qwen/qwen-2.5-coder`",
-  "`metis`, `deepseek-ai/deepseek-r1`",
-  "`openai/gpt-5.4` with `variant = xhigh` and `textVerbosity: high`",
-  "`prompt_append` additions for `sisyphus`, `hephaestus`, `prometheus`, `atlas`, and `sisyphus-junior`",
-  "`hashline_edit`",
-  "`background_task.staleTimeoutMs`",
-  "`babysitting.timeout_ms`",
-  "`model_capabilities.refresh_timeout_ms`",
-  "`experimental.auto_resume`",
-  "`notification.force_enable`",
-  "missing visible plugin registration",
-  "`sisyphus.tasks.enabled`",
-  "legacy `oh-my-opencode` alias/basename support should not be treated as drift",
+  "`file://<repo-root>`",
+  "`opencode.json`",
+  "`oh-my-openagent.json`",
+  "`anthropic/claude-opus-4-6`",
+  "`openai/gpt-5.4`",
+  "There is no second synced JS plugin layer",
+  "No currently-accepted suspicious runtime drift remains in the supported fork contract.",
 ]
 
 function getCategoryEntries(categoryName: DeltaCategoryName): DeltaEntry[] {
@@ -81,7 +69,7 @@ function getCategoryEntries(categoryName: DeltaCategoryName): DeltaEntry[] {
   return entries
 }
 
-function getEntry(categoryName: DeltaCategoryName, entryId: string): DeltaEntry {
+function getEntry(categoryName: Exclude<DeltaCategoryName, "suspicious_runtime_drift">, entryId: string): DeltaEntry {
   const entry = getCategoryEntries(categoryName).find((item) => item.id === entryId)
 
   if (!entry) {
@@ -93,10 +81,10 @@ function getEntry(categoryName: DeltaCategoryName, entryId: string): DeltaEntry 
 
 describe("local delta fixture regression", () => {
   it("keeps the fixture category contract intact", () => {
-    expect(fixture.audit_scope).toBe("inventory-only")
+    expect(fixture.audit_scope).toBe("minimum-supported-delta")
 
     for (const [categoryName, requiredIds] of Object.entries(REQUIRED_CATEGORY_IDS) as Array<
-      [DeltaCategoryName, string[]]
+      [Exclude<DeltaCategoryName, "suspicious_runtime_drift">, string[]]
     >) {
       const categoryEntries = getCategoryEntries(categoryName)
       const ids = new Set(categoryEntries.map((entry) => entry.id))
@@ -108,97 +96,70 @@ describe("local delta fixture regression", () => {
         )
       }
     }
+
+    expect(getCategoryEntries("suspicious_runtime_drift")).toEqual([])
   })
 
-  it("captures the required config-only facts in machine-readable form", () => {
-    const defaultAgentEntry = getEntry("config_only_deltas", "host-default-agent-prometheus")
-    expect(defaultAgentEntry.evidence?.path).toBe("default_agent")
-    expect(defaultAgentEntry.evidence?.value).toBe("prometheus")
+  it("captures the reduced fork surface in machine-readable form", () => {
+    const managedConfigEntry = getEntry("config_only_deltas", "managed-local-config-assets")
+    expect(managedConfigEntry.evidence?.files).toEqual([
+      "assets/custom-opencode/opencode.json",
+      "assets/custom-opencode/oh-my-opencode.json",
+    ])
+    expect(managedConfigEntry.evidence?.live_alias).toBe("oh-my-openagent.json")
+    expect(managedConfigEntry.evidence?.default_agent).toBe("Prometheus (Plan Builder)")
+    expect(managedConfigEntry.evidence?.plugin_entries).toEqual([
+      "oh-my-openagent",
+      "opencode-claude-auth",
+    ])
 
-    const modelPinningEntry = getEntry("config_only_deltas", "agent-category-model-pinning-role-specific")
-    expect(modelPinningEntry.evidence?.agentModels).toEqual(
-      {
-        sisyphus: "kimi-k2.5",
-        hephaestus: "openai/gpt-5.4",
-        oracle: "openai/gpt-5.4",
-        librarian: "minimax-m2.7",
-        explore: "openai/gpt-5.4",
-        "multimodal-looker": "openai/gpt-5.4",
-        prometheus: "deepseek-ai/deepseek-r1",
-        metis: "deepseek-ai/deepseek-r1",
-        momus: "openai/gpt-5.4",
-        atlas: "qwen/qwen-2.5-coder",
-        "sisyphus-junior": "openai/gpt-5.4",
-      }
-    )
-    expect(modelPinningEntry.evidence?.variant).toBe("xhigh")
-    expect(modelPinningEntry.evidence?.textVerbosity).toBe("high")
-    expect(modelPinningEntry.evidence?.agents).toEqual([
+    const modelPolicyEntry = getEntry("config_only_deltas", "role-specific-model-policy")
+    expect(modelPolicyEntry.evidence?.opus_first_agents).toEqual([
       "sisyphus",
-      "hephaestus",
+      "prometheus",
       "oracle",
+      "metis",
+      "momus",
+    ])
+    expect(modelPolicyEntry.evidence?.gpt54_agents).toEqual([
+      "hephaestus",
+      "atlas",
       "librarian",
       "explore",
       "multimodal-looker",
-      "prometheus",
-      "metis",
-      "momus",
-      "atlas",
       "sisyphus-junior",
     ])
-    expect(modelPinningEntry.evidence?.categories).toEqual([
-      "visual-engineering",
-      "ultrabrain",
-      "deep",
-      "artistry",
-      "quick",
-      "unspecified-low",
-      "unspecified-high",
-      "writing",
-    ])
+    expect(modelPolicyEntry.evidence?.context_limit).toBe(200000)
 
-    const promptAppendEntry = getEntry("config_only_deltas", "prompt-append-additions")
-    expect(promptAppendEntry.evidence?.agents).toEqual([
-      "sisyphus",
-      "hephaestus",
-      "prometheus",
-      "atlas",
-      "sisyphus-junior",
-    ])
-
-    const runtimeKnobEntry = getEntry("config_only_deltas", "supported-runtime-knob-differences")
-    expect(runtimeKnobEntry.evidence?.required_knobs).toEqual([
-      { path: "hashline_edit", value: true },
-      { path: "background_task.staleTimeoutMs", value: 600000 },
-      { path: "babysitting.timeout_ms", value: 300000 },
-      { path: "model_capabilities.refresh_timeout_ms", value: 10000 },
-      { path: "experimental.auto_resume", value: true },
-      { path: "notification.force_enable", value: true },
-    ])
+    const fallbackPolicyEntry = getEntry("config_only_deltas", "single-runtime-fallback-policy")
+    expect(fallbackPolicyEntry.evidence?.enabled).toBe(true)
+    expect(fallbackPolicyEntry.evidence?.max_fallback_attempts).toBe(12)
+    expect(fallbackPolicyEntry.evidence?.max_full_chain_cycles).toBe(5)
+    expect(fallbackPolicyEntry.evidence?.timeout_seconds).toBe(45)
   })
 
-  it("records the required suspicious drift findings", () => {
-    const missingPluginRegistration = getEntry(
-      "suspicious_runtime_drift",
-      "missing-visible-plugin-registration"
-    )
-    expect(missingPluginRegistration.evidence?.missing_key).toBe("plugin")
-    expect(missingPluginRegistration.evidence?.observed_keys).toEqual(["$schema", "default_agent"])
-
-    const unsupportedSisyphusTasksEnabled = getEntry(
-      "suspicious_runtime_drift",
-      "unsupported-sisyphus-tasks-enabled"
-    )
-    expect(unsupportedSisyphusTasksEnabled.evidence?.unsupported_path).toBe("sisyphus.tasks.enabled")
-    expect(unsupportedSisyphusTasksEnabled.evidence?.allowed_paths).toEqual([
-      "sisyphus.tasks.storage_path",
-      "sisyphus.tasks.task_list_id",
-      "sisyphus.tasks.claude_code_compat",
+  it("records the live fork-specific runtime code paths", () => {
+    const installEntry = getEntry("plugin_code_deltas", "local-install-and-live-verification")
+    expect(installEntry.evidence?.synced_targets).toEqual([
+      "opencode.json",
+      "oh-my-openagent.json",
     ])
-    expect(unsupportedSisyphusTasksEnabled.evidence?.observed_value).toBe(true)
+    expect(installEntry.evidence?.plugin_pin).toBe("file://<repo-root>")
+
+    const authBridgeEntry = getEntry("plugin_code_deltas", "codex-auth-bridge")
+    expect(authBridgeEntry.evidence?.source).toBe("~/.codex/auth.json")
+    expect(authBridgeEntry.evidence?.target).toBe("~/.local/share/opencode/auth.json")
+
+    const canonicalNamesEntry = getEntry("plugin_code_deltas", "canonical-agent-display-names")
+    expect(canonicalNamesEntry.evidence?.name_format).toBe("Agent (Role)")
+    expect(canonicalNamesEntry.evidence?.special_case_runtime_key).toBe("explore")
+    expect(canonicalNamesEntry.evidence?.special_case_display_name).toBe("Explore (Code Search)")
+
+    const runtimeFallbackEntry = getEntry("plugin_code_deltas", "in-process-runtime-fallback")
+    expect(runtimeFallbackEntry.evidence?.no_external_managed_plugin_assets).toBe(true)
   })
 
-  it("keeps the markdown review aligned with the required delta findings", () => {
+  it("keeps the markdown review aligned with the reduced delta contract", () => {
     for (const snippet of REQUIRED_REPORT_SNIPPETS) {
       if (!report.includes(snippet)) {
         throw new Error(`Delta review is missing required text: ${snippet}`)

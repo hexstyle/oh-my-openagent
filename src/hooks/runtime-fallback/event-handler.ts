@@ -1,6 +1,6 @@
 import type { HookDeps } from "./types"
 import type { AutoRetryHelpers } from "./auto-retry"
-import { HOOK_NAME } from "./constants"
+import { HOOK_NAME, MAX_TRANSIENT_SAME_MODEL_RETRIES } from "./constants"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError } from "./error-classifier"
 import { createFallbackState, markFallbackResponseSuccess } from "./fallback-state"
@@ -11,6 +11,7 @@ import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
 import { createSessionStatusHandler } from "./session-status-handler"
 import { extractEventModelString } from "./event-model"
 import { clearRecentCompletionState, markSessionRecentlyCompleted } from "./recent-completion-guard"
+import { getRuntimeFallbackAction, selectFallbackModelsForAction } from "./fallback-policy"
 
 export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   const { config, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionFallbackTimeouts, sessionStatusRetryKeys } = deps
@@ -275,12 +276,26 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       sessionLastAccess.set(sessionID, Date.now())
     }
 
+    const action = getRuntimeFallbackAction(error, config.retry_on_errors)
+
+    if (action === "retry_same_model" && state.transientRetryCount < MAX_TRANSIENT_SAME_MODEL_RETRIES) {
+      await helpers.retryCurrentModel(sessionID, resolvedAgent, "session.error")
+      return
+    }
+
+    const effectiveAction = action === "retry_same_model" ? "fallback_chain" : action
+    const errorAwareFallbackModels = selectFallbackModelsForAction({
+      currentModel: state.currentModel,
+      fallbackModels,
+      action: effectiveAction,
+    })
+
     await dispatchFallbackRetry(deps, helpers, {
       sessionID,
       state,
-      fallbackModels,
+      fallbackModels: errorAwareFallbackModels,
       resolvedAgent,
-      source: "session.error",
+      source: `session.error.${effectiveAction}`,
     })
   }
 

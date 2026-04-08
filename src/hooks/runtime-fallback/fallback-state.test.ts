@@ -36,11 +36,13 @@ describe("runtime fallback state recovery", () => {
     state.currentModel = "anthropic/claude-sonnet-4-6"
     state.pendingFallbackModel = "anthropic/claude-sonnet-4-6"
     state.attemptCount = 2
+    state.transientRetryCount = 1
 
     markFallbackResponseSuccess(state)
 
     expect(state.pendingFallbackModel).toBeUndefined()
     expect(state.attemptCount).toBe(0)
+    expect(state.transientRetryCount).toBe(0)
     expect(state.currentModel).toBe("anthropic/claude-sonnet-4-6")
   })
 

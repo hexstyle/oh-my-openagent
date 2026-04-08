@@ -151,11 +151,6 @@ describe("custom OpenCode plugin loading compatibility", () => {
       "intended_extension_points",
       "legacy-alias-basename-compatibility"
     )
-    const missingVisiblePluginRegistration = requireDeltaEntry(
-      fixture,
-      "suspicious_runtime_drift",
-      "missing-visible-plugin-registration"
-    )
 
     expect(mergeSemantics.evidence?.merge_rules).toEqual([
       "user config first",
@@ -166,11 +161,11 @@ describe("custom OpenCode plugin loading compatibility", () => {
     ])
     expect(explicitPluginRegistration.evidence?.preferred_entry).toBe("oh-my-openagent")
     expect(explicitPluginRegistration.evidence?.legacy_entry).toBe("oh-my-opencode")
-    expect(legacyAliasCompatibility.evidence?.detection_order).toEqual([
-      "oh-my-opencode",
+    expect(legacyAliasCompatibility.evidence?.preference_order).toEqual([
       "oh-my-openagent",
+      "oh-my-opencode",
     ])
-    expect(missingVisiblePluginRegistration.evidence?.missing_key).toBe("plugin")
+    expect(fixture.categories.suspicious_runtime_drift).toEqual([])
   })
 
   it("fails loudly when a tracked compatibility delta category or id disappears", () => {

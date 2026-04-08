@@ -3,7 +3,11 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { HookDeps, RuntimeFallbackTimeout } from "./types"
-import { HOOK_NAME } from "./constants"
+import {
+  HOOK_NAME,
+  MODEL_RECOVERY_PROBE_MIN_INTERVAL_MS,
+  MODEL_RECOVERY_PROBE_TIMEOUT_MS,
+} from "./constants"
 import { log } from "../../shared/logger"
 import { normalizeAgentName, resolveAgentForSession } from "./agent-resolver"
 import { getSessionAgent } from "../../features/claude-code-session-state"
@@ -15,6 +19,7 @@ import { buildRetryModelPayload } from "./retry-model-payload"
 import { getLastUserRetryParts } from "./last-user-retry-parts"
 import { extractSessionMessages } from "./session-messages"
 import { getAgentDisplayName } from "../../shared/agent-display-names"
+import { getRecoveryProbeCandidates } from "./fallback-policy"
 
 const SESSION_TTL_MS = 30 * 60 * 1000
 const EXTERNAL_WATCHDOG_RESPAWN_MS = 10_000
@@ -41,6 +46,7 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     sessionStatusRetryKeys,
   } = deps
   const externalWatchdogSpawnedAt = new Map<string, number>()
+  const recoveryProbeLastAttemptAt = new Map<string, number>()
 
   const ensureExternalWatchdogDir = (): void => {
     try {
@@ -362,7 +368,7 @@ fi
       })
       const retryParts = getLastUserRetryParts(messagesResp)
       if (retryParts.length > 0) {
-        log(`[${HOOK_NAME}] Auto-retrying with fallback model (${source})`, {
+        log(`[${HOOK_NAME}] Auto-retrying session (${source})`, {
           sessionID,
           model: newModel,
         })
@@ -403,6 +409,27 @@ fi
     }
   }
 
+  const retryCurrentModel = async (
+    sessionID: string,
+    resolvedAgent: string | undefined,
+    source: string,
+  ): Promise<void> => {
+    const state = sessionStates.get(sessionID)
+    if (!state) {
+      return
+    }
+
+    state.transientRetryCount += 1
+    log(`[${HOOK_NAME}] Retrying current model after transient error`, {
+      sessionID,
+      source,
+      currentModel: state.currentModel,
+      transientRetryCount: state.transientRetryCount,
+    })
+
+    await autoRetryWithFallback(sessionID, state.currentModel, resolvedAgent, `${source}.retry`)
+  }
+
   const resolveAgentForSessionFromContext = async (
     sessionID: string,
     eventAgent?: string,
@@ -433,6 +460,128 @@ fi
     return undefined
   }
 
+  const probeModelAvailability = async (sessionID: string, model: string): Promise<boolean> => {
+    if (options?.probeModelAvailability) {
+      return await options.probeModelAvailability({
+        sessionID,
+        model,
+        directory: ctx.directory,
+      })
+    }
+
+    const cliModel = splitWatchdogCliModel(model)
+
+    return await new Promise<boolean>((resolve) => {
+      const variantArgs = cliModel.variant ? ["--variant", cliModel.variant] : []
+      const child = spawn(
+        "opencode",
+        [
+          "run",
+          "--dir",
+          ctx.directory,
+          "--model",
+          cliModel.model,
+          ...variantArgs,
+          "Reply with OK only.",
+        ],
+        {
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      )
+
+      let stdout = ""
+      let stderr = ""
+      let settled = false
+
+      const finalize = (result: boolean) => {
+        if (settled) return
+        settled = true
+        resolve(result)
+      }
+
+      const timeout = setTimeout(() => {
+        try {
+          child.kill("SIGKILL")
+        } catch {
+        }
+        finalize(false)
+      }, MODEL_RECOVERY_PROBE_TIMEOUT_MS)
+
+      child.stdout?.on("data", (chunk) => {
+        stdout += chunk.toString()
+      })
+
+      child.stderr?.on("data", (chunk) => {
+        stderr += chunk.toString()
+      })
+
+      child.on("error", () => {
+        clearTimeout(timeout)
+        finalize(false)
+      })
+
+      child.on("close", (code) => {
+        clearTimeout(timeout)
+        const output = `${stdout}\n${stderr}`
+        finalize(code === 0 && /\bOK\b/i.test(output))
+      })
+    })
+  }
+
+  const maybeProbePreferredRecovery = async (
+    sessionID: string,
+    resolvedAgent: string | undefined,
+  ): Promise<string | undefined> => {
+    const state = sessionStates.get(sessionID)
+    if (!state) {
+      return undefined
+    }
+
+    const candidates = getRecoveryProbeCandidates(state)
+    if (candidates.length === 0) {
+      return undefined
+    }
+
+    for (const candidate of candidates) {
+      const probeKey = `${sessionID}:${candidate}`
+      const lastAttemptAt = recoveryProbeLastAttemptAt.get(probeKey) ?? 0
+      if (Date.now() - lastAttemptAt < MODEL_RECOVERY_PROBE_MIN_INTERVAL_MS) {
+        continue
+      }
+
+      recoveryProbeLastAttemptAt.set(probeKey, Date.now())
+      const available = await probeModelAvailability(sessionID, candidate)
+
+      if (!available) {
+        state.failedModels.set(candidate, Date.now())
+        log(`[${HOOK_NAME}] Recovery probe still failing for higher-priority model`, {
+          sessionID,
+          candidate,
+        })
+        continue
+      }
+
+      state.failedModels.delete(candidate)
+      const recoveredModel = recoverPreferredModel(state, config.cooldown_seconds)
+      if (!recoveredModel) {
+        continue
+      }
+
+      log(`[${HOOK_NAME}] Recovery probe restored higher-priority model`, {
+        sessionID,
+        recoveredModel,
+      })
+
+      if (sessionAwaitingFallbackResult.has(sessionID)) {
+        await autoRetryWithFallback(sessionID, recoveredModel, resolvedAgent, "model.recovery.probe")
+      }
+
+      return recoveredModel
+    }
+
+    return undefined
+  }
+
   const cleanupStaleSessions = () => {
     const now = Date.now()
     let cleanedCount = 0
@@ -447,6 +596,11 @@ fi
         clearSessionFallbackTimeout(sessionID)
         SessionCategoryRegistry.remove(sessionID)
         sessionStatusRetryKeys.delete(sessionID)
+        for (const probeKey of recoveryProbeLastAttemptAt.keys()) {
+          if (probeKey.startsWith(`${sessionID}:`)) {
+            recoveryProbeLastAttemptAt.delete(probeKey)
+          }
+        }
         cleanedCount++
       }
     }
@@ -455,10 +609,12 @@ fi
     }
   }
 
-  const recoverPreferredModels = () => {
+  const recoverPreferredModels = async () => {
     for (const [sessionID, state] of sessionStates.entries()) {
       const recoveredModel = recoverPreferredModel(state, config.cooldown_seconds)
       if (!recoveredModel) {
+        const resolvedAgent = await resolveAgentForSessionFromContext(sessionID)
+        await maybeProbePreferredRecovery(sessionID, resolvedAgent)
         continue
       }
 
@@ -467,6 +623,11 @@ fi
         sessionID,
         recoveredModel,
       })
+
+      if (sessionAwaitingFallbackResult.has(sessionID)) {
+        const resolvedAgent = await resolveAgentForSessionFromContext(sessionID)
+        await autoRetryWithFallback(sessionID, recoveredModel, resolvedAgent, "model.recovery.cooldown")
+      }
     }
   }
 
@@ -475,6 +636,7 @@ fi
     clearSessionFallbackTimeout,
     scheduleSessionFallbackTimeout,
     autoRetryWithFallback,
+    retryCurrentModel,
     resolveAgentForSessionFromContext,
     cleanupStaleSessions,
     recoverPreferredModels,

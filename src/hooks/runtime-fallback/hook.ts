@@ -56,7 +56,9 @@ export function createRuntimeFallbackHook(
 
   const cleanupInterval = setInterval(helpers.cleanupStaleSessions, 5 * 60 * 1000)
   cleanupInterval.unref()
-  const recoveryInterval = setInterval(helpers.recoverPreferredModels, MODEL_RECOVERY_INTERVAL_MS)
+  const recoveryInterval = setInterval(() => {
+    void helpers.recoverPreferredModels()
+  }, MODEL_RECOVERY_INTERVAL_MS)
   recoveryInterval.unref()
 
   const eventHandler = async ({ event }: { event: { type: string; properties?: unknown } }) => {

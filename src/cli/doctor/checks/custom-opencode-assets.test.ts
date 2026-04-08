@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import {
+  MANAGED_SYNC_TARGETS,
   MANAGED_CUSTOM_OPENCODE_ASSET_DIR,
   SYNC_LOG_FILENAME,
   SYNC_MANIFEST_FILENAME,
@@ -40,14 +41,11 @@ describe("custom OpenCode asset sync", () => {
     const manifestPath = join(stateDir, SYNC_MANIFEST_FILENAME)
     const logPath = join(stateDir, SYNC_LOG_FILENAME)
 
-    expect(existsSync(join(targetDir, "oh-my-opencode.json"))).toBe(true)
+    expect(existsSync(join(targetDir, "oh-my-opencode.json"))).toBe(false)
     expect(existsSync(join(targetDir, "oh-my-openagent.json"))).toBe(true)
     expect(existsSync(join(targetDir, "opencode.json"))).toBe(true)
-    expect(existsSync(join(targetDir, "plugins", "heartbeat-status.js"))).toBe(true)
-    expect(existsSync(join(targetDir, "plugins", "oh-my-openagent.js"))).toBe(true)
-    expect(existsSync(join(targetDir, "plugins", "tls-certificate-retry.js"))).toBe(true)
-    expect(existsSync(join(targetDir, "refresh-omo.ps1"))).toBe(true)
-    expect(statSync(join(targetDir, "plugins")).isDirectory()).toBe(true)
+    expect(existsSync(join(targetDir, "AGENTS.md"))).toBe(false)
+    expect(existsSync(join(targetDir, "plugins"))).toBe(false)
     expect(existsSync(manifestPath)).toBe(true)
     expect(existsSync(logPath)).toBe(true)
     expect(existsSync(result.backupDir)).toBe(true)
@@ -55,31 +53,22 @@ describe("custom OpenCode asset sync", () => {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as SyncManifest
     expect(manifest.targetDir).toBe(targetDir)
     expect(manifest.summary).toEqual({
-      created: 7,
+      created: 2,
       updated: 0,
       unchanged: 0,
       backups: 0,
     })
-    expect(manifest.files.map((file) => file.relativePath)).toEqual([
-      "oh-my-opencode.json",
-      "oh-my-openagent.json",
-      "opencode.json",
-      "plugins/heartbeat-status.js",
-      "plugins/oh-my-openagent.js",
-      "plugins/tls-certificate-retry.js",
-      "refresh-omo.ps1",
-    ])
+    expect(manifest.files.map((file) => file.relativePath)).toEqual(
+      MANAGED_SYNC_TARGETS.map((target) => target.relativePath)
+    )
     expect(manifest.createdDirectories).toContain(".oh-my-openagent-sync")
-    expect(manifest.createdDirectories).toContain("plugins")
+    expect(manifest.createdDirectories.some((directory) => directory.startsWith("plugins"))).toBe(false)
 
     const logContents = readFileSync(logPath, "utf-8")
     expect(logContents).toContain("[CREATED] oh-my-openagent.json")
-    expect(logContents).toContain("[CREATED] oh-my-opencode.json")
     expect(logContents).toContain("[CREATED] opencode.json")
-    expect(logContents).toContain("[CREATED] plugins/heartbeat-status.js")
-    expect(logContents).toContain("[CREATED] plugins/oh-my-openagent.js")
-    expect(logContents).toContain("[CREATED] plugins/tls-certificate-retry.js")
-    expect(logContents).toContain("[CREATED] refresh-omo.ps1")
+    expect(logContents).not.toContain("AGENTS.md")
+    expect(logContents).not.toContain("plugins/")
   })
 
   it("backs up an existing target file before overwrite", async () => {
