@@ -134,11 +134,11 @@ export function classifyErrorType(error: unknown): string | undefined {
   ) {
     return "quota_exceeded"
   }
-  // UnknownError with "Agent not found" is a retryable resolution error
-  if (
-    errorName?.includes("unknownerror") &&
-    /agent\s+not\s+found/i.test(message)
-  ) {
+  // "Agent not found" is a hard resolution failure regardless of the error envelope shape.
+  // Opencode may emit this as an UnknownError, as a plain { message } object, as a raw
+  // string, or with the display name embedded in the message — all variants must route
+  // to fallback_chain, not to a same-model retry loop.
+  if (/agent\s+not\s+found/i.test(message)) {
     return "agent_not_found"
   }
 

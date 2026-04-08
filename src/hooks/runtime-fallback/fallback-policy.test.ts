@@ -19,6 +19,7 @@ describe("runtime fallback policy", () => {
   })
 
   it("routes agent-not-found errors directly to fallback_chain without same-model retry", () => {
+    // Standard form with UnknownError name
     expect(
       getRuntimeFallbackAction(
         { name: "UnknownError", message: 'Agent not found: "Explore (Code Search)"' },
@@ -26,9 +27,26 @@ describe("runtime fallback policy", () => {
       ),
     ).toBe("fallback_chain")
 
+    // Lowercase variant
     expect(
       getRuntimeFallbackAction(
         { name: "UnknownError", message: "agent not found: explore" },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("fallback_chain")
+
+    // Plain object without name field — must still route to fallback_chain, not loop on same model
+    expect(
+      getRuntimeFallbackAction(
+        { message: 'Agent not found: "Explore (Code Search)". Available agents: Explore (Code Search), ...' },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("fallback_chain")
+
+    // Raw string error (e.g. from opencode task layer)
+    expect(
+      getRuntimeFallbackAction(
+        '[ERROR] - Agent not found: "Explore (Code Search)". Available agents: Explore (Code Search)',
         [402, 429, 500, 502, 503, 504],
       ),
     ).toBe("fallback_chain")

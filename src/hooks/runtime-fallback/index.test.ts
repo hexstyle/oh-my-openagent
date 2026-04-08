@@ -559,6 +559,187 @@ describe("runtime-fallback", () => {
       expect(body?.agent).toBe("explore")
     })
 
+    test("agent-not-found error without UnknownError name still routes to fallback_chain", async () => {
+      // Reproduces the real opencode error shape:
+      // { message: 'Agent not found: "Explore (Code Search)". Available agents: ...' }
+      // with NO name field — must NOT be silently dropped as "non-retryable".
+      const promptCalls: Array<Record<string, unknown>> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "Find usages." }] }],
+            }),
+            promptAsync: async (input) => {
+              promptCalls.push(input as Record<string, unknown>)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({ notify_on_fallback: false }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback(["openai/gpt-5.4"]),
+        },
+      )
+      const sessionID = "test-session-agent-not-found-no-name"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "anthropic/claude-opus-4-6" } },
+        },
+      })
+
+      // Error arrives with only a message, no name — mirrors opencode task-layer format
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            error: {
+              message: 'Agent not found: "Explore (Code Search)". Available agents: Explore (Code Search), general',
+            },
+          },
+        },
+      })
+
+      // Must dispatch ONE fallback — error is retryable even without UnknownError name
+      expect(promptCalls).toHaveLength(1)
+      const body = promptCalls[0]?.body as { model?: { providerID?: string; modelID?: string } } | undefined
+      expect(body?.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" })
+    })
+
+    test("agent-not-found cascade is bounded by the fallback chain length", async () => {
+      // Reproduces the flood: every fallback attempt fails with the same agent error.
+      // The hook must stop after exhausting fallback models — no infinite loop.
+      const promptCalls: Array<Record<string, unknown>> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "Search for patterns." }] }],
+            }),
+            promptAsync: async (input) => {
+              promptCalls.push(input as Record<string, unknown>)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({ notify_on_fallback: false }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback([
+            "openai/gpt-5.4",
+            "openai/gpt-5.3-codex-spark",
+          ]),
+        },
+      )
+      const sessionID = "test-session-agent-not-found-cascade"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "anthropic/claude-opus-4-6" } },
+        },
+      })
+
+      const agentNotFoundError = {
+        name: "UnknownError",
+        message: 'Agent not found: "Explore (Code Search)"',
+      }
+
+      // Error 1 → fallback to gpt-5.4
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: { sessionID, agent: "Explore (Code Search)", error: agentNotFoundError },
+        },
+      })
+      expect(promptCalls).toHaveLength(1)
+
+      // Error 2 (fallback also fails) → fallback to spark
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: { sessionID, agent: "Explore (Code Search)", error: agentNotFoundError },
+        },
+      })
+      expect(promptCalls).toHaveLength(2)
+
+      // Error 3 → all models exhausted, NO new fallback dispatched
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: { sessionID, agent: "Explore (Code Search)", error: agentNotFoundError },
+        },
+      })
+      expect(promptCalls).toHaveLength(2)
+
+      // Verify the two fallbacks used different models
+      const models = promptCalls.map(
+        (c) => (c.body as { model?: { modelID?: string } } | undefined)?.model?.modelID,
+      )
+      expect(models).toEqual(["gpt-5.4", "gpt-5.3-codex-spark"])
+    })
+
+    test("agent-not-found in message.updated assistant error falls back immediately", async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "Run explore task." }] }],
+            }),
+            promptAsync: async (input) => {
+              promptCalls.push(input as Record<string, unknown>)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({ notify_on_fallback: false }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback(["openai/gpt-5.4"]),
+        },
+      )
+      const sessionID = "test-session-agent-not-found-msg-updated"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "anthropic/claude-opus-4-6" } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              sessionID,
+              role: "assistant",
+              agent: "Explore (Code Search)",
+              model: "anthropic/claude-opus-4-6",
+              error: {
+                name: "UnknownError",
+                message: 'Agent not found: "Explore (Code Search)"',
+              },
+            },
+          },
+        },
+      })
+
+      // Must dispatch ONE immediate fallback — no transient delay for agent_not_found
+      expect(promptCalls).toHaveLength(1)
+      const deferLog = logCalls.find((c) =>
+        c.msg.includes("Deferring opaque transient retry on current model"),
+      )
+      expect(deferLog).toBeUndefined()
+      const body = promptCalls[0]?.body as { model?: { providerID?: string; modelID?: string } } | undefined
+      expect(body?.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" })
+    })
+
     test("should bootstrap session.error fallback from session category model and preserve variant", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(
