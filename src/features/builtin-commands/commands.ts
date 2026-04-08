@@ -10,6 +10,7 @@ import { HANDOFF_TEMPLATE } from "./templates/handoff"
 const BUILTIN_COMMAND_DEFINITIONS: Record<BuiltinCommandName, Omit<CommandDefinition, "name">> = {
   "init-deep": {
     description: "(builtin) Initialize hierarchical AGENTS.md knowledge base",
+    agent: "general",
     template: `<command-instruction>
 ${INIT_DEEP_TEMPLATE}
 </command-instruction>
