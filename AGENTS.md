@@ -85,9 +85,9 @@ If you add or rename an agent, update:
 ## Model Policy In This Fork
 
 - Architect, reviewer, critic, planner, and controller-style roles prefer `anthropic/claude-opus-4-6` first.
-- Deep execution and fast executor roles prefer `openai/gpt-5.4`.
-- Do not introduce older GPT families back into the primary picture.
-- `gpt-5.3-codex-spark` is the paid emergency fallback, not the default primary.
+- Deep execution roles like `Hephaestus` and `Atlas`, plus `Librarian` and `Multimodal Looker`, prefer `openai/gpt-5.4`.
+- `Explore` and `Sisyphus Junior` are the only speed-first exceptions that run on `openai/gpt-5.3-codex-spark` as their primary.
+- Do not move planner/review/controller roles onto `spark` primary.
 - Configured large-model context limits stay capped at `200000`.
 - Free-model fallbacks remain behind the paid chain and must survive transient failures cleanly.
 
@@ -108,6 +108,9 @@ Current policy:
 - quota, cooldown, payment, usage-limit, and free-period failures skip directly to the limit path:
   - first `gpt-5.3-codex-spark`
   - then free fallback models
+- `Explore` and `Sisyphus Junior` are already `spark`-primary speed lanes:
+  - keep their fallback path as `spark` -> free models
+  - do not insert `gpt-5.4` ahead of free models for those two roles
 - when a session is running on `spark` or a free model, background recovery probes may restore a higher-priority model
 - if a stalled session is still awaiting a fallback result when recovery succeeds, the hook may auto-resume the task on the recovered model
 

@@ -22,10 +22,18 @@ Upstream reference at the last synced README:
 Primary model picture in this fork:
 
 - planning/review/controller roles prefer `anthropic/claude-opus-4-6`
-- execution/search roles prefer `openai/gpt-5.4`
-- `gpt-5.3-codex-spark` is the paid emergency fallback
+- deep execution roles prefer `openai/gpt-5.4`
+- `Explore (Code Search)` and `Sisyphus Junior (Focused Executor)` are speed-first lanes on `openai/gpt-5.3-codex-spark`
 - free models stay behind `spark`
 - configured large-model context limits stay capped at `200000`
+
+Primary agents and their visible fallback shape:
+
+- `Prometheus`, `Sisyphus`, `Oracle`, `Metis`, `Momus`: `anthropic/claude-opus-4-6` -> `openai/gpt-5.4` -> `anthropic/claude-sonnet-4-6` -> `openai/gpt-5.3-codex-spark` -> free models
+- `Hephaestus`, `Atlas`, `Librarian`, `Multimodal Looker`: `openai/gpt-5.4` -> paid alternates -> `openai/gpt-5.3-codex-spark` -> free models
+- `Explore`, `Sisyphus Junior`: `openai/gpt-5.3-codex-spark` -> free models
+
+Managed source of truth for this table: `assets/custom-opencode/oh-my-opencode.json`.
 
 ## Fallback behavior
 
@@ -33,6 +41,7 @@ Primary model picture in this fork:
 - same-model transient retries stay alive for up to 4 hours
 - the retry interval grows over time and caps at 5 minutes between attempts
 - quota/cooldown/payment/usage-limit failures fall back to `gpt-5.3-codex-spark`, then to free models
+- for `Explore` and `Sisyphus Junior`, `spark` is already the primary model, so their limit/fallback path is `spark` -> free models
 - when a session is pushed down to `spark` or free models, background recovery probes can move it back up to stronger models when they recover
 
 `opencode-supermemory` is not enabled in the managed baseline. It overlaps with this fork's compaction/recovery stack and should be treated as an optional manual integration, not a default install.

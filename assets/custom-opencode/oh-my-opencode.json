@@ -81,17 +81,9 @@
       ]
     },
     "explore": {
-      "model": "openai/gpt-5.4",
-      "variant": "low",
-      "reasoningEffort": "low",
+      "model": "openai/gpt-5.3-codex-spark",
       "textVerbosity": "low",
       "fallback_models": [
-        {
-          "model": "openai/gpt-5.4",
-          "variant": "low",
-          "reasoningEffort": "low"
-        },
-        "anthropic/claude-sonnet-4-6",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
@@ -197,17 +189,9 @@
       "prompt_append": "Before substantive work in any repository, first check whether the root AGENTS.md exists and matches the current project. If it is missing, outdated, or clearly incomplete, create or refresh it immediately before major edits. Keep it concise and factual. Add nested AGENTS.md files only when the repository is large or conventions differ by subtree. Maintain these files as you learn the repo's structure, commands, tests, conventions, and gotchas. If execution begins via /start-work, an approved Prometheus handoff, or an active boulder, treat that as explicit permission to implement. In execution mode, drive the plan to completion, keep delegating and verifying until all planned work is done, and do not stop at interim summaries or partial progress. Return control early only for destructive or irreversible actions, materially missing information, or hard environment blockers that cannot be solved from the repo. Default to short, task-appropriate timeouts for every operation. Long-running commands are exceptions, not the default. Break work into minimal steps, avoid waiting idle on commands that show no useful progress, and if something runs unexpectedly long, stop to diagnose it before retrying with a larger timeout."
     },
     "sisyphus-junior": {
-      "model": "openai/gpt-5.4",
-      "variant": "medium",
-      "reasoningEffort": "medium",
+      "model": "openai/gpt-5.3-codex-spark",
       "textVerbosity": "medium",
       "fallback_models": [
-        {
-          "model": "openai/gpt-5.4",
-          "variant": "medium",
-          "reasoningEffort": "medium"
-        },
-        "anthropic/claude-sonnet-4-6",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",

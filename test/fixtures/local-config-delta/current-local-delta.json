@@ -52,8 +52,10 @@
             "hephaestus",
             "atlas",
             "librarian",
+            "multimodal-looker"
+          ],
+          "spark_agents": [
             "explore",
-            "multimodal-looker",
             "sisyphus-junior"
           ],
           "primary_categories": {

@@ -17,7 +17,8 @@ This fork is no longer treated as a broad local parity playground. The supported
   - `@nick-vi/opencode-type-inject`
 - The managed config keeps the fork model policy explicit:
   - controller/review roles stay `anthropic/claude-opus-4-6` first
-  - execution/search roles stay `openai/gpt-5.4` first
+  - deep workers stay `openai/gpt-5.4` first
+  - `Explore` and `Sisyphus Junior` are explicit `openai/gpt-5.3-codex-spark` speed lanes
   - configured large-model context limits remain capped at `200000`
 
 ## Runtime behavior retained

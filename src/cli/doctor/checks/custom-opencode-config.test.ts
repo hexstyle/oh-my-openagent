@@ -125,7 +125,7 @@ describe("managed custom OpenCode config assets", () => {
     })
   })
 
-  it("pins controller and review agents to Opus first, with GPT-5.4 workers and no legacy Codex", () => {
+  it("pins controller and review agents to Opus first, keeps GPT-5.4 deep workers, and routes speed lanes through spark", () => {
     const prometheus = pluginConfig.agents?.prometheus
     expect(prometheus?.model).toBe("anthropic/claude-opus-4-6")
     expect(prometheus?.variant).toBe("max")
@@ -140,9 +140,25 @@ describe("managed custom OpenCode config assets", () => {
     expect(pluginConfig.agents?.hephaestus?.variant).toBe("xhigh")
     expect(pluginConfig.agents?.atlas?.model).toBe("openai/gpt-5.4")
     expect(pluginConfig.agents?.atlas?.variant).toBe("xhigh")
-    expect(pluginConfig.agents?.explore?.model).toBe("openai/gpt-5.4")
+    expect(pluginConfig.agents?.explore?.model).toBe("openai/gpt-5.3-codex-spark")
     expect(pluginConfig.agents?.librarian?.model).toBe("openai/gpt-5.4")
-    expect(pluginConfig.agents?.["sisyphus-junior"]?.model).toBe("openai/gpt-5.4")
+    expect(pluginConfig.agents?.["sisyphus-junior"]?.model).toBe("openai/gpt-5.3-codex-spark")
+    expect(pluginConfig.agents?.explore?.variant).toBeUndefined()
+    expect(pluginConfig.agents?.["sisyphus-junior"]?.variant).toBeUndefined()
+    expect(pluginConfig.agents?.explore?.fallback_models).toEqual([
+      "openai/gpt-5.3-codex-spark",
+      "opencode/nemotron-3-super-free",
+      "opencode/minimax-m2.5-free",
+      "opencode/mimo-v2-pro-free",
+      "opencode/qwen3.6-plus-free",
+    ])
+    expect(pluginConfig.agents?.["sisyphus-junior"]?.fallback_models).toEqual([
+      "openai/gpt-5.3-codex-spark",
+      "opencode/nemotron-3-super-free",
+      "opencode/minimax-m2.5-free",
+      "opencode/mimo-v2-pro-free",
+      "opencode/qwen3.6-plus-free",
+    ])
 
     expect(pluginConfig.categories?.ultrabrain?.model).toBe("anthropic/claude-opus-4-6")
     expect(pluginConfig.categories?.deep?.model).toBe("openai/gpt-5.4")

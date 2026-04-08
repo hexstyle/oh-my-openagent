@@ -74,7 +74,7 @@ const expectedAgents: RuntimeAgentExpectation[] = [
   },
   {
     displayName: getAgentDisplayName("sisyphus-junior"),
-    model: "openai/gpt-5.4",
+    model: "openai/gpt-5.3-codex-spark",
     mode: "subagent",
   },
   {
@@ -90,7 +90,7 @@ const expectedAgents: RuntimeAgentExpectation[] = [
   {
     configKey: "explore",
     displayName: getAgentDisplayName("explore"),
-    model: "openai/gpt-5.4",
+    model: "openai/gpt-5.3-codex-spark",
     mode: "subagent",
   },
   {

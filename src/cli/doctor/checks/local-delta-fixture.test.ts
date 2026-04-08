@@ -55,6 +55,7 @@ const REQUIRED_REPORT_SNIPPETS = [
   "`oh-my-openagent.json`",
   "`anthropic/claude-opus-4-6`",
   "`openai/gpt-5.4`",
+  "`openai/gpt-5.3-codex-spark`",
   "There is no second synced JS plugin layer",
   "No currently-accepted suspicious runtime drift remains in the supported fork contract.",
 ]
@@ -130,8 +131,10 @@ describe("local delta fixture regression", () => {
       "hephaestus",
       "atlas",
       "librarian",
-      "explore",
       "multimodal-looker",
+    ])
+    expect(modelPolicyEntry.evidence?.spark_agents).toEqual([
+      "explore",
       "sisyphus-junior",
     ])
     expect(modelPolicyEntry.evidence?.context_limit).toBe(200000)

@@ -345,7 +345,7 @@ describe("generateModelConfig", () => {
       expect(result.agents?.explore?.model).toBe("anthropic/claude-haiku-4-5")
     })
 
-    test("explore uses OpenAI model when only OpenAI available", () => {
+    test("explore uses spark when only OpenAI available", () => {
       // #given only OpenAI is available
       const config = createConfig({ hasOpenAI: true })
 
@@ -353,8 +353,8 @@ describe("generateModelConfig", () => {
       const result = generateModelConfig(config)
 
       // #then explore should use native OpenAI model
-      expect(result.agents?.explore?.model).toBe("openai/gpt-5.4")
-      expect(result.agents?.explore?.variant).toBe("medium")
+      expect(result.agents?.explore?.model).toBe("openai/gpt-5.3-codex-spark")
+      expect(result.agents?.explore?.variant).toBeUndefined()
     })
 
     test("explore uses gpt-5-mini when only Copilot available", () => {
@@ -436,7 +436,7 @@ describe("generateModelConfig", () => {
       expect(result.agents?.metis?.variant).toBe("high")
     })
 
-    test("Sisyphus-Junior resolves to OpenAI when only OpenAI is available", () => {
+    test("Sisyphus-Junior resolves to spark when only OpenAI is available", () => {
       // #given
       const config = createConfig({ hasOpenAI: true })
 
@@ -444,8 +444,8 @@ describe("generateModelConfig", () => {
       const result = generateModelConfig(config)
 
       // #then
-      expect(result.agents?.["sisyphus-junior"]?.model).toBe("openai/gpt-5.4")
-      expect(result.agents?.["sisyphus-junior"]?.variant).toBe("medium")
+      expect(result.agents?.["sisyphus-junior"]?.model).toBe("openai/gpt-5.3-codex-spark")
+      expect(result.agents?.["sisyphus-junior"]?.variant).toBeUndefined()
     })
   })
 
