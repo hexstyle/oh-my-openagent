@@ -3,6 +3,7 @@ import type { OpencodeClient, OnSubagentSessionCreated, QueueItem } from "./cons
 import { TMUX_CALLBACK_DELAY_MS } from "./constants"
 import { log, getAgentToolRestrictions, promptWithModelSuggestionRetry, createInternalAgentTextPart } from "../../shared"
 import { applySessionPromptParams } from "../../shared/session-prompt-params-helpers"
+import { normalizeAgentForExecution } from "../../shared/agent-display-names"
 import { subagentSessions } from "../claude-code-session-state"
 import { getTaskToastManager } from "../task-toast-manager"
 import { isInsideTmux } from "../../shared/tmux"
@@ -15,6 +16,10 @@ export interface SpawnerContext {
   tmuxEnabled: boolean
   onSubagentSessionCreated?: OnSubagentSessionCreated
   onTaskError: (task: BackgroundTask, error: Error) => void
+}
+
+function getExecutionAgent(agentName: string): string {
+  return normalizeAgentForExecution(agentName) ?? agentName.trim()
 }
 
 export function createTask(input: LaunchInput): BackgroundTask {
@@ -39,16 +44,18 @@ export async function startTask(
 ): Promise<void> {
   const { task, input } = item
   const { client, directory, concurrencyManager, tmuxEnabled, onSubagentSessionCreated, onTaskError } = ctx
+  const executionAgent = getExecutionAgent(input.agent)
 
   log("[background-agent] Starting task:", {
     taskId: task.id,
     agent: input.agent,
+    executionAgent,
     model: input.model,
   })
 
   const concurrencyKey = input.model
     ? `${input.model.providerID}/${input.model.modelID}`
-    : input.agent
+    : executionAgent
 
   const parentSession = await client.session.get({
     path: { id: input.parentSessionID },
@@ -123,6 +130,7 @@ export async function startTask(
   log("[background-agent] Calling prompt (fire-and-forget) for launch with:", {
     sessionID,
     agent: input.agent,
+    executionAgent,
     model: input.model,
     hasSkillContent: !!input.skillContent,
     promptLength: input.prompt.length,
@@ -141,7 +149,7 @@ export async function startTask(
   promptWithModelSuggestionRetry(client, {
     path: { id: sessionID },
     body: {
-      agent: input.agent,
+      agent: executionAgent,
       ...(launchModel ? { model: launchModel } : {}),
       ...(launchVariant ? { variant: launchVariant } : {}),
       system: input.skillContent,
@@ -149,7 +157,7 @@ export async function startTask(
         task: false,
         call_omo_agent: true,
         question: false,
-        ...getAgentToolRestrictions(input.agent),
+        ...getAgentToolRestrictions(executionAgent),
       },
       parts: [createInternalAgentTextPart(input.prompt)],
     },
@@ -165,6 +173,7 @@ export async function resumeTask(
   ctx: Pick<SpawnerContext, "client" | "concurrencyManager" | "onTaskError">
 ): Promise<void> {
   const { client, concurrencyManager, onTaskError } = ctx
+  const executionAgent = getExecutionAgent(task.agent)
 
   if (!task.sessionID) {
     throw new Error(`Task has no sessionID: ${task.id}`)
@@ -178,7 +187,12 @@ export async function resumeTask(
     return
   }
 
-  const concurrencyKey = task.concurrencyGroup ?? task.agent
+  const concurrencyKey = task.concurrencyGroup
+    && task.concurrencyGroup !== task.agent
+    ? task.concurrencyGroup
+    : task.model
+      ? `${task.model.providerID}/${task.model.modelID}`
+      : executionAgent
   await concurrencyManager.acquire(concurrencyKey)
   task.concurrencyKey = concurrencyKey
   task.concurrencyGroup = concurrencyKey
@@ -214,6 +228,7 @@ export async function resumeTask(
   log("[background-agent] Resuming task - calling prompt (fire-and-forget) with:", {
     sessionID: task.sessionID,
     agent: task.agent,
+    executionAgent,
     model: task.model,
     promptLength: input.prompt.length,
   })
@@ -231,14 +246,14 @@ export async function resumeTask(
   client.session.promptAsync({
     path: { id: task.sessionID },
     body: {
-      agent: task.agent,
+      agent: executionAgent,
       ...(resumeModel ? { model: resumeModel } : {}),
       ...(resumeVariant ? { variant: resumeVariant } : {}),
       tools: {
         task: false,
         call_omo_agent: true,
         question: false,
-        ...getAgentToolRestrictions(task.agent),
+        ...getAgentToolRestrictions(executionAgent),
       },
       parts: [createInternalAgentTextPart(input.prompt)],
     },

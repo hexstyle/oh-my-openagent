@@ -11,6 +11,65 @@ describe("background-agent spawner fallback model promotion", () => {
     clearSessionPromptParams("session-123")
   })
 
+  test("normalizes the reserved explore display name for execution", async () => {
+    //#given
+    let promptArgs: any
+    const client = {
+      session: {
+        get: mock(async () => ({ data: { directory: "/tmp/test" } })),
+        create: mock(async () => ({ data: { id: "session-123" } })),
+        promptAsync: mock(async (input: any) => {
+          promptArgs = input
+          return { data: {} }
+        }),
+      },
+    } as any
+
+    const concurrencyManager = {
+      release: mock(() => {}),
+      acquire: mock(async () => {}),
+    } as any
+
+    const onTaskError = mock(() => {})
+
+    const task = createTask({
+      description: "Explore project structure",
+      prompt: "Inspect the repo layout",
+      agent: "Explore (Code Search)",
+      parentSessionID: "parent-1",
+      parentMessageID: "message-1",
+    })
+
+    const item = {
+      task,
+      input: {
+        description: task.description,
+        prompt: task.prompt,
+        agent: task.agent,
+        parentSessionID: task.parentSessionID,
+        parentMessageID: task.parentMessageID,
+      },
+    }
+
+    //#when
+    await startTask(item as any, {
+      client,
+      directory: "/tmp/test",
+      concurrencyManager,
+      tmuxEnabled: false,
+      onTaskError,
+    } as any)
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    //#then
+    expect(promptArgs.body.agent).toBe("explore")
+    expect(promptArgs.body.tools.call_omo_agent).toBe(false)
+    expect(promptArgs.body.tools.task).toBe(false)
+    expect(promptArgs.body.tools.write).toBe(false)
+    expect(promptArgs.body.tools.edit).toBe(false)
+  })
+
   test("passes promoted fallback model settings through supported prompt channels", async () => {
     //#given
     let promptArgs: any

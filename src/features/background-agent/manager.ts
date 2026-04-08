@@ -72,6 +72,7 @@ import {
   resolveSubagentSpawnContext,
   type SubagentSpawnContext,
 } from "./subagent-spawn-limits"
+import { normalizeAgentForExecution } from "../../shared/agent-display-names"
 
 type OpencodeClient = PluginInput["client"]
 
@@ -148,9 +149,13 @@ function normalizeDuplicateLaunchValue(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase()
 }
 
+function getExecutionAgent(agentName: string): string {
+  return normalizeAgentForExecution(agentName) ?? agentName.trim()
+}
+
 function createDuplicateLaunchSignature(input: Pick<LaunchInput, "agent" | "description" | "prompt">): string {
   return JSON.stringify({
-    agent: normalizeDuplicateLaunchValue(input.agent),
+    agent: normalizeDuplicateLaunchValue(getExecutionAgent(input.agent)),
     description: normalizeDuplicateLaunchValue(input.description),
     prompt: normalizeDuplicateLaunchValue(input.prompt),
   })
@@ -516,10 +521,12 @@ export class BackgroundManager {
 
   private async startTask(item: QueueItem): Promise<void> {
     const { task, input } = item
+    const executionAgent = getExecutionAgent(input.agent)
 
     log("[background-agent] Starting task:", {
       taskId: task.id,
       agent: input.agent,
+      executionAgent,
       model: input.model,
     })
 
@@ -621,6 +628,7 @@ export class BackgroundManager {
     log("[background-agent] Calling prompt (fire-and-forget) for launch with:", {
       sessionID,
       agent: input.agent,
+      executionAgent,
       model: input.model,
       hasSkillContent: !!input.skillContent,
       promptLength: input.prompt.length,
@@ -644,7 +652,7 @@ export class BackgroundManager {
     promptWithModelSuggestionRetry(this.client, {
       path: { id: sessionID },
       body: {
-        agent: input.agent,
+        agent: executionAgent,
         ...(launchModel ? { model: launchModel } : {}),
         ...(launchVariant ? { variant: launchVariant } : {}),
         system: input.skillContent,
@@ -653,7 +661,7 @@ export class BackgroundManager {
             task: false,
             call_omo_agent: true,
             question: false,
-            ...getAgentToolRestrictions(input.agent),
+            ...getAgentToolRestrictions(executionAgent),
           }
           setSessionTools(sessionID, tools)
           return tools
@@ -738,7 +746,7 @@ export class BackgroundManager {
     if (input.model) {
       return `${input.model.providerID}/${input.model.modelID}`
     }
-    return input.agent
+    return getExecutionAgent(input.agent)
   }
 
   /**
@@ -767,7 +775,10 @@ export class BackgroundManager {
         existingTask.parentAgent = input.parentAgent
       }
       if (!existingTask.concurrencyGroup) {
-        existingTask.concurrencyGroup = input.concurrencyKey ?? existingTask.agent
+        existingTask.concurrencyGroup = input.concurrencyKey
+          ?? (existingTask.model
+            ? `${existingTask.model.providerID}/${existingTask.model.modelID}`
+            : getExecutionAgent(existingTask.agent))
       }
 
       if (existingTask.sessionID) {
@@ -795,7 +806,8 @@ export class BackgroundManager {
       return existingTask
     }
 
-    const concurrencyGroup = input.concurrencyKey ?? input.agent ?? "task"
+    const concurrencyGroup = input.concurrencyKey
+      ?? (input.agent ? getExecutionAgent(input.agent) : "task")
 
     // Acquire concurrency slot if a key is provided
     if (input.concurrencyKey) {
@@ -867,8 +879,14 @@ export class BackgroundManager {
       this.completionTimers.delete(existingTask.id)
     }
 
-    // Re-acquire concurrency using the persisted concurrency group
-    const concurrencyKey = existingTask.concurrencyGroup ?? existingTask.agent
+    const executionAgent = getExecutionAgent(existingTask.agent)
+    // Re-acquire concurrency using the normalized execution agent for agent-keyed tasks.
+    const concurrencyKey = existingTask.concurrencyGroup
+      && existingTask.concurrencyGroup !== existingTask.agent
+      ? existingTask.concurrencyGroup
+      : existingTask.model
+        ? `${existingTask.model.providerID}/${existingTask.model.modelID}`
+        : executionAgent
     await this.concurrencyManager.acquire(concurrencyKey)
     existingTask.concurrencyKey = concurrencyKey
     existingTask.concurrencyGroup = concurrencyKey
@@ -927,6 +945,7 @@ export class BackgroundManager {
     log("[background-agent] Resuming task - calling prompt (fire-and-forget) with:", {
       sessionID: existingTask.sessionID,
       agent: existingTask.agent,
+      executionAgent,
       model: existingTask.model,
       promptLength: input.prompt.length,
     })
@@ -948,7 +967,7 @@ export class BackgroundManager {
     this.client.session.promptAsync({
       path: { id: existingTask.sessionID },
       body: {
-        agent: existingTask.agent,
+        agent: executionAgent,
         ...(resumeModel ? { model: resumeModel } : {}),
         ...(resumeVariant ? { variant: resumeVariant } : {}),
         tools: (() => {
@@ -956,7 +975,7 @@ export class BackgroundManager {
             task: false,
             call_omo_agent: true,
             question: false,
-            ...getAgentToolRestrictions(existingTask.agent),
+            ...getAgentToolRestrictions(executionAgent),
           }
           setSessionTools(existingTask.sessionID!, tools)
           return tools

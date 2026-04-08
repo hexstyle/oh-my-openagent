@@ -49,13 +49,19 @@ function createDeps(): HookDeps {
   }
 }
 
-function createHelpers(abortCalls: string[], retryCalls: Array<{ sessionID: string; model: string; source: string }>): AutoRetryHelpers {
+function createHelpers(
+  abortCalls: string[],
+  retryCalls: Array<{ sessionID: string; model: string; source: string }>,
+  scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string }>,
+): AutoRetryHelpers {
   return {
     abortSessionRequest: async (sessionID: string) => {
       abortCalls.push(sessionID)
     },
     clearSessionFallbackTimeout: () => {},
-    scheduleSessionFallbackTimeout: () => {},
+    scheduleSessionFallbackTimeout: (sessionID: string, args?: { resolvedAgent?: string; source?: string }) => {
+      scheduleCalls.push({ sessionID, ...args })
+    },
     autoRetryWithFallback: async (sessionID: string, model: string, _resolvedAgent: string | undefined, source: string) => {
       retryCalls.push({ sessionID, model, source })
     },
@@ -74,6 +80,7 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string }> = []
     const state = createFallbackState("anthropic/claude-opus-4-6")
     state.currentModel = "openai/gpt-5.4"
     state.fallbackIndex = 0
@@ -82,7 +89,11 @@ describe("createSessionStatusHandler", () => {
     state.failedModels.set("anthropic/claude-opus-4-6", Date.now())
     deps.sessionStates.set(sessionID, state)
 
-    const handler = createSessionStatusHandler(deps, createHelpers(abortCalls, retryCalls), deps.sessionStatusRetryKeys)
+    const handler = createSessionStatusHandler(
+      deps,
+      createHelpers(abortCalls, retryCalls, scheduleCalls),
+      deps.sessionStatusRetryKeys,
+    )
 
     // when
     await handler({
@@ -118,10 +129,15 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string }> = []
     const state = createFallbackState("anthropic/claude-opus-4-6")
     deps.sessionStates.set(sessionID, state)
 
-    const handler = createSessionStatusHandler(deps, createHelpers(abortCalls, retryCalls), deps.sessionStatusRetryKeys)
+    const handler = createSessionStatusHandler(
+      deps,
+      createHelpers(abortCalls, retryCalls, scheduleCalls),
+      deps.sessionStatusRetryKeys,
+    )
 
     // when
     await handler({
@@ -145,5 +161,43 @@ describe("createSessionStatusHandler", () => {
     ])
     expect(state.currentModel).toBe("openai/gpt-5.4")
     SessionCategoryRegistry.clear()
+  })
+
+  it("#given a running session #when a non-retry active session.status arrives #then the timeout is refreshed instead of triggering fallback", async () => {
+    // given
+    const sessionID = "session-status-active"
+    const deps = createDeps()
+    const abortCalls: string[] = []
+    const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string }> = []
+    const state = createFallbackState("openai/gpt-5.4")
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createSessionStatusHandler(
+      deps,
+      createHelpers(abortCalls, retryCalls, scheduleCalls),
+      deps.sessionStatusRetryKeys,
+    )
+
+    // when
+    await handler({
+      sessionID,
+      model: "openai/gpt-5.4",
+      status: {
+        type: "running",
+        message: "Still working",
+      },
+    })
+
+    // then
+    expect(abortCalls).toEqual([])
+    expect(retryCalls).toEqual([])
+    expect(scheduleCalls).toEqual([
+      {
+        sessionID,
+        source: "session.status.active",
+      },
+    ])
+    expect(deps.sessionLastAccess.has(sessionID)).toBe(true)
   })
 })

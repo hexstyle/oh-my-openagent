@@ -9,6 +9,8 @@ import { normalizeRetryStatusMessage, extractRetryAttempt } from "../../shared/r
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
 
+const ACTIVE_SESSION_STATUS_TYPES = new Set(["busy", "running"])
+
 export function createSessionStatusHandler(
   deps: HookDeps,
   helpers: AutoRetryHelpers,
@@ -28,7 +30,45 @@ export function createSessionStatusHandler(
     const model = props?.model as string | undefined
     const timeoutEnabled = deps.config.timeout_seconds > 0
 
-    if (!sessionID || status?.type !== "retry") return
+    if (!sessionID) return
+
+    if (timeoutEnabled && status?.type && ACTIVE_SESSION_STATUS_TYPES.has(status.type)) {
+      const resolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent)
+      let state = sessionStates.get(sessionID)
+      if (!state) {
+        const initialModel = resolveFallbackBootstrapModel({
+          sessionID,
+          source: "session.status.active",
+          eventModel: model,
+          resolvedAgent,
+          pluginConfig,
+        })
+
+        if (initialModel) {
+          state = createFallbackState(initialModel)
+          sessionStates.set(sessionID, state)
+        }
+      }
+
+      if (state) {
+        sessionLastAccess.set(sessionID, Date.now())
+        helpers.scheduleSessionFallbackTimeout(sessionID, {
+          resolvedAgent,
+          source: "session.status.active",
+        })
+
+        log(`[${HOOK_NAME}] Refreshed fallback timeout after active session.status`, {
+          sessionID,
+          statusType: status.type,
+          model: state.currentModel,
+          resolvedAgent,
+        })
+      }
+
+      return
+    }
+
+    if (status?.type !== "retry") return
 
     const retryMessage = typeof status.message === "string" ? status.message : ""
     const retrySignal = extractAutoRetrySignal({ status: retryMessage, message: retryMessage })
