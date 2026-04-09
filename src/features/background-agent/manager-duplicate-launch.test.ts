@@ -62,4 +62,24 @@ describe("BackgroundManager duplicate launch guard", () => {
 
     expect(second.id).not.toBe(first.id)
   })
+
+  test("treats config keys and canonical display names as the same agent for duplicate detection", async () => {
+    const manager = createManager()
+
+    await manager.launch({
+      description: "Review deployment plan",
+      prompt: "Assess rollout risk and blocking assumptions",
+      agent: "oracle",
+      parentSessionID: "parent-1",
+      parentMessageID: "msg-1",
+    })
+
+    await expect(manager.launch({
+      description: "Review deployment plan",
+      prompt: "Assess rollout risk and blocking assumptions",
+      agent: "Oracle (Strategic Advisor)",
+      parentSessionID: "parent-1",
+      parentMessageID: "msg-1",
+    })).rejects.toThrow('already has 1 active identical task(s) for agent "Oracle (Strategic Advisor)"')
+  })
 })

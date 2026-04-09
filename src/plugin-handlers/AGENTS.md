@@ -8,7 +8,7 @@ This directory turns parsed config into the runtime agent/tool/MCP/command map t
 
 - Runtime must not expose duplicate agent identities.
 - User-visible agent names must be canonical display names only.
-- Internal alias keys must not leak back into `app.agents()`.
+- Internal alias keys must not leak back into user-facing consumers of `app.agents()`.
 - The managed model picture from `assets/custom-opencode/oh-my-opencode.json` must survive handler processing.
 
 ## Files To Inspect For Agent Issues
@@ -33,7 +33,8 @@ Do not reintroduce:
 Only one internal exception is allowed:
 
 - config key `explore` stays internal because OpenCode core treats that key specially
-- the runtime payload name must still be `Explore (Code Search)`
+- runtime-facing registry/name fields for `explore` must also stay `explore`
+- user-facing surfaces must still render `Explore (Code Search)`
 
 If you touch remapping logic, re-run the live verifier. Unit tests alone are not enough.
 

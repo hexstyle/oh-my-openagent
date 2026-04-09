@@ -47,6 +47,26 @@ ensure_brew_formula() {
   fi
 }
 
+sync_runtime_workspace() {
+  mkdir -p "$CACHE_DIR"
+  RUNTIME_DEPS_JSON="$(bun --eval "import { MANAGED_RUNTIME_PLUGIN_DEPENDENCIES } from '$ROOT_DIR/src/shared/managed-opencode-runtime.ts'; process.stdout.write(JSON.stringify(MANAGED_RUNTIME_PLUGIN_DEPENDENCIES));")"
+  cat >"$CACHE_DIR/package.json" <<EOF
+{
+  "name": "opencode-local-runtime",
+  "private": true,
+  "dependencies": $RUNTIME_DEPS_JSON
+}
+EOF
+  rm -rf "$CACHE_DIR/node_modules" "$CACHE_DIR/bun.lock"
+  (cd "$CACHE_DIR" && bun install)
+}
+
+ensure_config_schema_link() {
+  mkdir -p "$CONFIG_DIR/node_modules"
+  rm -rf "$CONFIG_DIR/node_modules/oh-my-openagent" "$CONFIG_DIR/node_modules/oh-my-opencode"
+  ln -sfn "$ROOT_DIR" "$CONFIG_DIR/node_modules/oh-my-openagent"
+}
+
 CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
 CACHE_DIR="$HOME/.cache/opencode"
 DATA_DIR="$HOME/.local/share/opencode"
@@ -87,21 +107,9 @@ say "Building local fork"
 bun run build
 
 say "Preparing OpenCode runtime workspace"
-mkdir -p "$CACHE_DIR"
-RUNTIME_DEPS_JSON="$(bun --eval "import { MANAGED_RUNTIME_PLUGIN_DEPENDENCIES } from '$ROOT_DIR/src/shared/managed-opencode-runtime.ts'; process.stdout.write(JSON.stringify(MANAGED_RUNTIME_PLUGIN_DEPENDENCIES));")"
-cat >"$CACHE_DIR/package.json" <<EOF
-{
-  "name": "opencode-local-runtime",
-  "private": true,
-  "dependencies": $RUNTIME_DEPS_JSON
-}
-EOF
-rm -rf "$CACHE_DIR/node_modules" "$CACHE_DIR/bun.lock"
-(cd "$CACHE_DIR" && bun install)
+sync_runtime_workspace
 
-mkdir -p "$CONFIG_DIR/node_modules"
-rm -rf "$CONFIG_DIR/node_modules/oh-my-openagent" "$CONFIG_DIR/node_modules/oh-my-opencode"
-ln -sfn "$ROOT_DIR" "$CONFIG_DIR/node_modules/oh-my-openagent"
+ensure_config_schema_link
 
 if [[ -n "$LOCAL_OVERRIDE_BACKUP" && -n "$LOCAL_OVERRIDE_RESTORE_NAME" ]]; then
   mkdir -p "$CONFIG_DIR"
@@ -131,6 +139,10 @@ bun --eval "import { syncCodexCliAuthToOpenCodeAuth } from '$ROOT_DIR/src/shared
 
 say "Validating effective model config"
 bun run script/validate-effective-model-config.ts
+
+say "Re-pinning managed runtime workspace"
+sync_runtime_workspace
+ensure_config_schema_link
 
 say "Verifying live runtime"
 bun run script/verify-local-opencode-install.ts

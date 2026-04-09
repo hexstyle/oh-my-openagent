@@ -1,4 +1,5 @@
 import type { BackgroundTask } from "../../features/background-agent"
+import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
 
 export const THINKING_SUMMARY_MAX_CHARS = 500 as const
 
@@ -87,11 +88,12 @@ export function isUnstableTask(task: BackgroundTask): boolean {
 export function buildReminder(task: BackgroundTask, summary: string | null, idleMs: number): string {
   const idleSeconds = Math.round(idleMs / 1000)
   const summaryText = summary ?? "(No thinking trace available)"
+  const displayAgent = normalizeAgentForDisplay(task.agent) ?? task.agent
   return `Unstable background agent appears idle for ${idleSeconds}s.
 
 Task ID: ${task.id}
 Description: ${task.description}
-Agent: ${task.agent}
+Agent: ${displayAgent}
 Status: ${task.status}
 Session ID: ${task.sessionID ?? "N/A"}
 

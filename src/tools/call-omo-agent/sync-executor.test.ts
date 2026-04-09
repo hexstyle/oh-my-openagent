@@ -110,6 +110,27 @@ describe("executeSync", () => {
     expect(promptInput?.body.parts).toEqual([{ type: "text", text: "find something" }])
   })
 
+  test("normalizes known config-key agents to canonical display names in sync prompts", async () => {
+    //#given
+    const executeSync = await importExecuteSync()
+    const deps = createDependencies()
+    const toolContext = createToolContext()
+    const recorder = createPromptAsyncRecorder()
+    const args = {
+      subagent_type: "oracle",
+      description: "consult strategy",
+      prompt: "analyze tradeoffs",
+      run_in_background: false,
+    }
+
+    //#when
+    await executeSync(args, toolContext, createContext(recorder.promptAsync) as never, deps)
+
+    //#then
+    const promptInput = recorder.getCapturedInput()
+    expect(promptInput?.body.agent).toBe("Oracle (Strategic Advisor)")
+  })
+
   test("returns processed response with task metadata footer", async () => {
     //#given
     const executeSync = await importExecuteSync()

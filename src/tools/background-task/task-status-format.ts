@@ -1,6 +1,7 @@
 import type { BackgroundTask } from "../../features/background-agent"
 import { formatDuration } from "./time-format"
 import { truncateText } from "./truncate-text"
+import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
 
 export function formatTaskStatus(task: BackgroundTask): string {
   let duration: string
@@ -54,6 +55,7 @@ ${truncated}
    }
 
   const durationLabel = task.status === "pending" ? "Queued for" : "Duration"
+  const displayAgent = normalizeAgentForDisplay(task.agent) ?? task.agent
 
   return `# Task Status
 
@@ -61,7 +63,7 @@ ${truncated}
 |-------|-------|
 | Task ID | \`${task.id}\` |
 | Description | ${task.description} |
-| Agent | ${task.agent} |
+| Agent | ${displayAgent} |
 | Status | **${task.status}** |
 | ${durationLabel} | ${duration} |
 | Session ID | \`${task.sessionID}\` |${progressSection}

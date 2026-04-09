@@ -45,7 +45,7 @@ function createTask(overrides: Partial<BackgroundTask> = {}): BackgroundTask {
     parentMessageID: "msg-1",
     description: "unstable task",
     prompt: "run work",
-    agent: "test-agent",
+    agent: "oracle",
     status: "running",
     progress: {
       toolCalls: 1,
@@ -93,6 +93,7 @@ describe("unstable-agent-babysitter hook", () => {
     const text = payload.body?.parts?.[0]?.text ?? ""
     expect(text).toContain("background_output")
     expect(text).toContain("background_cancel")
+    expect(text).toContain("Agent: Oracle (Strategic Advisor)")
     expect(text).toContain("deep thought")
     expect(text).toContain(OMO_INTERNAL_INITIATOR_MARKER)
   })
@@ -129,6 +130,7 @@ describe("unstable-agent-babysitter hook", () => {
     const text = payload.body?.parts?.[0]?.text ?? ""
     expect(text).toContain("background_output")
     expect(text).toContain("background_cancel")
+    expect(text).toContain("Agent: Oracle (Strategic Advisor)")
     expect(text).toContain("minimax thought")
     expect(text).toContain(OMO_INTERNAL_INITIATOR_MARKER)
   })

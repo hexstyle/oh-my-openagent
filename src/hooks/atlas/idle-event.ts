@@ -17,6 +17,7 @@ import type { AtlasHookOptions, SessionState } from "./types"
 const CONTINUATION_COOLDOWN_MS = 5000
 const FAILURE_BACKOFF_MS = 5 * 60 * 1000
 const MAX_CONSECUTIVE_PROMPT_FAILURES = 10
+const SESSION_ERROR_BACKOFF_MS = 30 * 1000
 const RETRY_DELAY_MS = CONTINUATION_COOLDOWN_MS + 1000
 
 function hasRunningBackgroundTasks(sessionID: string, options?: AtlasHookOptions): boolean {
@@ -182,6 +183,19 @@ export async function handleAtlasSessionIdle(input: {
     sessionState.lastEventWasAbortError = false
     log(`[${HOOK_NAME}] Skipped: abort error immediately before idle`, { sessionID })
     return
+  }
+
+  if (sessionState.lastNonAbortSessionErrorAt) {
+    const timeSinceLastSessionError = now - sessionState.lastNonAbortSessionErrorAt
+    if (timeSinceLastSessionError < SESSION_ERROR_BACKOFF_MS) {
+      log(`[${HOOK_NAME}] Skipped: recent session.error before idle`, {
+        sessionID,
+        backoffRemaining: SESSION_ERROR_BACKOFF_MS - timeSinceLastSessionError,
+      })
+      return
+    }
+
+    sessionState.lastNonAbortSessionErrorAt = undefined
   }
 
   if (sessionState.promptFailureCount >= MAX_CONSECUTIVE_PROMPT_FAILURES) {

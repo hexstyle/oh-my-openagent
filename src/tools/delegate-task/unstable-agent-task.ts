@@ -9,6 +9,7 @@ import { formatDetailedError } from "./error-formatting"
 import { getSessionTools } from "../../shared/session-tools-store"
 import { normalizeSDKResponse } from "../../shared"
 import { QUESTION_DENIED_SESSION_PERMISSION } from "../../shared/question-denied-session-permission"
+import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
 
 export async function executeUnstableAgentTask(
   args: DelegateTaskArgs,
@@ -21,6 +22,7 @@ export async function executeUnstableAgentTask(
   actualModel: string | undefined
 ): Promise<string> {
   const { manager, client, syncPollTimeoutMs, sisyphusAgentConfig } = executorCtx
+  const displayAgent = normalizeAgentForDisplay(agentToUse) ?? agentToUse
   let cleanupReason: string | undefined
   let launchedTaskID: string | undefined
 
@@ -70,7 +72,7 @@ export async function executeUnstableAgentTask(
       title: args.description,
       metadata: {
         prompt: args.prompt,
-        agent: agentToUse,
+        agent: displayAgent,
         category: args.category,
         load_skills: args.load_skills,
         description: args.description,
@@ -145,7 +147,7 @@ Task was interrupted/failed while running in monitored background mode.
 ${terminalStatus.error ? `Error: ${terminalStatus.error}` : ""}
 
 Duration: ${duration}
-Agent: ${agentToUse}${args.category ? ` (category: ${args.category})` : ""}
+Agent: ${displayAgent}${args.category ? ` (category: ${args.category})` : ""}
 Model: ${actualModel}
 
 The task session may contain partial results.
@@ -165,7 +167,7 @@ Task did not reach a stable completion signal within the monitored timeout budge
 Timeout budget: ${timeoutBudgetMs}ms
 
 Duration: ${duration}
-Agent: ${agentToUse}${args.category ? ` (category: ${args.category})` : ""}
+Agent: ${displayAgent}${args.category ? ` (category: ${args.category})` : ""}
 Model: ${actualModel}
 
 The task session may still contain partial results.
@@ -206,7 +208,7 @@ IMPORTANT: This model (${actualModel}) is marked as unstable/experimental.
 Your run_in_background=false was automatically converted to background mode for reliability monitoring.
 
 Duration: ${duration}
-Agent: ${agentToUse}${args.category ? ` (category: ${args.category})` : ""}
+Agent: ${displayAgent}${args.category ? ` (category: ${args.category})` : ""}
 
 MONITORING INSTRUCTIONS:
 - The task was monitored and completed successfully

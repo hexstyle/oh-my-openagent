@@ -118,7 +118,7 @@ describe("remapAgentKeysToDisplayNames", () => {
     })
   })
 
-  it("preserves the reserved explore config key while exposing the canonical display name", () => {
+  it("preserves the reserved explore runtime key without drifting the payload name", () => {
     const agents = {
       explore: { prompt: "search", mode: "subagent" },
     }
@@ -126,7 +126,7 @@ describe("remapAgentKeysToDisplayNames", () => {
     const result = remapAgentKeysToDisplayNames(agents)
 
     expect(result["explore"]).toEqual({
-      name: "Explore (Code Search)",
+      name: "explore",
       prompt: "search",
       mode: "subagent",
     })

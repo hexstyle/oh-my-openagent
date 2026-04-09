@@ -44,6 +44,7 @@ describe("call-omo-agent createOrGetSession", () => {
     expect(createCalls).toHaveLength(1)
     const createBody = (createCalls[0] as any)?.body
     expect(createBody?.parentID).toBe("ses_parent")
+    expect(createBody?.title).toBe("test (@Explore (Code Search) subagent)")
     expect(createBody?.permission).toBeUndefined()
     expect(subagentSessions.has("ses_child")).toBe(true)
   })

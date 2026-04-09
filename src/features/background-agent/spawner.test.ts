@@ -135,6 +135,7 @@ describe("background-agent spawner fallback model promotion", () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     //#then
+    expect(promptArgs.body.agent).toBe("Oracle (Strategic Advisor)")
     expect(promptArgs.body.model).toEqual({
       providerID: "openai",
       modelID: "gpt-5.4",
@@ -203,7 +204,7 @@ describe("background-agent spawner fallback model promotion", () => {
 
     //#then
     expect(promptCalls).toHaveLength(1)
-    expect(promptCalls[0]?.body?.agent).toBe("sisyphus-junior")
+    expect(promptCalls[0]?.body?.agent).toBe("Sisyphus Junior (Focused Executor)")
     expect(promptCalls[0]?.body?.model).toEqual({
       providerID: "openai",
       modelID: "gpt-5.4",

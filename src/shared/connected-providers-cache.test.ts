@@ -263,4 +263,34 @@ describe("updateConnectedProvidersCache", () => {
 			name: "o3-mini",
 		})
 	})
+
+	test("reads provider-models cache from readable directories when writable cache path differs", () => {
+		const readableCacheDir = join(fakeUserCacheRoot, "preferred-oh-my-opencode")
+		const writableCacheDir = join(fakeUserCacheRoot, "sandbox-oh-my-opencode")
+		testCacheStore = createConnectedProvidersCacheStore(
+			() => writableCacheDir,
+			() => [readableCacheDir, writableCacheDir],
+		)
+
+		mkdirSync(readableCacheDir, { recursive: true })
+		writeFileSync(
+			join(readableCacheDir, "provider-models.json"),
+			JSON.stringify({
+				models: {
+					openai: [{ id: "gpt-5.4", context: 200000 }],
+				},
+				connected: ["openai"],
+				updatedAt: "2026-04-09T00:00:00.000Z",
+			}),
+		)
+
+		expect(testCacheStore.hasProviderModelsCache()).toBe(true)
+		expect(testCacheStore.readProviderModelsCache()).toEqual({
+			models: {
+				openai: [{ id: "gpt-5.4", context: 200000 }],
+			},
+			connected: ["openai"],
+			updatedAt: "2026-04-09T00:00:00.000Z",
+		})
+	})
 })

@@ -23,6 +23,11 @@ export function createAtlasEventHandler(input: {
       const state = getState(sessionID)
       const isAbort = isAbortError(props?.error)
       state.lastEventWasAbortError = isAbort
+      state.lastNonAbortSessionErrorAt = isAbort ? undefined : Date.now()
+      if (state.pendingRetryTimer) {
+        clearTimeout(state.pendingRetryTimer)
+        state.pendingRetryTimer = undefined
+      }
 
       log(`[${HOOK_NAME}] session.error`, { sessionID, isAbort })
       return
@@ -44,6 +49,7 @@ export function createAtlasEventHandler(input: {
       const state = sessions.get(sessionID)
       if (state) {
         state.lastEventWasAbortError = false
+        state.lastNonAbortSessionErrorAt = undefined
         if (role === "user") {
           state.waitingForFinalWaveApproval = false
         }
@@ -60,6 +66,7 @@ export function createAtlasEventHandler(input: {
         const state = sessions.get(sessionID)
         if (state) {
           state.lastEventWasAbortError = false
+          state.lastNonAbortSessionErrorAt = undefined
         }
       }
       return

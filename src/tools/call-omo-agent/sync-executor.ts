@@ -3,6 +3,7 @@ import type { PluginInput } from "@opencode-ai/plugin"
 import { subagentSessions, syncSubagentSessions } from "../../features/claude-code-session-state"
 import { clearSessionFallbackChain, setSessionFallbackChain } from "../../hooks/model-fallback/hook"
 import { getAgentToolRestrictions, log } from "../../shared"
+import { normalizeAgentForSessionPrompt } from "../../shared/agent-display-names"
 import type { DelegatedModelConfig } from "../../shared/model-resolution-types"
 import type { FallbackEntry } from "../../shared/model-requirements"
 import { waitForCompletion } from "./completion-poller"
@@ -80,10 +81,11 @@ export async function executeSync(
     log(`[call_omo_agent] Prompt text:`, args.prompt.substring(0, 100))
 
     try {
+      const promptAgent = normalizeAgentForSessionPrompt(args.subagent_type) ?? args.subagent_type
       await (ctx.client.session as unknown as SessionWithPromptAsync).promptAsync({
         path: { id: sessionID },
         body: {
-          agent: args.subagent_type,
+          agent: promptAgent,
           tools: {
             ...getAgentToolRestrictions(args.subagent_type),
             task: false,

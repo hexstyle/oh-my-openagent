@@ -1,4 +1,5 @@
 import type { BackgroundTask } from "./types"
+import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
 
 export type BackgroundTaskNotificationStatus = "COMPLETED" | "CANCELLED" | "INTERRUPTED" | "ERROR"
 
@@ -50,7 +51,8 @@ Use \`background_output(task_id="<id>")\` to retrieve each result.${hasFailures 
 </system-reminder>`
   }
 
-  const agentInfo = task.category ? `${task.agent} (${task.category})` : task.agent
+  const displayAgent = normalizeAgentForDisplay(task.agent) ?? task.agent
+  const agentInfo = task.category ? `${displayAgent} (${task.category})` : displayAgent
   const isFailure = statusText !== "COMPLETED"
 
   return `<system-reminder>

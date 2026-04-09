@@ -35,6 +35,8 @@ const expectedLiveHost = {
 type RuntimeAgentExpectation = {
   configKey?: string
   displayName: string
+  runtimeName: string
+  listedName: string
   model: string
   mode: "subagent" | "core"
 }
@@ -77,6 +79,8 @@ function buildExpectedAgents(pluginConfig: Record<string, unknown>): RuntimeAgen
     return {
       configKey: entry.configKey,
       displayName: getAgentDisplayName(entry.key),
+      runtimeName: entry.configKey ?? getAgentDisplayName(entry.key),
+      listedName: entry.configKey ?? getAgentDisplayName(entry.key),
       model,
       mode: entry.mode,
     }
@@ -156,8 +160,8 @@ function assertRuntimeAgent(
 
   if (expected.configKey) {
     assert(
-      agent.name === expected.displayName,
-      `Runtime agent ${runtimeKey} does not expose canonical name ${expected.displayName}`,
+      agent.name === expected.runtimeName,
+      `Runtime agent ${runtimeKey} does not expose canonical runtime name ${expected.runtimeName}`,
     )
   }
 
@@ -325,8 +329,8 @@ async function main(): Promise<void> {
     .filter((name): name is string => typeof name === "string")
   for (const expectedAgent of expectedAgents) {
     assert(
-      listedNames.includes(expectedAgent.displayName),
-      `app.agents() is missing ${expectedAgent.displayName}`,
+      listedNames.includes(expectedAgent.listedName),
+      `app.agents() is missing ${expectedAgent.listedName}`,
     )
   }
   for (const forbiddenKey of forbiddenRuntimeAgentKeys) {

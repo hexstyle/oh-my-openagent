@@ -2259,7 +2259,7 @@ describe("BackgroundManager - Non-blocking Queue Integration", () => {
           }),
           directory: tmpdir(),
         } as unknown as PluginInput,
-        { defaultConcurrency: 1, maxDescendants: 2 },
+        { defaultConcurrency: 1, maxDescendants: 2, maxIdenticalTasksPerParent: 2 },
       )
 
       const input = {
@@ -5046,7 +5046,7 @@ describe("BackgroundManager - tool permission spread order", () => {
 
     //#then
     expect(promptCalls).toHaveLength(1)
-    expect(promptCalls[0].body.agent).toBe("sisyphus-junior")
+    expect(promptCalls[0].body.agent).toBe("Sisyphus Junior (Focused Executor)")
     expect(promptCalls[0].body.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" })
     expect(promptCalls[0].body.variant).toBe("medium")
 

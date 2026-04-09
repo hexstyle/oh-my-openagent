@@ -44,6 +44,7 @@ describe("session-recovery resume", () => {
 
     // then
     expect(ok).toBe(true)
+    expect(promptBody?.agent).toBe("Hephaestus (Deep Agent)")
     expect(promptBody?.tools).toEqual({ question: false, bash: true })
     expect(Array.isArray(promptBody?.parts)).toBe(true)
     const firstPart = (promptBody?.parts as Array<{ text?: string }>)?.[0]

@@ -298,6 +298,24 @@ describe("resolveSubagentExecution", () => {
     expect(result.agentToUse).toBe("explore")
   })
 
+  test("keeps display names in unknown-agent guidance when runtime registry exposes the explore key", async () => {
+    //#given
+    const args = createBaseArgs({ subagent_type: "fake-agent" })
+    const executorCtx = createExecutorContext(async () => ([
+      { name: "explore", mode: "subagent" },
+      { name: "Oracle (Strategic Advisor)", mode: "subagent" },
+    ]))
+
+    //#when
+    const result = await resolveSubagentExecution(args, executorCtx, "sisyphus", "deep")
+
+    //#then
+    expect(result.agentToUse).toBe("")
+    expect(result.error).toBe(
+      'Unknown agent: "fake-agent". Available agents: Explore (Code Search), Oracle (Strategic Advisor)',
+    )
+  })
+
   test("matches promoted fallback settings after fuzzy model resolution", async () => {
     //#given
     const cacheSpy = spyOn(connectedProvidersCache, "readProviderModelsCache").mockReturnValue({

@@ -8,6 +8,7 @@ import { resolveMessageContext } from "../../features/hook-message-injector"
 import { getSessionAgent } from "../../features/claude-code-session-state"
 import { getMessageDir } from "./message-dir"
 import { getSessionTools } from "../../shared/session-tools-store"
+import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
 
 export async function executeBackground(
   args: CallOmoAgentArgs,
@@ -76,13 +77,14 @@ export async function executeBackground(
       title: args.description,
       metadata: { sessionId: sessionId ?? "pending" },
     })
+    const displayAgent = normalizeAgentForDisplay(task.agent) ?? task.agent
 
     return `Background agent task launched successfully.
 
 Task ID: ${task.id}
 Session ID: ${sessionId ?? "pending"}
 Description: ${task.description}
-Agent: ${task.agent} (subagent)
+Agent: ${displayAgent} (subagent)
 Status: ${task.status}
 
 The system will notify you when the task completes.

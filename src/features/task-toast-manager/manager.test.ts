@@ -334,7 +334,7 @@ describe("TaskToastManager", () => {
 
       // then - should use old format with agent name
       const call = mockClient.tui.showToast.mock.calls[0][0]
-      expect(call.body.message).toContain("sisyphus-junior/quick")
+      expect(call.body.message).toContain("Sisyphus Junior (Focused Executor)/quick")
     })
 
     test("should show model name without category when category is absent", () => {

@@ -10,6 +10,7 @@ import { formatDuration } from "./time-formatter"
 import { formatDetailedError } from "./error-formatting"
 import { syncTaskDeps, type SyncTaskDeps } from "./sync-task-deps"
 import { setSessionFallbackChain, clearSessionFallbackChain } from "../../hooks/model-fallback/hook"
+import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
 
 export async function executeSyncTask(
   args: DelegateTaskArgs,
@@ -25,6 +26,7 @@ export async function executeSyncTask(
 ): Promise<string> {
   const { manager, client, directory, onSyncSessionCreated, syncPollTimeoutMs } = executorCtx
   const toastManager = getTaskToastManager()
+  const displayAgent = normalizeAgentForDisplay(agentToUse) ?? agentToUse
   let taskId: string | undefined
   let syncSessionID: string | undefined
   let spawnReservation:
@@ -101,7 +103,7 @@ export async function executeSyncTask(
       title: args.description,
       metadata: {
         prompt: args.prompt,
-        agent: agentToUse,
+        agent: displayAgent,
         category: args.category,
         load_skills: args.load_skills,
         description: args.description,
@@ -166,7 +168,7 @@ export async function executeSyncTask(
 
       return `Task completed in ${duration}.
 
-Agent: ${agentToUse}${args.category ? ` (category: ${args.category})` : ""}${modelRoutingNote}
+Agent: ${displayAgent}${args.category ? ` (category: ${args.category})` : ""}${modelRoutingNote}
 
 ---
 

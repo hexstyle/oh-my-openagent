@@ -4,6 +4,10 @@ import type { AutoRetryHelpers } from "./auto-retry"
 import { createFallbackState } from "./fallback-state"
 import { createEventHandler } from "./event-handler"
 
+type TestHelpers = AutoRetryHelpers & {
+  __scheduleCallsForTest: Array<{ sessionID: string; source?: string; resolvedAgent?: string }>
+}
+
 function createContext(): RuntimeFallbackPluginInput {
   return {
     client: {
@@ -49,7 +53,9 @@ function createDeps(): HookDeps {
   }
 }
 
-function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[]): AutoRetryHelpers {
+function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[]): TestHelpers {
+  const scheduleCalls: Array<{ sessionID: string; source?: string; resolvedAgent?: string }> = []
+
   return {
     abortSessionRequest: async (sessionID: string) => {
       abortCalls.push(sessionID)
@@ -58,12 +64,16 @@ function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[
       clearCalls.push(sessionID)
       deps.sessionFallbackTimeouts.delete(sessionID)
     },
-    scheduleSessionFallbackTimeout: () => {},
+    scheduleSessionFallbackTimeout: (sessionID: string, options?: { source?: string; resolvedAgent?: string }) => {
+      scheduleCalls.push({ sessionID, source: options?.source, resolvedAgent: options?.resolvedAgent })
+      deps.sessionFallbackTimeouts.set(sessionID, 1)
+    },
     autoRetryWithFallback: async () => {},
     retryCurrentModel: async () => false,
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
     recoverPreferredModels: async () => {},
+    __scheduleCallsForTest: scheduleCalls,
   }
 }
 
@@ -102,7 +112,8 @@ describe("createEventHandler", () => {
     deps.sessionRetryInFlight.add(sessionID)
     deps.sessionFallbackTimeouts.set(sessionID, 1)
     deps.sessionStatusRetryKeys.set(sessionID, "retry:1")
-    const handler = createEventHandler(deps, createHelpers(deps, abortCalls, clearCalls))
+    const helpers = createHelpers(deps, abortCalls, clearCalls)
+    const handler = createEventHandler(deps, helpers)
 
     // when
     await handler({ event: { type: "session.idle", properties: { sessionID } } })
@@ -112,5 +123,33 @@ describe("createEventHandler", () => {
     expect(clearCalls).toEqual([sessionID])
     expect(abortCalls).toEqual([])
     expect(state.pendingFallbackModel).toBe(undefined)
+    expect(helpers.__scheduleCallsForTest).toEqual([])
+  })
+
+  it("#given awaiting fallback without an armed timeout #when session.idle fires #then the timeout is re-armed instead of clearing the wait state", async () => {
+    // given
+    const sessionID = "session-idle-awaiting"
+    const deps = createDeps()
+    const abortCalls: string[] = []
+    const clearCalls: string[] = []
+    deps.sessionStates.set(sessionID, createFallbackState("google/gemini-2.5-pro"))
+    deps.sessionAwaitingFallbackResult.add(sessionID)
+    const helpers = createHelpers(deps, abortCalls, clearCalls)
+    const handler = createEventHandler(deps, helpers)
+
+    // when
+    await handler({ event: { type: "session.idle", properties: { sessionID } } })
+
+    // then
+    expect(clearCalls).toEqual([])
+    expect(abortCalls).toEqual([])
+    expect(deps.sessionAwaitingFallbackResult.has(sessionID)).toBe(true)
+    expect(helpers.__scheduleCallsForTest).toEqual([
+      {
+        sessionID,
+        source: "session.idle.awaiting-fallback-rearm",
+        resolvedAgent: undefined,
+      },
+    ])
   })
 })

@@ -73,6 +73,7 @@ import {
   type SubagentSpawnContext,
 } from "./subagent-spawn-limits"
 import {
+  normalizeAgentForDisplay,
   normalizeAgentForExecution,
   normalizeAgentForSessionPrompt,
 } from "../../shared/agent-display-names"
@@ -134,7 +135,10 @@ function buildActiveTaskStatusNotification(tasks: BackgroundTask[], now: Date): 
       const rightTime = right.startedAt?.getTime() ?? right.queuedAt?.getTime() ?? 0
       return leftTime - rightTime
     })
-    .map((task) => `- \`${task.id}\`: ${task.description} [${task.status.toUpperCase()}] @${task.agent} — ${formatElapsedForStatus(task, now)}`)
+    .map((task) => {
+      const displayAgent = normalizeAgentForDisplay(task.agent) ?? task.agent
+      return `- \`${task.id}\`: ${task.description} [${task.status.toUpperCase()}] @${displayAgent} — ${formatElapsedForStatus(task, now)}`
+    })
     .join("\n")
 
   return `<system-reminder>
@@ -526,11 +530,14 @@ export class BackgroundManager {
   private async startTask(item: QueueItem): Promise<void> {
     const { task, input } = item
     const executionAgent = getExecutionAgent(input.agent)
+    const promptAgent = normalizeAgentForSessionPrompt(input.agent) ?? input.agent.trim()
+    const displayAgent = normalizeAgentForDisplay(input.agent) ?? input.agent.trim()
 
     log("[background-agent] Starting task:", {
       taskId: task.id,
       agent: input.agent,
       executionAgent,
+      promptAgent,
       model: input.model,
     })
 
@@ -548,7 +555,7 @@ export class BackgroundManager {
     const createResult = await this.client.session.create({
       body: {
         parentID: input.parentSessionID,
-        title: `${input.description} (@${input.agent} subagent)`,
+        title: `${input.description} (@${displayAgent} subagent)`,
         ...(input.sessionPermission ? { permission: input.sessionPermission } : {}),
       } as Record<string, unknown>,
       query: {
@@ -633,6 +640,7 @@ export class BackgroundManager {
       sessionID,
       agent: input.agent,
       executionAgent,
+      promptAgent,
       model: input.model,
       hasSkillContent: !!input.skillContent,
       promptLength: input.prompt.length,
@@ -656,7 +664,7 @@ export class BackgroundManager {
     promptWithModelSuggestionRetry(this.client, {
       path: { id: sessionID },
       body: {
-        agent: executionAgent,
+        agent: promptAgent,
         ...(launchModel ? { model: launchModel } : {}),
         ...(launchVariant ? { variant: launchVariant } : {}),
         system: input.skillContent,
@@ -884,6 +892,7 @@ export class BackgroundManager {
     }
 
     const executionAgent = getExecutionAgent(existingTask.agent)
+    const promptAgent = normalizeAgentForSessionPrompt(existingTask.agent) ?? existingTask.agent.trim()
     // Re-acquire concurrency using the normalized execution agent for agent-keyed tasks.
     const concurrencyKey = existingTask.concurrencyGroup
       && existingTask.concurrencyGroup !== existingTask.agent
@@ -950,6 +959,7 @@ export class BackgroundManager {
       sessionID: existingTask.sessionID,
       agent: existingTask.agent,
       executionAgent,
+      promptAgent,
       model: existingTask.model,
       promptLength: input.prompt.length,
     })
@@ -971,7 +981,7 @@ export class BackgroundManager {
     this.client.session.promptAsync({
       path: { id: existingTask.sessionID },
       body: {
-        agent: executionAgent,
+        agent: promptAgent,
         ...(resumeModel ? { model: resumeModel } : {}),
         ...(resumeVariant ? { variant: resumeVariant } : {}),
         tools: (() => {

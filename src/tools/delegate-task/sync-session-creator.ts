@@ -1,5 +1,6 @@
 import type { OpencodeClient } from "./types"
 import { QUESTION_DENIED_SESSION_PERMISSION } from "../../shared/question-denied-session-permission"
+import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
 
 export async function createSyncSession(
   client: OpencodeClient,
@@ -9,11 +10,12 @@ export async function createSyncSession(
     ? await client.session.get({ path: { id: input.parentSessionID } }).catch(() => null)
     : null
   const parentDirectory = parentSession?.data?.directory ?? input.defaultDirectory
+  const titleAgent = normalizeAgentForDisplay(input.agentToUse) ?? input.agentToUse
 
   const createResult = await client.session.create({
     body: {
       parentID: input.parentSessionID,
-      title: `${input.description} (@${input.agentToUse} subagent)`,
+      title: `${input.description} (@${titleAgent} subagent)`,
       permission: QUESTION_DENIED_SESSION_PERMISSION,
     } as Record<string, unknown>,
     query: {

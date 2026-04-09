@@ -1,5 +1,6 @@
 import type { OpencodeClient } from "@opencode-ai/sdk"
 import { normalizeSDKResponse } from "../../shared"
+import { getAgentConfigKey, getAgentDisplayName } from "../../shared/agent-display-names"
 
 interface AgentProfile {
   name?: string
@@ -18,7 +19,8 @@ export async function loadAgentProfileColors(
     const colors: Record<string, string> = {}
     for (const agent of agents) {
       if (!agent.name || !agent.color) continue
-      colors[agent.name] = agent.color
+      const displayName = getAgentDisplayName(getAgentConfigKey(agent.name))
+      colors[displayName] = agent.color
     }
 
     return colors

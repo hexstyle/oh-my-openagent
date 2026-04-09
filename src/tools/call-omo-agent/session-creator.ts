@@ -2,6 +2,7 @@ import type { CallOmoAgentArgs } from "./types"
 import type { PluginInput } from "@opencode-ai/plugin"
 import { subagentSessions, syncSubagentSessions } from "../../features/claude-code-session-state"
 import { log } from "../../shared"
+import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
 
 export async function createOrGetSession(
   args: CallOmoAgentArgs,
@@ -34,11 +35,12 @@ export async function createOrGetSession(
     })
     log(`[call_omo_agent] Parent session dir: ${parentSession?.data?.directory}, fallback: ${ctx.directory}`)
     const parentDirectory = parentSession?.data?.directory ?? ctx.directory
+    const titleAgent = normalizeAgentForDisplay(args.subagent_type) ?? args.subagent_type
 
     const createResult = await ctx.client.session.create({
       body: {
         parentID: toolContext.sessionID,
-        title: `${args.description} (@${args.subagent_type} subagent)`,
+        title: `${args.description} (@${titleAgent} subagent)`,
       } as Record<string, unknown>,
       query: {
         directory: parentDirectory,

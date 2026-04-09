@@ -7,6 +7,7 @@ import type { CallOmoAgentArgs } from "./types"
 import type { ToolContextWithMetadata } from "./tool-context-with-metadata"
 import { getMessageDir } from "./message-storage-directory"
 import { getSessionTools } from "../../shared/session-tools-store"
+import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
 
 export async function executeBackgroundAgent(
 	args: CallOmoAgentArgs,
@@ -69,13 +70,14 @@ export async function executeBackgroundAgent(
 			title: args.description,
 			metadata: { sessionId: sessionId ?? "pending" },
 		})
+		const displayAgent = normalizeAgentForDisplay(task.agent) ?? task.agent
 
 		return `Background agent task launched successfully.
 
 Task ID: ${task.id}
 Session ID: ${sessionId ?? "pending"}
 Description: ${task.description}
-Agent: ${task.agent} (subagent)
+Agent: ${displayAgent} (subagent)
 Status: ${task.status}
 
 The system will notify you when the task completes.

@@ -232,8 +232,12 @@ describe("normalizeAgentForExecution", () => {
     expect(normalizeAgentForExecution("Explore (Code Search)")).toBe("explore")
   })
 
-  it("leaves non-reserved agent names unchanged", () => {
-    expect(normalizeAgentForExecution("oracle")).toBe("oracle")
+  it("maps known display names to their canonical config keys", () => {
+    expect(normalizeAgentForExecution("Oracle (Strategic Advisor)")).toBe("oracle")
+  })
+
+  it("preserves unknown agent names aside from trimming", () => {
+    expect(normalizeAgentForExecution("  custom-agent  ")).toBe("custom-agent")
   })
 })
 

@@ -1,6 +1,7 @@
 import type { PluginInput } from "@opencode-ai/plugin"
 import type { TrackedTask, TaskStatus, ModelFallbackInfo } from "./types"
 import type { ConcurrencyManager } from "../background-agent/concurrency"
+import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
 
 type OpencodeClient = PluginInput["client"]
 
@@ -128,11 +129,12 @@ export class TaskToastManager {
     const concurrencyInfo = this.getConcurrencyInfo()
 
     const formatTaskIdentifier = (task: TrackedTask): string => {
+      const displayAgent = normalizeAgentForDisplay(task.agent) ?? task.agent
       const modelName = task.modelInfo?.model?.split("/").pop()
       if (modelName && task.category) return `${modelName}: ${task.category}`
       if (modelName) return modelName
-      if (task.category) return `${task.agent}/${task.category}`
-      return task.agent
+      if (task.category) return `${displayAgent}/${task.category}`
+      return displayAgent
     }
     const lines: string[] = []
 
@@ -193,11 +195,12 @@ export class TaskToastManager {
     const title = newTask.isBackground
       ? `New Background Task`
       : `New Task Executed`
+    const displayAgent = normalizeAgentForDisplay(newTask.agent) ?? newTask.agent
 
     tuiClient.tui.showToast({
       body: {
         title,
-        message: message || `${newTask.description} (${newTask.agent})`,
+        message: message || `${newTask.description} (${displayAgent})`,
         variant: "info",
         duration: running.length + queued.length > 2 ? 5000 : 3000,
       },

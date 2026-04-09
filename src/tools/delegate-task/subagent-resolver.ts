@@ -32,6 +32,10 @@ function buildAgentMatchSet(rawAgentName: string): Set<string> {
   ])
 }
 
+function getUserFacingAgentName(agentName: string): string {
+  return getAgentDisplayName(getAgentConfigKey(agentName))
+}
+
 function doesAgentMatchRequest(
   agent: AgentInfo,
   requestedNames: Set<string>,
@@ -113,8 +117,9 @@ Create the work plan directly - that's your job as the planning agent.`,
         }
       }
 
-      const availableAgents = callableAgents
-        .map((a) => a.name)
+      const availableAgents = Array.from(
+        new Set(callableAgents.map((agent) => getUserFacingAgentName(agent.name))),
+      )
         .sort()
         .join(", ")
       return {

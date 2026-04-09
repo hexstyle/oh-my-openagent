@@ -1537,9 +1537,9 @@ describe("todo-continuation-enforcer", () => {
      await hook.handler({ event: { type: "session.idle", properties: { sessionID } } })
      await fakeTimers.advanceBy(2500)
 
-     // then - continuation uses Sisyphus (skipped compaction agent)
+     // then - continuation uses the canonical Sisyphus prompt agent (skipped compaction agent)
      expect(promptCalls.length).toBe(1)
-    expect(promptCalls[0].agent).toBe("sisyphus")
+    expect(promptCalls[0].agent).toBe("Sisyphus (Ultraworker)")
   })
 
   test("should skip injection when only compaction agent messages exist", async () => {

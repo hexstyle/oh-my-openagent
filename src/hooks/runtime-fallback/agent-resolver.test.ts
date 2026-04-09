@@ -22,4 +22,11 @@ describe("runtime-fallback agent resolver", () => {
   test("falls back to the event agent when no session agent is stored", () => {
     expect(resolveAgentForSession("ses_transient_agent", "Explore (Code Search)")).toBe("explore")
   })
+
+  test("normalizes canonical display names for stored subagents", () => {
+    const sessionID = "ses_sisyphus_junior"
+    setSessionAgent(sessionID, "Sisyphus Junior (Focused Executor)")
+
+    expect(resolveAgentForSession(sessionID)).toBe("sisyphus-junior")
+  })
 })

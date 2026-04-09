@@ -1405,6 +1405,59 @@ session_id: ses_untrusted_999
       expect(mockInput._promptMock).not.toHaveBeenCalled()
     })
 
+    test("should skip immediately after non-abort session.error and resume after backoff", async () => {
+      const originalDateNow = Date.now
+
+      try {
+        let now = 1_000
+        Date.now = () => now
+
+        const planPath = join(TEST_DIR, "test-plan.md")
+        writeFileSync(planPath, "# Plan\n- [ ] Task 1")
+
+        const state: BoulderState = {
+          active_plan: planPath,
+          started_at: "2026-01-02T10:00:00Z",
+          session_ids: [MAIN_SESSION_ID],
+          plan_name: "test-plan",
+        }
+        writeBoulderState(TEST_DIR, state)
+
+        const mockInput = createMockPluginInput()
+        const hook = createAtlasHook(mockInput)
+
+        await hook.handler({
+          event: {
+            type: "session.error",
+            properties: {
+              sessionID: MAIN_SESSION_ID,
+              error: { name: "UnknownError", message: "disk I/O error" },
+            },
+          },
+        })
+        await hook.handler({
+          event: {
+            type: "session.idle",
+            properties: { sessionID: MAIN_SESSION_ID },
+          },
+        })
+
+        expect(mockInput._promptMock).not.toHaveBeenCalled()
+
+        now += 30_001
+        await hook.handler({
+          event: {
+            type: "session.idle",
+            properties: { sessionID: MAIN_SESSION_ID },
+          },
+        })
+
+        expect(mockInput._promptMock).toHaveBeenCalledTimes(1)
+      } finally {
+        Date.now = originalDateNow
+      }
+    })
+
      test("should skip when background tasks are running", async () => {
        // given - boulder state with incomplete plan
        const planPath = join(TEST_DIR, "test-plan.md")
@@ -1511,6 +1564,46 @@ session_id: ses_untrusted_999
       })
 
       // then - should call prompt because abort state was cleared
+      expect(mockInput._promptMock).toHaveBeenCalled()
+    })
+
+    test("should clear non-abort session error state on assistant progress", async () => {
+      const planPath = join(TEST_DIR, "test-plan.md")
+      writeFileSync(planPath, "# Plan\n- [ ] Task 1")
+
+      const state: BoulderState = {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: [MAIN_SESSION_ID],
+        plan_name: "test-plan",
+      }
+      writeBoulderState(TEST_DIR, state)
+
+      const mockInput = createMockPluginInput()
+      const hook = createAtlasHook(mockInput)
+
+      await hook.handler({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID: MAIN_SESSION_ID,
+            error: { name: "UnknownError", message: "disk I/O error" },
+          },
+        },
+      })
+      await hook.handler({
+        event: {
+          type: "message.part.updated",
+          properties: { info: { sessionID: MAIN_SESSION_ID, role: "assistant" } },
+        },
+      })
+      await hook.handler({
+        event: {
+          type: "session.idle",
+          properties: { sessionID: MAIN_SESSION_ID },
+        },
+      })
+
       expect(mockInput._promptMock).toHaveBeenCalled()
     })
 

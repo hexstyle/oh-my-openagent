@@ -13,9 +13,9 @@ describe("call-omo-agent resolveOrCreateSessionId", () => {
     ctx: Parameters<typeof resolveOrCreateSessionId>[0]
     args: Parameters<typeof resolveOrCreateSessionId>[1]
     toolContext: Parameters<typeof resolveOrCreateSessionId>[2]
-    createCalls: Array<{ query?: { directory?: string } }>
+    createCalls: Array<{ body?: { title?: string }; query?: { directory?: string } }>
   } {
-    const createCalls: Array<{ query?: { directory?: string } }> = []
+    const createCalls: Array<{ body?: { title?: string }; query?: { directory?: string } }> = []
     const { parentDirectory, contextDirectory } = options
     const parentSessionData = parentDirectory ? { data: { directory: parentDirectory } } : { data: {} }
 
@@ -65,6 +65,7 @@ describe("call-omo-agent resolveOrCreateSessionId", () => {
     //#then
     expect(result).toEqual({ ok: true, sessionID: "ses_child_sync" })
     expect(createCalls).toHaveLength(1)
+    expect(createCalls[0]?.body?.title).toBe("sync test (@Explore (Code Search) subagent)")
     expect(subagentSessions.has("ses_child_sync")).toBe(true)
   })
 

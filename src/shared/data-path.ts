@@ -2,6 +2,10 @@ import * as path from "node:path"
 import * as os from "node:os"
 import { accessSync, constants, mkdirSync } from "node:fs"
 
+function dedupePaths(paths: string[]): string[] {
+  return Array.from(new Set(paths))
+}
+
 function resolveWritableDirectory(preferredDir: string, fallbackSuffix: string): string {
   try {
     mkdirSync(preferredDir, { recursive: true })
@@ -23,8 +27,11 @@ function resolveWritableDirectory(preferredDir: string, fallbackSuffix: string):
  * including Windows, so we match that behavior exactly.
  */
 export function getDataDir(): string {
-  const preferredDir = process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share")
-  return resolveWritableDirectory(preferredDir, "opencode-data")
+  return resolveWritableDirectory(getPreferredDataDir(), "opencode-data")
+}
+
+export function getPreferredDataDir(): string {
+  return process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share")
 }
 
 /**
@@ -41,8 +48,11 @@ export function getOpenCodeStorageDir(): string {
  * - All platforms: XDG_CACHE_HOME or ~/.cache
  */
 export function getCacheDir(): string {
-  const preferredDir = process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), ".cache")
-  return resolveWritableDirectory(preferredDir, "opencode-cache")
+  return resolveWritableDirectory(getPreferredCacheDir(), "opencode-cache")
+}
+
+export function getPreferredCacheDir(): string {
+  return process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), ".cache")
 }
 
 /**
@@ -53,10 +63,32 @@ export function getOmoOpenCodeCacheDir(): string {
   return path.join(getCacheDir(), "oh-my-opencode")
 }
 
+export function getPreferredOmoOpenCodeCacheDir(): string {
+  return path.join(getPreferredCacheDir(), "oh-my-opencode")
+}
+
 /**
  * Returns the OpenCode cache directory (for reading OpenCode's cache).
  * All platforms: ~/.cache/opencode
  */
 export function getOpenCodeCacheDir(): string {
   return path.join(getCacheDir(), "opencode")
+}
+
+export function getPreferredOpenCodeCacheDir(): string {
+  return path.join(getPreferredCacheDir(), "opencode")
+}
+
+export function getReadableOmoOpenCodeCacheDirs(): string[] {
+  return dedupePaths([
+    getPreferredOmoOpenCodeCacheDir(),
+    getOmoOpenCodeCacheDir(),
+  ])
+}
+
+export function getReadableOpenCodeCacheDirs(): string[] {
+  return dedupePaths([
+    getPreferredOpenCodeCacheDir(),
+    getOpenCodeCacheDir(),
+  ])
 }

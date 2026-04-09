@@ -176,12 +176,12 @@ describe("sisyphus-task", () => {
       expect(result).toBe(false)
     })
 
-    test("returns true for 'planner' (matches via includes('plan'))", () => {
+    test("returns false for 'planner' because only canonical plan agents should match", () => {
       //#given / #when
       const result = isPlanAgent("planner")
 
-      //#then - "planner" contains "plan" so it matches via includes
-      expect(result).toBe(true)
+      //#then
+      expect(result).toBe(false)
     })
 
     test("returns true for case-insensitive match 'PLAN'", () => {
@@ -214,6 +214,11 @@ describe("sisyphus-task", () => {
 
       // then
       expect(result).toBe(false)
+    })
+
+    test("returns false for display names that only contain the word 'Plan'", () => {
+      expect(isPlanAgent("Atlas (Plan Executor)")).toBe(false)
+      expect(isPlanAgent("Metis (Plan Consultant)")).toBe(false)
     })
 
     test("returns false for undefined", () => {
@@ -253,11 +258,20 @@ describe("sisyphus-task", () => {
       expect(result).toBe(true)
     })
 
+    test("returns true for canonical prometheus display name", () => {
+      expect(isPlanFamily("Prometheus (Plan Builder)")).toBe(true)
+    })
+
     test("returns false for 'oracle'", () => {
       //#given / #when
       const result = isPlanFamily("oracle")
       //#then
       expect(result).toBe(false)
+    })
+
+    test("returns false for non-plan display names that contain the word 'Plan'", () => {
+      expect(isPlanFamily("Atlas (Plan Executor)")).toBe(false)
+      expect(isPlanFamily("Metis (Plan Consultant)")).toBe(false)
     })
 
     test("returns false for undefined", () => {
@@ -462,7 +476,7 @@ describe("sisyphus-task", () => {
        await tool.execute(args, toolContext)
 
        // then
-       expect(args.subagent_type).toBe("Sisyphus-Junior")
+       expect(args.subagent_type).toBe("Sisyphus Junior (Focused Executor)")
     }, { timeout: 10000 })
 
     test("prefers category over subagent_type when both are provided", async () => {
@@ -520,7 +534,7 @@ describe("sisyphus-task", () => {
       await tool.execute(args, toolContext)
 
       //#then - category takes precedence, subagent_type is overridden to sisyphus-junior
-      expect(args.subagent_type).toBe("Sisyphus-Junior")
+      expect(args.subagent_type).toBe("Sisyphus Junior (Focused Executor)")
     }, { timeout: 10000 })
 
     test("proceeds without error when systemDefaultModel is undefined", async () => {
@@ -1652,7 +1666,7 @@ describe("sisyphus-task", () => {
     expect(promptMock).toHaveBeenCalled()
     const callArgs = promptMock.mock.calls[0][0]
     expect(callArgs.body.variant).toBe("max")
-    expect(callArgs.body.agent).toBe("sisyphus-junior")
+    expect(callArgs.body.agent).toBe("Sisyphus Junior (Focused Executor)")
     expect(callArgs.body.model).toEqual({ providerID: "anthropic", modelID: "claude-opus-4-6" })
   }, { timeout: 10000 })
 
@@ -4018,7 +4032,7 @@ describe("sisyphus-task", () => {
       )
 
       // then - title should follow OpenCode format
-      expect(createBody.title).toBe("Implement feature X (@Sisyphus-Junior subagent)")
+      expect(createBody.title).toBe("Implement feature X (@Sisyphus Junior (Focused Executor) subagent)")
     }, { timeout: 10000 })
 
     test("sync task output includes <task_metadata> block with session_id", async () => {

@@ -8,7 +8,7 @@ This fork keeps the upstream package identity but changes the local install and 
 - clean installs must pin OpenCode to this local fork with `file://...`
 - `Codex` OAuth is auto-bridged into OpenCode when available
 - `Claude` stays configured by default and can be authorized later on demand
-- runtime must expose only canonical agent display names
+- user-facing runtime surfaces must expose canonical agent display names
 
 ## Source Of Truth
 
@@ -78,7 +78,8 @@ Canonical display names live in `src/shared/agent-display-names.ts`.
 `explore` is the only special case:
 
 - the runtime config key stays `explore`
-- the payload name must stay `Explore (Code Search)`
+- runtime-facing registry/name fields must also stay `explore`
+- user-facing display surfaces must still render `Explore (Code Search)`
 - this avoids a collision with OpenCode core runtime behavior
 
 If you add or rename an agent, update:

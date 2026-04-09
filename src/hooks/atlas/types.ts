@@ -34,6 +34,7 @@ export type PendingTaskRef =
 
 export interface SessionState {
   lastEventWasAbortError?: boolean
+  lastNonAbortSessionErrorAt?: number
   lastContinuationInjectedAt?: number
   promptFailureCount: number
   lastFailureAt?: number

@@ -7,7 +7,7 @@ import {
 
 function normalizeAgentPayloadName(
   value: unknown,
-  outputName: string,
+  runtimeName: string,
   canonicalKey: string,
 ): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -18,7 +18,7 @@ function normalizeAgentPayloadName(
   const isKnownBuiltinAgent = getAgentDisplayName(canonicalKey) !== canonicalKey
   const currentName = typeof record.name === "string" ? record.name : undefined
   const normalizedName = isKnownBuiltinAgent
-    ? outputName
+    ? runtimeName
     : normalizeAgentForPrompt(currentName)
 
   if (normalizedName === undefined || normalizedName === currentName) {
@@ -45,16 +45,20 @@ export function remapAgentKeysToDisplayNames(
       : displayName !== canonicalKey
         ? displayName
         : key
-    const outputName = displayName !== canonicalKey ? displayName : outputKey
+    const runtimeName = preserveConfigKey
+      ? canonicalKey
+      : displayName !== canonicalKey
+        ? displayName
+        : outputKey
 
     if (outputKey !== key) {
       result[outputKey] = normalizeAgentPayloadName(
         value,
-        outputName,
+        runtimeName,
         canonicalKey,
       )
     } else {
-      result[key] = normalizeAgentPayloadName(value, outputName, canonicalKey)
+      result[key] = normalizeAgentPayloadName(value, runtimeName, canonicalKey)
     }
   }
 

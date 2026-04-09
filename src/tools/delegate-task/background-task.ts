@@ -9,6 +9,7 @@ import { getSessionTools } from "../../shared/session-tools-store"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { QUESTION_DENIED_SESSION_PERMISSION } from "../../shared/question-denied-session-permission"
 import { setSessionFallbackChain } from "../../hooks/model-fallback/hook"
+import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
 
 export async function executeBackgroundTask(
   args: DelegateTaskArgs,
@@ -41,6 +42,7 @@ export async function executeBackgroundTask(
       category: args.category,
       sessionPermission: QUESTION_DENIED_SESSION_PERMISSION,
     })
+    const displayAgent = normalizeAgentForDisplay(task.agent) ?? task.agent
 
     // OpenCode TUI's `Task` tool UI calculates toolcalls by looking up
     // `props.metadata.sessionId` and then counting tool parts in that session.
@@ -67,7 +69,7 @@ export async function executeBackgroundTask(
 
     const metadata = {
       prompt: args.prompt,
-      agent: task.agent,
+      agent: displayAgent,
       category: args.category,
       load_skills: args.load_skills,
       description: args.description,
@@ -94,7 +96,7 @@ export async function executeBackgroundTask(
 
 Background Task ID: ${task.id}
 Description: ${task.description}
-Agent: ${task.agent}${args.category ? ` (category: ${args.category})` : ""}
+Agent: ${displayAgent}${args.category ? ` (category: ${args.category})` : ""}
 Status: ${task.status}
 
 System notifies on completion. Use \`background_output\` with task_id="${task.id}" to check.${taskMetadataBlock}`

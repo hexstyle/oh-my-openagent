@@ -3,8 +3,7 @@ import type { AutoRetryHelpers } from "./auto-retry"
 import { HOOK_NAME } from "./constants"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, extractAutoRetrySignal, containsErrorContent } from "./error-classifier"
-import { createFallbackState } from "./fallback-state"
-import { markFallbackResponseSuccess } from "./fallback-state"
+import { createFallbackState, markFallbackResponseSuccess, markLimitError } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
@@ -125,6 +124,11 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
       sessionAwaitingFallbackResult.delete(sessionID)
       sessionStatusRetryKeys.delete(sessionID)
+      // Clear the stop inhibitor so the watchdog can re-arm for this new request.
+      const stateForUser = sessionStates.get(sessionID)
+      if (stateForUser?.stoppedAt) {
+        stateForUser.stoppedAt = undefined
+      }
       await armActiveSessionWatchdog({
         sessionID,
         role,
@@ -296,6 +300,10 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       }
 
       const action = getRuntimeFallbackAction(error, config.retry_on_errors)
+
+      if (action === "limit_fallback") {
+        markLimitError(state)
+      }
 
       if (action === "retry_same_model" || action === "retry_same_model_delayed") {
         const retried = await helpers.retryCurrentModel(sessionID, resolvedAgent, "message.updated", {

@@ -45,10 +45,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function createConnectedProvidersCacheStore(
-	getCacheDir: () => string = dataPath.getOmoOpenCodeCacheDir
+	getCacheDir: () => string = dataPath.getOmoOpenCodeCacheDir,
+	getReadableCacheDirs: () => string[] = () => [getCacheDir()],
 ) {
 	function getCacheFilePath(filename: string): string {
 		return join(getCacheDir(), filename)
+	}
+
+	function getReadableCacheFilePaths(filename: string): string[] {
+		return Array.from(new Set(getReadableCacheDirs().map((dir) => join(dir, filename))))
 	}
 
 	let memConnected: string[] | null | undefined
@@ -63,30 +68,31 @@ export function createConnectedProvidersCacheStore(
 
 	function readConnectedProvidersCache(): string[] | null {
 		if (memConnected !== undefined) return memConnected
-		const cacheFile = getCacheFilePath(CONNECTED_PROVIDERS_CACHE_FILE)
+		for (const cacheFile of getReadableCacheFilePaths(CONNECTED_PROVIDERS_CACHE_FILE)) {
+			if (!existsSync(cacheFile)) {
+				continue
+			}
 
-		if (!existsSync(cacheFile)) {
-			log("[connected-providers-cache] Cache file not found", { cacheFile })
-			memConnected = null
-			return null
+			try {
+				const content = readFileSync(cacheFile, "utf-8")
+				const data = JSON.parse(content) as ConnectedProvidersCache
+				log("[connected-providers-cache] Read cache", { cacheFile, count: data.connected.length, updatedAt: data.updatedAt })
+				memConnected = data.connected
+				return data.connected
+			} catch (err) {
+				log("[connected-providers-cache] Error reading cache", { cacheFile, error: String(err) })
+			}
 		}
 
-		try {
-			const content = readFileSync(cacheFile, "utf-8")
-			const data = JSON.parse(content) as ConnectedProvidersCache
-			log("[connected-providers-cache] Read cache", { count: data.connected.length, updatedAt: data.updatedAt })
-			memConnected = data.connected
-			return data.connected
-		} catch (err) {
-			log("[connected-providers-cache] Error reading cache", { error: String(err) })
-			memConnected = null
-			return null
-		}
+		log("[connected-providers-cache] Cache file not found", {
+			cacheFiles: getReadableCacheFilePaths(CONNECTED_PROVIDERS_CACHE_FILE),
+		})
+		memConnected = null
+		return null
 	}
 
 	function hasConnectedProvidersCache(): boolean {
-		const cacheFile = getCacheFilePath(CONNECTED_PROVIDERS_CACHE_FILE)
-		return existsSync(cacheFile)
+		return getReadableCacheFilePaths(CONNECTED_PROVIDERS_CACHE_FILE).some((cacheFile) => existsSync(cacheFile))
 	}
 
 	function writeConnectedProvidersCache(connected: string[]): void {
@@ -109,33 +115,35 @@ export function createConnectedProvidersCacheStore(
 
 	function readProviderModelsCache(): ProviderModelsCache | null {
 		if (memProviderModels !== undefined) return memProviderModels
-		const cacheFile = getCacheFilePath(PROVIDER_MODELS_CACHE_FILE)
+		for (const cacheFile of getReadableCacheFilePaths(PROVIDER_MODELS_CACHE_FILE)) {
+			if (!existsSync(cacheFile)) {
+				continue
+			}
 
-		if (!existsSync(cacheFile)) {
-			log("[connected-providers-cache] Provider-models cache file not found", { cacheFile })
-			memProviderModels = null
-			return null
+			try {
+				const content = readFileSync(cacheFile, "utf-8")
+				const data = JSON.parse(content) as ProviderModelsCache
+				log("[connected-providers-cache] Read provider-models cache", {
+					cacheFile,
+					providerCount: Object.keys(data.models).length,
+					updatedAt: data.updatedAt,
+				})
+				memProviderModels = data
+				return data
+			} catch (err) {
+				log("[connected-providers-cache] Error reading provider-models cache", { cacheFile, error: String(err) })
+			}
 		}
 
-		try {
-			const content = readFileSync(cacheFile, "utf-8")
-			const data = JSON.parse(content) as ProviderModelsCache
-			log("[connected-providers-cache] Read provider-models cache", {
-				providerCount: Object.keys(data.models).length,
-				updatedAt: data.updatedAt,
-			})
-			memProviderModels = data
-			return data
-		} catch (err) {
-			log("[connected-providers-cache] Error reading provider-models cache", { error: String(err) })
-			memProviderModels = null
-			return null
-		}
+		log("[connected-providers-cache] Provider-models cache file not found", {
+			cacheFiles: getReadableCacheFilePaths(PROVIDER_MODELS_CACHE_FILE),
+		})
+		memProviderModels = null
+		return null
 	}
 
 	function hasProviderModelsCache(): boolean {
-		const cacheFile = getCacheFilePath(PROVIDER_MODELS_CACHE_FILE)
-		return existsSync(cacheFile)
+		return getReadableCacheFilePaths(PROVIDER_MODELS_CACHE_FILE).some((cacheFile) => existsSync(cacheFile))
 	}
 
 	function writeProviderModelsCache(data: { models: Record<string, string[] | ModelMetadata[]>; connected: string[] }): void {
@@ -259,7 +267,8 @@ export function findProviderModelMetadata(
 }
 
 const defaultConnectedProvidersCacheStore = createConnectedProvidersCacheStore(
-	() => dataPath.getOmoOpenCodeCacheDir()
+	() => dataPath.getOmoOpenCodeCacheDir(),
+	() => dataPath.getReadableOmoOpenCodeCacheDirs(),
 )
 
 export const {

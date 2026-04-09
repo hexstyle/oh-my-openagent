@@ -8,6 +8,7 @@ import {
 } from "../../shared/model-suggestion-retry"
 import { formatDetailedError } from "./error-formatting"
 import { getAgentToolRestrictions } from "../../shared/agent-tool-restrictions"
+import { getAgentConfigKey, normalizeAgentForSessionPrompt } from "../../shared/agent-display-names"
 import { applySessionPromptParams } from "../../shared/session-prompt-params-helpers"
 import { setSessionTools } from "../../shared/session-tools-store"
 import { createInternalAgentTextPart } from "../../shared/internal-initiator-marker"
@@ -23,7 +24,7 @@ const sendSyncPromptDeps: SendSyncPromptDeps = {
 }
 
 function isOracleAgent(agentToUse: string): boolean {
-  return agentToUse.toLowerCase() === "oracle"
+  return getAgentConfigKey(agentToUse) === "oracle"
 }
 
 function isUnexpectedEofError(error: unknown): boolean {
@@ -46,14 +47,16 @@ export async function sendSyncPrompt(
   },
   deps: SendSyncPromptDeps = sendSyncPromptDeps
 ): Promise<string | null> {
-  const allowTask = isPlanFamily(input.agentToUse)
+  const executionAgent = getAgentConfigKey(input.agentToUse)
+  const allowTask = isPlanFamily(executionAgent)
   const tddEnabled = input.sisyphusAgentConfig?.tdd
   const effectivePrompt = buildTaskPrompt(input.args.prompt, input.agentToUse, tddEnabled)
+  const promptAgent = normalizeAgentForSessionPrompt(input.agentToUse) ?? input.agentToUse
   const tools = {
     task: allowTask,
     call_omo_agent: true,
     question: false,
-    ...getAgentToolRestrictions(input.agentToUse),
+    ...getAgentToolRestrictions(executionAgent),
   }
   setSessionTools(input.sessionID, tools)
 
@@ -62,7 +65,7 @@ export async function sendSyncPrompt(
   const promptArgs = {
     path: { id: input.sessionID },
     body: {
-      agent: input.agentToUse,
+      agent: promptAgent,
       system: input.systemContent,
       tools,
       parts: [createInternalAgentTextPart(effectivePrompt)],

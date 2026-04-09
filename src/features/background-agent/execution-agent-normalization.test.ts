@@ -96,4 +96,51 @@ describe("BackgroundManager execution agent normalization", () => {
 
     manager.shutdown()
   })
+
+  test("known display names still apply internal restrictions via config keys", async () => {
+    //#given
+    let promptCall: { path: { id: string }; body: Record<string, unknown> } | undefined
+    const client = {
+      session: {
+        get: async () => ({ data: { directory: "/test/dir" } }),
+        create: async () => ({ data: { id: "session-3" } }),
+        promptAsync: async (args: { path: { id: string }; body: Record<string, unknown> }) => {
+          promptCall = args
+          return {}
+        },
+      },
+    }
+    const manager = new BackgroundManager({ client, directory: tmpdir() } as unknown as PluginInput)
+    const task: BackgroundTask = {
+      id: "task-3",
+      status: "pending",
+      queuedAt: new Date(),
+      description: "review task",
+      prompt: "review prompt",
+      agent: "Oracle (Strategic Advisor)",
+      parentSessionID: "parent-session",
+      parentMessageID: "parent-message",
+    }
+    const input: LaunchInput = {
+      description: task.description,
+      prompt: task.prompt,
+      agent: task.agent,
+      parentSessionID: task.parentSessionID,
+      parentMessageID: task.parentMessageID,
+    }
+
+    //#when
+    await (manager as unknown as {
+      startTask: (item: { task: BackgroundTask; input: LaunchInput }) => Promise<void>
+    }).startTask({ task, input })
+
+    //#then
+    expect(promptCall?.body.agent).toBe("Oracle (Strategic Advisor)")
+    expect((promptCall?.body.tools as Record<string, unknown>)?.call_omo_agent).toBe(false)
+    expect((promptCall?.body.tools as Record<string, unknown>)?.task).toBe(false)
+    expect((promptCall?.body.tools as Record<string, unknown>)?.write).toBe(false)
+    expect((promptCall?.body.tools as Record<string, unknown>)?.edit).toBe(false)
+
+    manager.shutdown()
+  })
 })

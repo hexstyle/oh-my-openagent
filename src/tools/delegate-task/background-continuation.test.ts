@@ -43,7 +43,7 @@ describe("executeBackgroundContinuation - subagent metadata", () => {
 
     //#then - task_metadata should contain subagent field
     expect(result).toContain("<task_metadata>")
-    expect(result).toContain("subagent: oracle")
+    expect(result).toContain("subagent: Oracle (Strategic Advisor)")
     expect(result).toContain("session_id: ses_resumed_123")
   })
 

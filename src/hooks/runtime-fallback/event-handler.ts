@@ -3,7 +3,7 @@ import type { AutoRetryHelpers } from "./auto-retry"
 import { HOOK_NAME } from "./constants"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError } from "./error-classifier"
-import { createFallbackState, markFallbackResponseSuccess, resetTransientRetryState } from "./fallback-state"
+import { createFallbackState, markFallbackResponseSuccess, resetTransientRetryState, markLimitError, markSessionStopped, isRecentLimitError } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
@@ -172,6 +172,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
 
     const state = sessionStates.get(sessionID)
     if (state) {
+      markSessionStopped(state)
       state.pendingFallbackModel = undefined
       resetTransientRetryState(state)
     }
@@ -179,11 +180,27 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     log(`[${HOOK_NAME}] Cleared fallback retry state on session.stop`, { sessionID })
   }
 
-  const handleSessionIdle = (props: Record<string, unknown> | undefined) => {
+  const handleSessionIdle = async (props: Record<string, unknown> | undefined) => {
     const sessionID = props?.sessionID as string | undefined
     if (!sessionID) return
 
     if (sessionAwaitingFallbackResult.has(sessionID)) {
+      if (!sessionFallbackTimeouts.has(sessionID)) {
+        const resolvedAgent = await helpers.resolveAgentForSessionFromContext(
+          sessionID,
+          props?.agent as string | undefined,
+        )
+        helpers.scheduleSessionFallbackTimeout(sessionID, {
+          resolvedAgent,
+          source: "session.idle.awaiting-fallback-rearm",
+        })
+        log(`[${HOOK_NAME}] session.idle while awaiting fallback result; re-armed missing timeout`, {
+          sessionID,
+          resolvedAgent,
+        })
+        return
+      }
+
       log(`[${HOOK_NAME}] session.idle while awaiting fallback result; keeping timeout armed`, { sessionID })
       return
     }
@@ -230,22 +247,38 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
     helpers.clearSessionFallbackTimeout(sessionID)
 
+    // If OpenCode wraps a quota-exceeded failure as MessageAbortedError, the
+    // real cause is invisible. Treat it as quota_exceeded when there was a
+    // recent limit signal for this session, so we route to limit_fallback
+    // (spark → free) instead of the standard fallback chain.
+    const rawErrorName = extractErrorName(error)?.toLowerCase()
+    const isAbortedError = rawErrorName === "messageabortederror"
+    const existingState = sessionStates.get(sessionID)
+    const effectiveError =
+      isAbortedError && existingState && isRecentLimitError(existingState)
+        ? { name: "QuotaExceededError", message: "quota exceeded (inferred from abort after limit error)" }
+        : error
+
+    if (isAbortedError && effectiveError !== error) {
+      log(`[${HOOK_NAME}] Treating MessageAbortedError as quota error due to recent limit signal`, { sessionID })
+    }
+
     log(`[${HOOK_NAME}] session.error received`, {
       sessionID,
       agent,
       resolvedAgent,
-      statusCode: extractStatusCode(error, config.retry_on_errors),
-      errorName: extractErrorName(error),
-      errorType: classifyErrorType(error),
+      statusCode: extractStatusCode(effectiveError, config.retry_on_errors),
+      errorName: extractErrorName(effectiveError),
+      errorType: classifyErrorType(effectiveError),
     })
 
-    if (!isRetryableError(error, config.retry_on_errors)) {
+    if (!isRetryableError(effectiveError, config.retry_on_errors)) {
       log(`[${HOOK_NAME}] Error not retryable, skipping fallback`, {
         sessionID,
         retryable: false,
-        statusCode: extractStatusCode(error, config.retry_on_errors),
-        errorName: extractErrorName(error),
-        errorType: classifyErrorType(error),
+        statusCode: extractStatusCode(effectiveError, config.retry_on_errors),
+        errorName: extractErrorName(effectiveError),
+        errorType: classifyErrorType(effectiveError),
       })
       return
     }
@@ -278,7 +311,11 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       sessionLastAccess.set(sessionID, Date.now())
     }
 
-    const action = getRuntimeFallbackAction(error, config.retry_on_errors)
+    const action = getRuntimeFallbackAction(effectiveError, config.retry_on_errors)
+
+    if (action === "limit_fallback") {
+      markLimitError(state)
+    }
 
     if (action === "retry_same_model" || action === "retry_same_model_delayed") {
       const retried = await helpers.retryCurrentModel(sessionID, resolvedAgent, "session.error", {
@@ -316,7 +353,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     if (event.type === "session.created") { handleSessionCreated(props); return }
     if (event.type === "session.deleted") { handleSessionDeleted(props); return }
     if (event.type === "session.stop") { await handleSessionStop(props); return }
-    if (event.type === "session.idle") { handleSessionIdle(props); return }
+    if (event.type === "session.idle") { await handleSessionIdle(props); return }
     if (event.type === "message.part.updated") { handleAssistantProgressEvent(props, "message.part.updated"); return }
     if (event.type === "message.part.delta") { handleAssistantProgressEvent(props, "message.part.delta"); return }
     if (event.type === "session.status") { await sessionStatusHandler(props); return }

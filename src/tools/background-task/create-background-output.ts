@@ -10,7 +10,7 @@ import { formatTaskResult } from "./task-result-format"
 import { extractMessages, getErrorMessage } from "./session-messages"
 import { formatTaskStatus } from "./task-status-format"
 
-import { getAgentDisplayName } from "../../shared/agent-display-names"
+import { getAgentDisplayName, normalizeAgentForDisplay } from "../../shared/agent-display-names"
 import { recordBackgroundOutputConsumption } from "../../shared/background-output-consumption"
 import { log } from "../../shared/logger"
 
@@ -33,7 +33,8 @@ function resolveToolCallID(ctx: ToolContextWithMetadata): string | undefined {
 }
 
 function formatResolvedTitle(task: BackgroundTask): string {
-  const label = task.agent === SISYPHUS_JUNIOR_AGENT && task.category ? task.category : task.agent
+  const displayAgent = normalizeAgentForDisplay(task.agent) ?? task.agent
+  const label = displayAgent === SISYPHUS_JUNIOR_AGENT && task.category ? task.category : displayAgent
   return `${label} - ${task.description}`
 }
 
@@ -215,7 +216,7 @@ export function createBackgroundOutput(manager: BackgroundOutputManager, client:
           title: formatResolvedTitle(task),
           metadata: {
             task_id: task.id,
-            agent: task.agent,
+            agent: normalizeAgentForDisplay(task.agent) ?? task.agent,
             category: task.category,
             description: task.description,
             ...(task.sessionID ? { sessionId: task.sessionID } : {}),

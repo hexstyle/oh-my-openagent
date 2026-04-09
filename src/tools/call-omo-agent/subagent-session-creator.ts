@@ -4,6 +4,7 @@ import { resolveSessionDirectory } from "../../shared"
 import { subagentSessions, syncSubagentSessions } from "../../features/claude-code-session-state"
 import type { CallOmoAgentArgs } from "./types"
 import type { ToolContextWithMetadata } from "./tool-context-with-metadata"
+import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
 
 export async function resolveOrCreateSessionId(
 	ctx: PluginInput,
@@ -36,10 +37,11 @@ export async function resolveOrCreateSessionId(
 		parentDirectory: parentSession?.data?.directory,
 		fallbackDirectory: ctx.directory,
 	})
+	const titleAgent = normalizeAgentForDisplay(args.subagent_type) ?? args.subagent_type
 
 	const body = {
 		parentID: toolContext.sessionID,
-		title: `${args.description} (@${args.subagent_type} subagent)`,
+		title: `${args.description} (@${titleAgent} subagent)`,
 	}
 
 	const createResult = await ctx.client.session.create({

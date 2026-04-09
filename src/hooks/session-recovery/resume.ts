@@ -1,7 +1,7 @@
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 import type { MessageData, ResumeConfig } from "./types"
 import { createInternalAgentTextPart, resolveInheritedPromptTools } from "../../shared"
-import { normalizeAgentForExecution } from "../../shared/agent-display-names"
+import { normalizeAgentForSessionPrompt } from "../../shared/agent-display-names"
 
 const RECOVERY_RESUME_TEXT = "[session recovered - continuing previous task]"
 
@@ -28,7 +28,7 @@ export function extractResumeConfig(userMessage: MessageData | undefined, sessio
 export async function resumeSession(client: Client, config: ResumeConfig): Promise<boolean> {
   try {
     const inheritedTools = resolveInheritedPromptTools(config.sessionID, config.tools)
-    const agent = normalizeAgentForExecution(config.agent) ?? config.agent
+    const agent = normalizeAgentForSessionPrompt(config.agent) ?? config.agent
     await client.session.promptAsync({
       path: { id: config.sessionID },
       body: {

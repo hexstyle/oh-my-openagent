@@ -216,7 +216,7 @@ bunDescribe("sendSyncPrompt", () => {
 
     //#then
     bunExpect(promptAsync).toHaveBeenCalled()
-    bunExpect(promptArgs.body.agent).toBe("sisyphus-junior")
+    bunExpect(promptArgs.body.agent).toBe("Sisyphus Junior (Focused Executor)")
     bunExpect(promptArgs.body.model).toEqual({
       providerID: "openai",
       modelID: "gpt-5.4",
@@ -235,7 +235,7 @@ bunDescribe("sendSyncPrompt", () => {
 
     const input = {
       sessionID: "test-session",
-      agentToUse: "oracle",
+      agentToUse: "Oracle (Strategic Advisor)",
       args: {
         description: "test task",
         prompt: "test prompt",
@@ -269,12 +269,15 @@ bunDescribe("sendSyncPrompt", () => {
 
     //#then
     bunExpect(promptWithModelSuggestionRetry).toHaveBeenCalledTimes(1)
+    bunExpect(promptArgs.body.agent).toBe("Oracle (Strategic Advisor)")
     bunExpect(promptArgs.body.model).toEqual({
       providerID: "openai",
       modelID: "gpt-5.4",
     })
     bunExpect(promptArgs.body.variant).toBe("low")
     bunExpect(promptArgs.body.options).toBeUndefined()
+    bunExpect(promptArgs.body.tools.call_omo_agent).toBe(false)
+    bunExpect(promptArgs.body.tools.task).toBe(false)
     bunExpect(getSessionPromptParams("test-session")).toEqual({
       temperature: 0.4,
       topP: 0.7,
@@ -296,7 +299,7 @@ bunDescribe("sendSyncPrompt", () => {
 
     const input = {
       sessionID: "test-session",
-      agentToUse: "oracle",
+      agentToUse: "Oracle (Strategic Advisor)",
       args: {
         description: "test task",
         prompt: "test prompt",

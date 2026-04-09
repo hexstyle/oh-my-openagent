@@ -11,7 +11,7 @@ import { formatDuration } from "./time-formatter"
 import { syncContinuationDeps, type SyncContinuationDeps } from "./sync-continuation-deps"
 import { setSessionTools } from "../../shared/session-tools-store"
 import { normalizeSDKResponse } from "../../shared"
-import { normalizeAgentForExecution } from "../../shared/agent-display-names"
+import { normalizeAgentForDisplay, normalizeAgentForSessionPrompt } from "../../shared/agent-display-names"
 import { buildTaskPrompt } from "./prompt-builder"
 
 export async function executeSyncContinuation(
@@ -40,6 +40,8 @@ export async function executeSyncContinuation(
   let resumeModel: { providerID: string; modelID: string } | undefined
   let resumeVariant: string | undefined
   let anchorMessageCount: number | undefined
+  let executionAgent: string | undefined
+  let displayAgent: string | undefined
 
   try {
     try {
@@ -65,7 +67,9 @@ export async function executeSyncContinuation(
       resumeVariant = resumeMessage?.model?.variant
     }
 
-    resumeAgent = normalizeAgentForExecution(resumeAgent) ?? resumeAgent
+    executionAgent = resumeAgent
+    const promptAgent = normalizeAgentForSessionPrompt(executionAgent) ?? executionAgent
+    displayAgent = normalizeAgentForDisplay(executionAgent) ?? executionAgent
 
     syncContMeta = {
       title: `Continue: ${args.description}`,
@@ -85,21 +89,21 @@ export async function executeSyncContinuation(
       storeToolMetadata(ctx.sessionID, ctx.callID, syncContMeta)
     }
 
-    const allowTask = isPlanFamily(resumeAgent)
+    const allowTask = isPlanFamily(executionAgent)
     const tddEnabled = sisyphusAgentConfig?.tdd
-    const effectivePrompt = buildTaskPrompt(args.prompt, resumeAgent, tddEnabled)
+    const effectivePrompt = buildTaskPrompt(args.prompt, executionAgent, tddEnabled)
     const tools = {
       task: allowTask,
       call_omo_agent: true,
       question: false,
-      ...(resumeAgent ? getAgentToolRestrictions(resumeAgent) : {}),
+      ...(executionAgent ? getAgentToolRestrictions(executionAgent) : {}),
     }
     setSessionTools(args.session_id!, tools)
 
     await promptWithModelSuggestionRetry(client, {
       path: { id: args.session_id! },
       body: {
-        ...(resumeAgent !== undefined ? { agent: resumeAgent } : {}),
+        ...(promptAgent !== undefined ? { agent: promptAgent } : {}),
         ...(resumeModel !== undefined ? { model: resumeModel } : {}),
         ...(resumeVariant !== undefined ? { variant: resumeVariant } : {}),
         tools,
@@ -117,7 +121,7 @@ export async function executeSyncContinuation(
     try {
       const pollError = await deps.pollSyncSession(ctx, client, {
         sessionID: args.session_id!,
-        agentToUse: resumeAgent ?? "continue",
+        agentToUse: executionAgent ?? "continue",
         toastManager,
         taskId,
         anchorMessageCount,
@@ -141,7 +145,7 @@ ${result.textContent || "(No text output)"}
 
 <task_metadata>
 session_id: ${args.session_id}
-${resumeAgent ? `subagent: ${resumeAgent}\n` : ""}</task_metadata>`
+${displayAgent ? `subagent: ${displayAgent}\n` : ""}</task_metadata>`
    } finally {
      if (toastManager) {
        toastManager.removeTask(taskId)

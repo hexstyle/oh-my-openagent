@@ -47,6 +47,13 @@ export interface FallbackState {
   transientRetryDelayMs?: number
   pendingTransientRetry?: boolean
   pendingFallbackModel?: string
+  /** Timestamp of the last quota / rate-limit signal for this session. Used to
+   *  route `MessageAbortedError` events and watchdog timeouts through the
+   *  `limit_fallback` path (spark → free) instead of `fallback_chain`. */
+  lastLimitErrorAt?: number
+  /** Timestamp set by `session.stop`. Prevents the watchdog timer from
+   *  dispatching a new retry if the user explicitly stopped the session. */
+  stoppedAt?: number
 }
 
 export interface FallbackResult {

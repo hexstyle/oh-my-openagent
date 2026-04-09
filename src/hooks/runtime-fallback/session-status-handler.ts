@@ -3,11 +3,13 @@ import type { AutoRetryHelpers } from "./auto-retry"
 import { HOOK_NAME, RETRYABLE_ERROR_PATTERNS } from "./constants"
 import { log } from "../../shared/logger"
 import { extractAutoRetrySignal } from "./error-classifier"
-import { createFallbackState } from "./fallback-state"
+import { createFallbackState, markLimitError } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { normalizeRetryStatusMessage, extractRetryAttempt } from "../../shared/retry-status-utils"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
+import { selectFallbackModelsForAction } from "./fallback-policy"
+import { isQuotaAutoRetrySignal } from "./error-classifier"
 import {
   clearRecentCompletionState,
   shouldSuppressRecentCompletionReplay,
@@ -165,10 +167,21 @@ export function createSessionStatusHandler(
       }
     }
 
+    // Route quota/rate-limit signals through limit_fallback (spark → free tier)
+    // so we don't waste quota retrying paid models.
+    const isQuota = isQuotaAutoRetrySignal(retryMessage)
+    if (isQuota) {
+      markLimitError(state)
+    }
+    const statusFallbackModels = isQuota
+      ? selectFallbackModelsForAction({ currentModel: state.currentModel, fallbackModels, action: "limit_fallback" })
+      : fallbackModels
+
     log(`[${HOOK_NAME}] Detected provider auto-retry signal in session.status`, {
       sessionID,
       model: state.currentModel,
       retryAttempt: status.attempt,
+      isQuota,
     })
 
     await helpers.abortSessionRequest(sessionID, "session.status.retry-signal")
@@ -176,9 +189,9 @@ export function createSessionStatusHandler(
     await dispatchFallbackRetry(deps, helpers, {
       sessionID,
       state,
-      fallbackModels,
+      fallbackModels: statusFallbackModels,
       resolvedAgent,
-      source: "session.status",
+      source: `session.status.${isQuota ? "limit_fallback" : "fallback_chain"}`,
     })
   }
 }

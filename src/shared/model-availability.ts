@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "fs"
 import { join } from "path"
 import { log } from "./logger"
-import { getOpenCodeCacheDir } from "./data-path"
+import { getReadableOpenCodeCacheDirs } from "./data-path"
 import * as connectedProvidersCache from "./connected-providers-cache"
 import { normalizeSDKResponse } from "./normalize-sdk-response"
 import { parseFallbackModelEntry } from "./fallback-chain-from-models"
@@ -28,6 +28,14 @@ function isUsableCachedModelEntry(entry: unknown): boolean {
 	}
 
 	return !["deprecated", "disabled", "removed"].some((token) => status.includes(token))
+}
+
+function getReadableOpenCodeCacheFiles(filename: string): string[] {
+	return getReadableOpenCodeCacheDirs().map((dir) => join(dir, filename))
+}
+
+function findReadableOpenCodeCacheFile(filename: string): string | null {
+	return getReadableOpenCodeCacheFiles(filename).find((cacheFile) => existsSync(cacheFile)) ?? null
 }
 
 /**
@@ -245,9 +253,9 @@ export async function fetchAvailableModels(
 	}
 
 	log("[fetchAvailableModels] provider-models cache not found, falling back to models.json")
-	const cacheFile = join(getOpenCodeCacheDir(), "models.json")
+	const cacheFile = findReadableOpenCodeCacheFile("models.json")
 
-	if (!existsSync(cacheFile)) {
+	if (!cacheFile) {
 		log("[fetchAvailableModels] models.json cache file not found, falling back to client")
 	} else {
 		try {
@@ -339,8 +347,8 @@ export function readCachedModelCatalog(): Set<string> {
 		}
 	}
 
-	const cacheFile = join(getOpenCodeCacheDir(), "models.json")
-	if (!existsSync(cacheFile)) {
+	const cacheFile = findReadableOpenCodeCacheFile("models.json")
+	if (!cacheFile) {
 		cachedModelCatalog = modelSet
 		return cachedModelCatalog
 	}
@@ -401,6 +409,5 @@ export function isModelCacheAvailable(): boolean {
 	if (connectedProvidersCache.hasProviderModelsCache()) {
 		return true
 	}
-	const cacheFile = join(getOpenCodeCacheDir(), "models.json")
-	return existsSync(cacheFile)
+	return getReadableOpenCodeCacheFiles("models.json").some((cacheFile) => existsSync(cacheFile))
 }

@@ -407,7 +407,7 @@ describe("executeSyncContinuation - toast cleanup error paths", () => {
 
     //#then - task_metadata should contain subagent field with the agent name
     expect(result).toContain("<task_metadata>")
-    expect(result).toContain("subagent: oracle")
+    expect(result).toContain("subagent: Oracle (Strategic Advisor)")
     expect(result).toContain("session_id: ses_test_12345678")
   })
 

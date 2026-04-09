@@ -24,6 +24,7 @@ export const AGENT_DISPLAY_NAMES: Record<string, string> = {
 
 export const PRESERVE_CONFIG_KEY_AGENTS = new Set(["explore"])
 export const PRIMARY_RUNTIME_AGENTS = new Set(["sisyphus", "hephaestus", "prometheus", "atlas"])
+const KNOWN_AGENT_CONFIG_KEYS = new Set(Object.keys(AGENT_DISPLAY_NAMES))
 
 /**
  * Get display name for an agent config key.
@@ -92,6 +93,14 @@ export function normalizeAgentForPrompt(agentName: string | undefined): string |
 }
 
 /**
+ * Normalize an agent name for user-facing display surfaces such as titles, task metadata,
+ * and status notifications. Known agents are rendered with their canonical display names.
+ */
+export function normalizeAgentForDisplay(agentName: string | undefined): string | undefined {
+  return normalizeAgentForPrompt(agentName)
+}
+
+/**
  * Normalize an agent name for session prompt APIs (`session.prompt` / `session.promptAsync`).
  * Reserved runtime agents such as `explore` must stay on their internal execution key.
  * All other known agents are normalized to their canonical display names.
@@ -121,8 +130,9 @@ export function normalizeAgentForSessionPrompt(agentName: string | undefined): s
 
 /**
  * Normalize an agent name for execution paths that must preserve internal runtime keys.
- * Reserved runtime agents (for example `explore`) are always mapped to their config key.
- * All other agent names are preserved as provided, aside from trimming.
+ * Known agents are always mapped to their canonical config key so internal dedupe,
+ * concurrency, restriction, and special-case logic does not drift across display variants.
+ * Unknown/custom agent names are preserved as provided, aside from trimming.
  */
 export function normalizeAgentForExecution(agentName: string | undefined): string | undefined {
   if (typeof agentName !== "string") {
@@ -135,7 +145,7 @@ export function normalizeAgentForExecution(agentName: string | undefined): strin
   }
 
   const configKey = getAgentConfigKey(trimmed)
-  if (PRESERVE_CONFIG_KEY_AGENTS.has(configKey)) {
+  if (KNOWN_AGENT_CONFIG_KEYS.has(configKey) || PRESERVE_CONFIG_KEY_AGENTS.has(configKey)) {
     return configKey
   }
 

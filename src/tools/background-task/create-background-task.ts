@@ -6,7 +6,7 @@ import { resolveMessageContext } from "../../features/hook-message-injector"
 import { getSessionAgent } from "../../features/claude-code-session-state"
 import { storeToolMetadata } from "../../features/tool-metadata-store"
 import { log } from "../../shared/logger"
-import { normalizeAgentForExecution } from "../../shared/agent-display-names"
+import { normalizeAgentForDisplay, normalizeAgentForExecution } from "../../shared/agent-display-names"
 import { delay } from "./delay"
 import { getMessageDir } from "./message-dir"
 
@@ -105,13 +105,14 @@ export function createBackgroundTask(
         if (ctx.callID) {
           storeToolMetadata(ctx.sessionID, ctx.callID, bgMeta)
         }
+        const displayAgent = normalizeAgentForDisplay(task.agent) ?? task.agent
 
         return `Background task launched successfully.
 
 Task ID: ${task.id}
 Session ID: ${sessionId ?? "(not yet assigned)"}
 Description: ${task.description}
-Agent: ${task.agent}
+Agent: ${displayAgent}
 Status: ${task.status}
 
 The system will notify you when the task completes.

@@ -160,6 +160,12 @@ export const AUTO_RETRY_PATTERNS: Array<(combined: string) => boolean> = [
     /(?:too\s+many\s+requests|quota\s*exceeded|quota\s+will\s+reset\s+after|usage\s+limit|rate\s+limit|limit\s+reached|all\s+credentials\s+for\s+model|cool(?:ing)?\s*down|exhausted\s+your\s+capacity)/i.test(combined),
 ]
 
+/** Returns true when an auto-retry signal text specifically indicates a quota
+ *  or rate-limit condition (as opposed to a transient "retrying in…" delay). */
+export function isQuotaAutoRetrySignal(signal: string): boolean {
+  return AUTO_RETRY_PATTERNS[1]?.(signal) ?? false
+}
+
 export function extractAutoRetrySignal(info: Record<string, unknown> | undefined): AutoRetrySignal | undefined {
   if (!info) return undefined
 

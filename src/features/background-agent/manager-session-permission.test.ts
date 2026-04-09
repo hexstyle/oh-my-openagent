@@ -40,7 +40,7 @@ describe("BackgroundManager session permission", () => {
     expect(createCalls).toHaveLength(1)
     expect(createCalls[0]?.body).toEqual({
       parentID: "ses_parent",
-      title: "Test task (@explore subagent)",
+      title: "Test task (@Explore (Code Search) subagent)",
       permission: [
         { permission: "question", action: "deny", pattern: "*" },
       ],

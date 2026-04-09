@@ -124,7 +124,7 @@ describe("createSessionStatusHandler", () => {
       {
         sessionID,
         model: "google/gemini-2.5-pro",
-        source: "session.status",
+        source: "session.status.limit_fallback",
       },
     ])
     expect(state.currentModel).toBe("google/gemini-2.5-pro")
@@ -168,7 +168,7 @@ describe("createSessionStatusHandler", () => {
       {
         sessionID,
         model: "openai/gpt-5.4",
-        source: "session.status",
+        source: "session.status.fallback_chain",
       },
     ])
     expect(state.currentModel).toBe("openai/gpt-5.4")

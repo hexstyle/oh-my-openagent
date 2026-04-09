@@ -88,7 +88,7 @@ describe("background_output full_session", () => {
 
     // #then
     expect(launchedAgent).toBe("explore")
-    expect(output).toContain("Agent: explore")
+    expect(output).toContain("Agent: Explore (Code Search)")
   })
 
   test("resolves task_id into title metadata", async () => {
@@ -114,7 +114,7 @@ describe("background_output full_session", () => {
 
     // #then
     const restored = consumeToolMetadata("test-session", "call-1")
-    expect(restored?.title).toBe("explore - Find how task output is rendered")
+    expect(restored?.title).toBe("Explore (Code Search) - Find how task output is rendered")
   })
 
   test("shows category instead of agent for sisyphus-junior", async () => {

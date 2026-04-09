@@ -29,7 +29,7 @@ describe("createSyncSession", () => {
     expect(createCalls).toHaveLength(1)
     expect(createCalls[0]?.body).toEqual({
       parentID: "ses_parent",
-      title: "test task (@explore subagent)",
+      title: "test task (@Explore (Code Search) subagent)",
       permission: [
         { permission: "question", action: "deny", pattern: "*" },
       ],

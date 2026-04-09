@@ -47,6 +47,32 @@ describe("normalizeSDKResponse", () => {
     expect(result).toEqual({ value: "legacy" })
   })
 
+  it("keeps array fallbacks stable when preferResponseOnMissingData is true but response is an object", () => {
+    //#given
+    const response = { error: "disk I/O error" }
+
+    //#when
+    const result = normalizeSDKResponse(response, [] as Array<{ id: string }>, {
+      preferResponseOnMissingData: true,
+    })
+
+    //#then
+    expect(result).toEqual([])
+  })
+
+  it("keeps array fallbacks stable when response.data is present but not an array", () => {
+    //#given
+    const response = { data: { error: "disk I/O error" } }
+
+    //#when
+    const result = normalizeSDKResponse(response, [] as Array<{ id: string }>, {
+      preferResponseOnMissingData: true,
+    })
+
+    //#then
+    expect(result).toEqual([])
+  })
+
   it("returns fallback for null response", () => {
     //#given
     const response = null

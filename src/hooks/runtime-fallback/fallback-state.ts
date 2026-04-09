@@ -36,7 +36,38 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     transientRetryDelayMs: undefined,
     pendingTransientRetry: false,
     pendingFallbackModel: undefined,
+    lastLimitErrorAt: undefined,
+    stoppedAt: undefined,
   }
+}
+
+const LIMIT_ERROR_SIGNAL_WINDOW_MS = 5 * 60 * 1000
+const STOP_INHIBIT_WINDOW_MS = 15_000
+
+export function markLimitError(state: FallbackState, now = Date.now()): void {
+  state.lastLimitErrorAt = now
+}
+
+export function isRecentLimitError(
+  state: FallbackState,
+  windowMs = LIMIT_ERROR_SIGNAL_WINDOW_MS,
+  now = Date.now(),
+): boolean {
+  if (state.lastLimitErrorAt === undefined) return false
+  return now - state.lastLimitErrorAt < windowMs
+}
+
+export function markSessionStopped(state: FallbackState, now = Date.now()): void {
+  state.stoppedAt = now
+}
+
+export function wasRecentlyStopped(
+  state: FallbackState,
+  windowMs = STOP_INHIBIT_WINDOW_MS,
+  now = Date.now(),
+): boolean {
+  if (state.stoppedAt === undefined) return false
+  return now - state.stoppedAt < windowMs
 }
 
 export function updateFallbackModels(state: FallbackState, fallbackModels: string[]): void {

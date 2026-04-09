@@ -16,10 +16,12 @@ import {
   beginTransientRetryWindow,
   canKeepRetryingTransiently,
   getNextTransientRetryDelayMs,
+  isRecentLimitError,
   markTransientRetryDispatched,
   prepareFallback,
   recoverPreferredModel,
   resetTransientRetryState,
+  wasRecentlyStopped,
 } from "./fallback-state"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { buildRetryModelPayload } from "./retry-model-payload"
@@ -31,7 +33,7 @@ import {
   normalizeAgentForExecution,
   normalizeAgentForSessionPrompt,
 } from "../../shared/agent-display-names"
-import { getRecoveryProbeCandidates } from "./fallback-policy"
+import { getRecoveryProbeCandidates, selectFallbackModelsForAction } from "./fallback-policy"
 
 const SESSION_TTL_MS = 30 * 60 * 1000
 const EXTERNAL_WATCHDOG_RESPAWN_MS = 10_000
@@ -314,6 +316,14 @@ fi
       return
     }
 
+    if (wasRecentlyStopped(stateAtSchedule)) {
+      log(`[${HOOK_NAME}] Skipping session fallback timeout arm — session was recently stopped`, {
+        sessionID,
+        source,
+      })
+      return
+    }
+
     log(
       `[${HOOK_NAME}] ${hadExistingTimer ? "Refreshed" : "Armed"} session fallback timeout`,
       {
@@ -347,6 +357,15 @@ fi
           return
         }
 
+        // If the user pressed ESC after this timer was armed, abort.
+        if (wasRecentlyStopped(state)) {
+          log(`[${HOOK_NAME}] Session fallback timeout cancelled — session was stopped`, {
+            sessionID,
+            source,
+          })
+          return
+        }
+
         if (sessionRetryInFlight.has(sessionID)) {
           log(`[${HOOK_NAME}] Overriding in-flight retry due to session timeout`, { sessionID, source })
         }
@@ -369,8 +388,8 @@ fi
           state.pendingFallbackModel = undefined
         }
 
-        const fallbackModels = getFallbackModelsForSession(sessionID, resolvedAgent, pluginConfig)
-        if (fallbackModels.length === 0) {
+        const allFallbackModels = getFallbackModelsForSession(sessionID, resolvedAgent, pluginConfig)
+        if (allFallbackModels.length === 0) {
           log(`[${HOOK_NAME}] Session fallback timeout reached but no fallback models were resolved`, {
             sessionID,
             source,
@@ -379,6 +398,13 @@ fi
           return
         }
 
+        // If the session previously hit a quota/limit, route directly to spark
+        // then free-tier models instead of retrying paid models that are capped.
+        const timeoutAction = isRecentLimitError(state) ? "limit_fallback" : "fallback_chain"
+        const fallbackModels = timeoutAction === "limit_fallback"
+          ? selectFallbackModelsForAction({ currentModel: state.currentModel, fallbackModels: allFallbackModels, action: "limit_fallback" })
+          : allFallbackModels
+
         const lastAccess = sessionLastAccess.get(sessionID)
         log(`[${HOOK_NAME}] Session fallback timeout reached`, {
           sessionID,
@@ -386,6 +412,7 @@ fi
           timeoutSeconds: config.timeout_seconds,
           currentModel: state.currentModel,
           resolvedAgent,
+          timeoutAction,
           lastAccessAgeMs: typeof lastAccess === "number" ? Math.max(0, Date.now() - lastAccess) : undefined,
         })
 

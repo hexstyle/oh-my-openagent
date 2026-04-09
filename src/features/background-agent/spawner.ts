@@ -3,7 +3,10 @@ import type { OpencodeClient, OnSubagentSessionCreated, QueueItem } from "./cons
 import { TMUX_CALLBACK_DELAY_MS } from "./constants"
 import { log, getAgentToolRestrictions, promptWithModelSuggestionRetry, createInternalAgentTextPart } from "../../shared"
 import { applySessionPromptParams } from "../../shared/session-prompt-params-helpers"
-import { normalizeAgentForExecution } from "../../shared/agent-display-names"
+import {
+  normalizeAgentForExecution,
+  normalizeAgentForSessionPrompt,
+} from "../../shared/agent-display-names"
 import { subagentSessions } from "../claude-code-session-state"
 import { getTaskToastManager } from "../task-toast-manager"
 import { isInsideTmux } from "../../shared/tmux"
@@ -20,6 +23,10 @@ export interface SpawnerContext {
 
 function getExecutionAgent(agentName: string): string {
   return normalizeAgentForExecution(agentName) ?? agentName.trim()
+}
+
+function getPromptAgent(agentName: string): string {
+  return normalizeAgentForSessionPrompt(agentName) ?? agentName.trim()
 }
 
 export function createTask(input: LaunchInput): BackgroundTask {
@@ -45,11 +52,13 @@ export async function startTask(
   const { task, input } = item
   const { client, directory, concurrencyManager, tmuxEnabled, onSubagentSessionCreated, onTaskError } = ctx
   const executionAgent = getExecutionAgent(input.agent)
+  const promptAgent = getPromptAgent(input.agent)
 
   log("[background-agent] Starting task:", {
     taskId: task.id,
     agent: input.agent,
     executionAgent,
+    promptAgent,
     model: input.model,
   })
 
@@ -131,6 +140,7 @@ export async function startTask(
     sessionID,
     agent: input.agent,
     executionAgent,
+    promptAgent,
     model: input.model,
     hasSkillContent: !!input.skillContent,
     promptLength: input.prompt.length,
@@ -149,7 +159,7 @@ export async function startTask(
   promptWithModelSuggestionRetry(client, {
     path: { id: sessionID },
     body: {
-      agent: executionAgent,
+      agent: promptAgent,
       ...(launchModel ? { model: launchModel } : {}),
       ...(launchVariant ? { variant: launchVariant } : {}),
       system: input.skillContent,
@@ -174,6 +184,7 @@ export async function resumeTask(
 ): Promise<void> {
   const { client, concurrencyManager, onTaskError } = ctx
   const executionAgent = getExecutionAgent(task.agent)
+  const promptAgent = getPromptAgent(task.agent)
 
   if (!task.sessionID) {
     throw new Error(`Task has no sessionID: ${task.id}`)
@@ -229,6 +240,7 @@ export async function resumeTask(
     sessionID: task.sessionID,
     agent: task.agent,
     executionAgent,
+    promptAgent,
     model: task.model,
     promptLength: input.prompt.length,
   })
@@ -246,7 +258,7 @@ export async function resumeTask(
   client.session.promptAsync({
     path: { id: task.sessionID },
     body: {
-      agent: executionAgent,
+      agent: promptAgent,
       ...(resumeModel ? { model: resumeModel } : {}),
       ...(resumeVariant ? { variant: resumeVariant } : {}),
       tools: {

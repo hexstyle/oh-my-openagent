@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs
 import { tmpdir } from "os"
 import { join } from "path"
 import * as connectedProvidersCache from "./connected-providers-cache"
+import * as dataPath from "./data-path"
 
 let __resetModelCache: () => void
 let fetchAvailableModels: (client?: unknown, options?: { connectedProviders?: string[] | null }) => Promise<Set<string>>
@@ -409,6 +410,7 @@ describe("readCachedModelCatalog", () => {
 	let tempDir: string
 	let originalXdgCache: string | undefined
 	let providerModelsCacheSpy: { mockRestore(): void } | undefined
+	let readableOpenCodeCacheDirsSpy: { mockRestore(): void } | undefined
 
 	beforeEach(() => {
 		__resetModelCache()
@@ -419,6 +421,7 @@ describe("readCachedModelCatalog", () => {
 	})
 
 	afterEach(() => {
+		readableOpenCodeCacheDirsSpy?.mockRestore()
 		providerModelsCacheSpy?.mockRestore()
 		if (originalXdgCache !== undefined) {
 			process.env.XDG_CACHE_HOME = originalXdgCache
@@ -481,6 +484,23 @@ describe("readCachedModelCatalog", () => {
 
 		expect(result).toEqual(new Set([
 			"opencode/nemotron-3-super-free",
+		]))
+	})
+
+	it("reads models.json from the readable cache path when the writable cache path differs", () => {
+		const readableCacheDir = join(tempDir, "preferred-cache", "opencode")
+		const writableCacheDir = join(tempDir, "sandbox-cache", "opencode")
+		require("fs").mkdirSync(readableCacheDir, { recursive: true })
+		writeFileSync(join(readableCacheDir, "models.json"), JSON.stringify({
+			openai: { id: "openai", models: { "gpt-5.4": { id: "gpt-5.4" } } },
+		}))
+		readableOpenCodeCacheDirsSpy = spyOn(dataPath, "getReadableOpenCodeCacheDirs")
+			.mockReturnValue([readableCacheDir, writableCacheDir])
+
+		const result = readCachedModelCatalog()
+
+		expect(result).toEqual(new Set([
+			"openai/gpt-5.4",
 		]))
 	})
 
