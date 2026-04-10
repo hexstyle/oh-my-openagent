@@ -102,7 +102,7 @@ describe("addPluginToOpenCodeConfig - single package writes", () => {
     ])
     expect(savedConfig.provider.openai.models["gpt-5.4"].limit.context).toBe(200000)
     expect(savedConfig.provider.openai.models["gpt-5.3-codex"]).toBeUndefined()
-    expect(savedConfig.provider.openai.models["gpt-5.3-codex-spark"].limit.context).toBe(200000)
+    expect(savedConfig.provider.openai.models["gpt-5.3-codex-spark"].limit.context).toBe(128000)
   })
 
   it("upgrades a bare legacy plugin entry to canonical", async () => {

@@ -182,6 +182,7 @@ export function createDelegateTask(options: DelegateTaskToolOptions): ToolDefini
       let actualModel: string | undefined
       let isUnstableAgent = false
       let fallbackChain: import("../../shared/model-requirements").FallbackEntry[] | undefined
+      let trustFallbackChain = false
       let maxPromptTokens: number | undefined
 
       if (args.category) {
@@ -196,6 +197,7 @@ export function createDelegateTask(options: DelegateTaskToolOptions): ToolDefini
         actualModel = resolution.actualModel
         isUnstableAgent = resolution.isUnstableAgent
         fallbackChain = resolution.fallbackChain
+        trustFallbackChain = resolution.trustFallbackChain ?? false
         maxPromptTokens = resolution.maxPromptTokens
 
         const isRunInBackgroundExplicitlyFalse = args.run_in_background === false || args.run_in_background === "false" as unknown as boolean
@@ -232,6 +234,7 @@ export function createDelegateTask(options: DelegateTaskToolOptions): ToolDefini
         agentToUse = resolution.agentToUse
         categoryModel = resolution.categoryModel
         fallbackChain = resolution.fallbackChain
+        trustFallbackChain = resolution.trustFallbackChain ?? false
       }
 
       const systemContent = buildSystemContent({
@@ -248,10 +251,10 @@ export function createDelegateTask(options: DelegateTaskToolOptions): ToolDefini
       const prependNote = (result: string) => categoryOverrideNote ? `${categoryOverrideNote}\n\n${result}` : result
 
       if (runInBackground) {
-        return prependNote(await executeBackgroundTask(args, ctx, options, parentContext, agentToUse, categoryModel, systemContent, fallbackChain))
+        return prependNote(await executeBackgroundTask(args, ctx, options, parentContext, agentToUse, categoryModel, systemContent, fallbackChain, trustFallbackChain))
       }
 
-      return prependNote(await executeSyncTask(args, ctx, options, parentContext, agentToUse, categoryModel, systemContent, modelInfo, fallbackChain))
+      return prependNote(await executeSyncTask(args, ctx, options, parentContext, agentToUse, categoryModel, systemContent, modelInfo, fallbackChain, undefined, trustFallbackChain))
     },
   })
 }

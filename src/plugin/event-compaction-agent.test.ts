@@ -83,7 +83,7 @@ describe("createEventHandler compaction agent filtering", () => {
     await eventHandler(input)
 
     // then
-    expect(getSessionAgent(sessionID)).toBe("atlas")
+    expect(getSessionAgent(sessionID)).toBe("Atlas (Plan Executor)")
   })
 
   it("does not overwrite the stored session model with compaction", async () => {

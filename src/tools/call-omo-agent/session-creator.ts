@@ -1,8 +1,9 @@
 import type { CallOmoAgentArgs } from "./types"
 import type { PluginInput } from "@opencode-ai/plugin"
 import { subagentSessions, syncSubagentSessions } from "../../features/claude-code-session-state"
-import { log } from "../../shared"
+import { log, resolveSessionDirectory } from "../../shared"
 import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
+import { resolveBoulderExecutionDirectory } from "../../features/boulder-state"
 
 export async function createOrGetSession(
   args: CallOmoAgentArgs,
@@ -34,7 +35,11 @@ export async function createOrGetSession(
       return null
     })
     log(`[call_omo_agent] Parent session dir: ${parentSession?.data?.directory}, fallback: ${ctx.directory}`)
-    const parentDirectory = parentSession?.data?.directory ?? ctx.directory
+    const sessionDirectory = resolveSessionDirectory({
+      parentDirectory: parentSession?.data?.directory,
+      fallbackDirectory: ctx.directory,
+    })
+    const parentDirectory = resolveBoulderExecutionDirectory(ctx.directory, sessionDirectory)
     const titleAgent = normalizeAgentForDisplay(args.subagent_type) ?? args.subagent_type
 
     const createResult = await ctx.client.session.create({

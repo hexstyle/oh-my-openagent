@@ -1,5 +1,6 @@
 import type { OpencodeClient } from "../constants"
 import { log, resolveSessionDirectory } from "../../../shared"
+import { resolveBoulderExecutionDirectory } from "../../boulder-state"
 
 export async function resolveParentDirectory(options: {
   client: OpencodeClient
@@ -15,10 +16,11 @@ export async function resolveParentDirectory(options: {
       return null
     })
 
-  const parentDirectory = resolveSessionDirectory({
+  const sessionDirectory = resolveSessionDirectory({
     parentDirectory: parentSession?.data?.directory,
     fallbackDirectory: defaultDirectory,
   })
-  log(`[background-agent] Parent dir: ${parentSession?.data?.directory}, using: ${parentDirectory}`)
-  return parentDirectory
+  const executionDirectory = resolveBoulderExecutionDirectory(defaultDirectory, sessionDirectory)
+  log(`[background-agent] Parent dir: ${parentSession?.data?.directory}, using: ${executionDirectory}`)
+  return executionDirectory
 }

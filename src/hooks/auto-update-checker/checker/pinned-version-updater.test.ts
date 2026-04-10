@@ -1,8 +1,17 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
-import { updatePinnedVersion, revertPinnedVersion } from "./pinned-version-updater"
+
+type PinnedVersionUpdaterModule = typeof import("./pinned-version-updater")
+
+async function importFreshPinnedVersionUpdaterModule(): Promise<PinnedVersionUpdaterModule> {
+  mock.restore()
+  mock.module("../constants", () => ({
+    PACKAGE_NAME: "oh-my-openagent",
+  }))
+  return import(`./pinned-version-updater?test=${Date.now()}-${Math.random()}`)
+}
 
 describe("pinned-version-updater", () => {
   let tmpDir: string
@@ -15,11 +24,13 @@ describe("pinned-version-updater", () => {
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
+    mock.restore()
   })
 
   describe("updatePinnedVersion", () => {
-    test("updates pinned version in config", () => {
+    test("updates pinned version in config", async () => {
       //#given
+      const { updatePinnedVersion } = await importFreshPinnedVersionUpdaterModule()
       const config = JSON.stringify({
         plugin: ["oh-my-openagent@3.1.8"],
       })
@@ -35,8 +46,9 @@ describe("pinned-version-updater", () => {
       expect(updated).not.toContain("oh-my-openagent@3.1.8")
     })
 
-    test("returns false when entry not found", () => {
+    test("returns false when entry not found", async () => {
       //#given
+      const { updatePinnedVersion } = await importFreshPinnedVersionUpdaterModule()
       const config = JSON.stringify({
         plugin: ["some-other-plugin"],
       })
@@ -49,8 +61,9 @@ describe("pinned-version-updater", () => {
       expect(result).toBe(false)
     })
 
-    test("returns false when no plugin array exists", () => {
+    test("returns false when no plugin array exists", async () => {
       //#given
+      const { updatePinnedVersion } = await importFreshPinnedVersionUpdaterModule()
       const config = JSON.stringify({ agent: {} })
       fs.writeFileSync(configPath, config)
 
@@ -63,8 +76,9 @@ describe("pinned-version-updater", () => {
   })
 
   describe("revertPinnedVersion", () => {
-    test("reverts from failed version back to original entry", () => {
+    test("reverts from failed version back to original entry", async () => {
       //#given
+      const { revertPinnedVersion } = await importFreshPinnedVersionUpdaterModule()
       const config = JSON.stringify({
         plugin: ["oh-my-openagent@3.4.0"],
       })
@@ -80,8 +94,9 @@ describe("pinned-version-updater", () => {
       expect(reverted).not.toContain("oh-my-openagent@3.4.0")
     })
 
-    test("reverts to unpinned entry", () => {
+    test("reverts to unpinned entry", async () => {
       //#given
+      const { revertPinnedVersion } = await importFreshPinnedVersionUpdaterModule()
       const config = JSON.stringify({
         plugin: ["oh-my-openagent@3.4.0"],
       })
@@ -97,8 +112,9 @@ describe("pinned-version-updater", () => {
       expect(reverted).not.toContain("oh-my-openagent@3.4.0")
     })
 
-    test("returns false when failed version not found", () => {
+    test("returns false when failed version not found", async () => {
       //#given
+      const { revertPinnedVersion } = await importFreshPinnedVersionUpdaterModule()
       const config = JSON.stringify({
         plugin: ["oh-my-openagent@3.1.8"],
       })
@@ -113,8 +129,9 @@ describe("pinned-version-updater", () => {
   })
 
   describe("update then revert roundtrip", () => {
-    test("config returns to original state after update + revert", () => {
+    test("config returns to original state after update + revert", async () => {
       //#given
+      const { updatePinnedVersion, revertPinnedVersion } = await importFreshPinnedVersionUpdaterModule()
       const originalConfig = JSON.stringify({
         plugin: ["oh-my-openagent@3.1.8"],
       })

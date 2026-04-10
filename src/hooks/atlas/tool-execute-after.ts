@@ -10,6 +10,7 @@ import {
 import { log } from "../../shared/logger"
 import { isCallerOrchestrator } from "../../shared/session-utils"
 import { collectGitDiffStats, formatFileChanges } from "../../shared/git-worktree"
+import { getAgentConfigKey } from "../../shared/agent-display-names"
 import { shouldPauseForFinalWaveApproval } from "./final-wave-approval-gate"
 import { HOOK_NAME } from "./hook-name"
 import { DIRECT_WORK_REMINDER } from "./system-reminder-templates"
@@ -24,6 +25,22 @@ import {
 import { isWriteOrEditToolName } from "./write-edit-tool-policy"
 import type { PendingTaskRef, SessionState } from "./types"
 import type { ToolExecuteAfterInput, ToolExecuteAfterOutput, TrackedTopLevelTaskRef } from "./types"
+
+const NON_REUSABLE_TASK_SESSION_AGENTS = new Set([
+  "compaction",
+  "explore",
+  "librarian",
+  "metis",
+  "momus",
+  "oracle",
+  "plan",
+  "prometheus",
+])
+
+function shouldPersistTaskSession(metadata: Record<string, unknown>): boolean {
+  const agent = typeof metadata.agent === "string" ? getAgentConfigKey(metadata.agent) : undefined
+  return !agent || !NON_REUSABLE_TASK_SESSION_AGENTS.has(agent)
+}
 
 function resolvePreferredSessionId(currentSessionId?: string, trackedSessionId?: string): string {
   return currentSessionId ?? trackedSessionId ?? "<session_id>"
@@ -159,7 +176,7 @@ export function createToolExecuteAfterHandler(input: {
           lineageSessionIDs,
         })
 
-        if (currentTask && subagentSessionId && !shouldSkipTaskSessionUpdate) {
+        if (currentTask && subagentSessionId && !shouldSkipTaskSessionUpdate && shouldPersistTaskSession(toolOutput.metadata)) {
           upsertTaskSessionState(ctx.directory, {
             taskKey: currentTask.key,
             taskLabel: currentTask.label,

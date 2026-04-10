@@ -1,10 +1,5 @@
 declare const require: (name: string) => any
-const { afterEach, describe, expect, mock, test } = require("bun:test")
-
-mock.module("../shared/connected-providers-cache", () => ({
-  readConnectedProvidersCache: () => null,
-  readProviderModelsCache: () => null,
-}))
+const { afterEach, beforeEach, describe, expect, mock, spyOn, test } = require("bun:test")
 
 const fixEmptyMessagesWithSDKMock = mock(async () => ({
   fixed: true,
@@ -12,35 +7,12 @@ const fixEmptyMessagesWithSDKMock = mock(async () => ({
   scannedEmptyCount: 1,
 }))
 
-const resumeSessionMock = mock(async () => true)
-
-mock.module("../hooks/anthropic-context-window-limit-recovery/empty-content-recovery-sdk", () => ({
-  fixEmptyMessagesWithSDK: fixEmptyMessagesWithSDKMock,
-}))
-
-mock.module("../hooks/session-recovery/resume", () => ({
-  findLastUserMessage: (messages: Array<{ info?: { role?: string } }>) => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      if (messages[index]?.info?.role === "user") {
-        return messages[index]
-      }
-    }
-    return undefined
-  },
-  extractResumeConfig: (
-    userMessage: { info?: { agent?: string; model?: { providerID: string; modelID: string }; tools?: Record<string, boolean> } } | undefined,
-    sessionID: string,
-  ) => ({
-    sessionID,
-    agent: userMessage?.info?.agent,
-    model: userMessage?.info?.model,
-    tools: userMessage?.info?.tools,
-  }),
-  resumeSession: resumeSessionMock,
-}))
-
 import { createEventHandler } from "./event"
 import { _resetForTesting } from "../features/claude-code-session-state"
+import * as connectedProvidersCache from "../shared/connected-providers-cache"
+import * as emptyContentRecoverySdk from "../hooks/anthropic-context-window-limit-recovery/empty-content-recovery-sdk"
+
+const promptAsyncMock = mock(async () => ({}))
 
 function createHandler(messages: Array<Record<string, unknown>>) {
   return createEventHandler({
@@ -51,6 +23,7 @@ function createHandler(messages: Array<Record<string, unknown>>) {
           messages: async () => ({ data: messages }),
           abort: async () => ({}),
           prompt: async () => ({}),
+          promptAsync: promptAsyncMock,
           summarize: async () => ({}),
         },
         tui: {
@@ -83,10 +56,17 @@ function createHandler(messages: Array<Record<string, unknown>>) {
 }
 
 describe("createEventHandler idle empty assistant recovery", () => {
+  beforeEach(() => {
+    spyOn(connectedProvidersCache, "readConnectedProvidersCache").mockReturnValue(null)
+    spyOn(connectedProvidersCache, "readProviderModelsCache").mockReturnValue(null)
+    spyOn(emptyContentRecoverySdk, "fixEmptyMessagesWithSDK").mockImplementation(fixEmptyMessagesWithSDKMock)
+  })
+
   afterEach(() => {
     _resetForTesting()
     fixEmptyMessagesWithSDKMock.mockClear()
-    resumeSessionMock.mockClear()
+    promptAsyncMock.mockClear()
+    mock.restore()
   })
 
   test("recovers and resumes when idle session ends with an empty assistant turn", async () => {
@@ -126,18 +106,17 @@ describe("createEventHandler idle empty assistant recovery", () => {
 
     //#then
     expect(fixEmptyMessagesWithSDKMock).toHaveBeenCalledTimes(1)
-    expect(resumeSessionMock).toHaveBeenCalledWith(
-      expect.anything(),
-      {
-        sessionID: "ses_empty",
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_empty" },
+      body: expect.objectContaining({
         agent: "Prometheus (Plan Builder)",
         model: {
           providerID: "anthropic",
           modelID: "claude-opus-4-6",
         },
-        tools: undefined,
-      },
-    )
+      }),
+    })
   })
 
   test("does not re-run recovery for repeated idle events on the same empty assistant message", async () => {
@@ -186,6 +165,6 @@ describe("createEventHandler idle empty assistant recovery", () => {
 
     //#then
     expect(fixEmptyMessagesWithSDKMock).toHaveBeenCalledTimes(1)
-    expect(resumeSessionMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
   })
 })

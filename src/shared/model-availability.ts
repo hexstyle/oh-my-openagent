@@ -38,6 +38,21 @@ function findReadableOpenCodeCacheFile(filename: string): string | null {
 	return getReadableOpenCodeCacheFiles(filename).find((cacheFile) => existsSync(cacheFile)) ?? null
 }
 
+function getProviderModelsMap(
+	providerModelsCache: ReturnType<typeof connectedProvidersCache.readProviderModelsCache>,
+): Record<string, Array<string | { id?: string; status?: string }>> | null {
+	if (!providerModelsCache) {
+		return null
+	}
+
+	const models = providerModelsCache.models
+	if (!models || typeof models !== "object") {
+		return null
+	}
+
+	return models as Record<string, Array<string | { id?: string; status?: string }>>
+}
+
 /**
  * Fuzzy match a target model name against available models
  * 
@@ -217,13 +232,12 @@ export async function fetchAvailableModels(
 
 	const providerModelsCache = connectedProvidersCache.readProviderModelsCache()
 	if (providerModelsCache) {
-		const providerCount = Object.keys(providerModelsCache.models).length
-		if (providerCount === 0) {
+		const modelsByProvider = getProviderModelsMap(providerModelsCache)
+		if (!modelsByProvider || Object.keys(modelsByProvider).length === 0) {
 			log("[fetchAvailableModels] provider-models cache empty, falling back to models.json")
 		} else {
 		log("[fetchAvailableModels] using provider-models cache (whitelist-filtered)")
 		
-		const modelsByProvider = providerModelsCache.models as Record<string, Array<string | { id?: string }>>
 		for (const [providerId, modelIds] of Object.entries(modelsByProvider)) {
 			if (!connectedSet.has(providerId)) {
 				continue
@@ -330,9 +344,10 @@ export function readCachedModelCatalog(): Set<string> {
 
 	const modelSet = new Set<string>()
 	const providerModelsCache = connectedProvidersCache.readProviderModelsCache()
+	const modelsByProvider = getProviderModelsMap(providerModelsCache)
 
-	if (providerModelsCache) {
-		for (const [providerID, modelEntries] of Object.entries(providerModelsCache.models)) {
+	if (modelsByProvider) {
+		for (const [providerID, modelEntries] of Object.entries(modelsByProvider)) {
 			for (const modelEntry of modelEntries) {
 				const modelID = typeof modelEntry === "string" ? modelEntry : modelEntry?.id
 				if (modelID && isUsableCachedModelEntry(modelEntry)) {

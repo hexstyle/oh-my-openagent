@@ -22,7 +22,8 @@ export async function executeSyncTask(
   systemContent: string | undefined,
   modelInfo?: ModelFallbackInfo,
   fallbackChain?: import("../../shared/model-requirements").FallbackEntry[],
-  deps: SyncTaskDeps = syncTaskDeps
+  deps: SyncTaskDeps = syncTaskDeps,
+  trustFallbackChain = false,
 ): Promise<string> {
   const { manager, client, directory, onSyncSessionCreated, syncPollTimeoutMs } = executorCtx
   const toastManager = getTaskToastManager()
@@ -65,7 +66,9 @@ export async function executeSyncTask(
     subagentSessions.add(sessionID)
     syncSubagentSessions.add(sessionID)
     setSessionAgent(sessionID, agentToUse)
-    setSessionFallbackChain(sessionID, fallbackChain)
+    setSessionFallbackChain(sessionID, fallbackChain, {
+      trustUnknownModels: trustFallbackChain,
+    })
 
     if (args.category) {
       SessionCategoryRegistry.register(sessionID, args.category)

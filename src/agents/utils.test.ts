@@ -242,14 +242,27 @@ describe("createBuiltinAgents with model overrides", () => {
   test("createBuiltinAgents excludes disabled skills from availableSkills", async () => {
     // #given
     const disabledSkills = new Set(["playwright"])
+    const fetchSpy = spyOn(shared, "fetchAvailableModels").mockResolvedValue(
+      new Set([
+        "anthropic/claude-opus-4-6",
+        "kimi-for-coding/k2p5",
+        "opencode/kimi-k2.5-free",
+        "zai-coding-plan/glm-5",
+        "opencode/big-pickle",
+      ])
+    )
 
-    // #when
-    const agents = await createBuiltinAgents([], {}, undefined, TEST_DEFAULT_MODEL, undefined, undefined, [], undefined, undefined, undefined, disabledSkills)
+    try {
+      // #when
+      const agents = await createBuiltinAgents([], {}, undefined, TEST_DEFAULT_MODEL, undefined, undefined, [], undefined, undefined, undefined, disabledSkills)
 
-    // #then
-    expect(agents.sisyphus.prompt).not.toContain("playwright")
-    expect(agents.sisyphus.prompt).toContain("frontend-ui-ux")
-    expect(agents.sisyphus.prompt).toContain("git-master")
+      // #then
+      expect(agents.sisyphus.prompt).not.toContain("playwright")
+      expect(agents.sisyphus.prompt).toContain("frontend-ui-ux")
+      expect(agents.sisyphus.prompt).toContain("git-master")
+    } finally {
+      fetchSpy.mockRestore()
+    }
   })
 
   test("includes custom agents in orchestrator prompts when provided via config", async () => {
@@ -1441,27 +1454,41 @@ describe("Deadlock prevention - fetchAvailableModels must not receive client", (
    })
   test("Hephaestus variant override respects user config over hardcoded default", async () => {
     // #given - user provides variant in config
+    const fetchSpy = spyOn(shared, "fetchAvailableModels").mockResolvedValue(
+      new Set(["openai/gpt-5.4"])
+    )
     const overrides = {
       hephaestus: { variant: "high" },
     }
 
-    // #when
-    const agents = await createBuiltinAgents([], overrides, undefined, TEST_DEFAULT_MODEL)
+    try {
+      // #when
+      const agents = await createBuiltinAgents([], overrides, undefined, TEST_DEFAULT_MODEL)
 
-    // #then - user variant takes precedence over hardcoded "medium"
-    expect(agents.hephaestus).toBeDefined()
-    expect(agents.hephaestus.variant).toBe("high")
+      // #then - user variant takes precedence over hardcoded "medium"
+      expect(agents.hephaestus).toBeDefined()
+      expect(agents.hephaestus.variant).toBe("high")
+    } finally {
+      fetchSpy.mockRestore()
+    }
   })
 
   test("Hephaestus uses default variant when no user override provided", async () => {
     // #given - no variant override in config
+    const fetchSpy = spyOn(shared, "fetchAvailableModels").mockResolvedValue(
+      new Set(["openai/gpt-5.4"])
+    )
     const overrides = {}
 
-    // #when
-    const agents = await createBuiltinAgents([], overrides, undefined, TEST_DEFAULT_MODEL)
+    try {
+      // #when
+      const agents = await createBuiltinAgents([], overrides, undefined, TEST_DEFAULT_MODEL)
 
-    // #then - default "medium" variant is applied
-    expect(agents.hephaestus).toBeDefined()
-    expect(agents.hephaestus.variant).toBe("medium")
+      // #then - default "medium" variant is applied
+      expect(agents.hephaestus).toBeDefined()
+      expect(agents.hephaestus.variant).toBe("medium")
+    } finally {
+      fetchSpy.mockRestore()
+    }
   })
 })

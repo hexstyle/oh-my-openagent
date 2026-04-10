@@ -42,4 +42,8 @@ export interface SessionState {
   waitingForFinalWaveApproval?: boolean
   pendingFinalWaveTaskCount?: number
   approvedFinalWaveTaskCount?: number
+  stagnationCount?: number
+  awaitingPostInjectionProgressCheck?: boolean
+  lastInjectedPlanDigest?: string
+  lastObservedPlanDigest?: string
 }

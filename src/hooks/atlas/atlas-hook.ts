@@ -13,7 +13,7 @@ export function createAtlasHook(ctx: PluginInput, options?: AtlasHookOptions) {
   function getState(sessionID: string): SessionState {
     let state = sessions.get(sessionID)
     if (!state) {
-      state = { promptFailureCount: 0 }
+      state = { promptFailureCount: 0, stagnationCount: 0 }
       sessions.set(sessionID, state)
     }
     return state

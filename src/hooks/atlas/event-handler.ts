@@ -52,6 +52,10 @@ export function createAtlasEventHandler(input: {
         state.lastNonAbortSessionErrorAt = undefined
         if (role === "user") {
           state.waitingForFinalWaveApproval = false
+          state.stagnationCount = 0
+          state.awaitingPostInjectionProgressCheck = false
+          state.lastInjectedPlanDigest = undefined
+          state.lastObservedPlanDigest = undefined
         }
       }
       return
@@ -103,8 +107,15 @@ export function createAtlasEventHandler(input: {
         if (compactedState?.pendingRetryTimer) {
           clearTimeout(compactedState.pendingRetryTimer)
         }
-        sessions.delete(sessionID)
-        log(`[${HOOK_NAME}] Session compacted: cleaned up`, { sessionID })
+        if (compactedState) {
+          compactedState.pendingRetryTimer = undefined
+          compactedState.lastEventWasAbortError = false
+          compactedState.lastNonAbortSessionErrorAt = undefined
+          compactedState.promptFailureCount = 0
+          compactedState.lastFailureAt = undefined
+          compactedState.lastContinuationInjectedAt = Date.now()
+        }
+        log(`[${HOOK_NAME}] Session compacted: reset retry state`, { sessionID })
       }
     }
   }

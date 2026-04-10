@@ -54,7 +54,7 @@ export async function resolveSubagentExecution(
   executorCtx: ExecutorContext,
   parentAgent: string | undefined,
   categoryExamples: string
-): Promise<{ agentToUse: string; categoryModel: DelegatedModelConfig | undefined; fallbackChain?: FallbackEntry[]; error?: string }> {
+): Promise<{ agentToUse: string; categoryModel: DelegatedModelConfig | undefined; fallbackChain?: FallbackEntry[]; trustFallbackChain?: boolean; error?: string }> {
   const { client, agentOverrides, userCategories } = executorCtx
 
   if (!args.subagent_type?.trim()) {
@@ -87,6 +87,7 @@ Create the work plan directly - that's your job as the planning agent.`,
   const requestedAgentNames = buildAgentMatchSet(agentToUse)
   let categoryModel: DelegatedModelConfig | undefined
   let fallbackChain: FallbackEntry[] | undefined = undefined
+  let trustFallbackChain = false
 
   try {
     const agentsResult = await client.app.agents()
@@ -202,6 +203,7 @@ Create the work plan directly - that's your job as the planning agent.`,
       // Don't assign hardcoded fallback chain when resolution was skipped (cold cache)
       // — the chain may contain model IDs that don't exist in the provider yet.
       fallbackChain = configuredFallbackChain ?? (resolutionSkipped ? undefined : agentRequirement?.fallbackChain)
+      trustFallbackChain = !!configuredFallbackChain
 
       // Only promote fallback-only settings when resolution actually selected a fallback model.
       const resolvedFallbackEntry = (resolution && !('skipped' in resolution)) ? resolution.fallbackEntry : undefined
@@ -257,5 +259,5 @@ Create the work plan directly - that's your job as the planning agent.`,
     }
   }
 
-  return { agentToUse, categoryModel, fallbackChain }
+  return { agentToUse, categoryModel, fallbackChain, trustFallbackChain }
 }

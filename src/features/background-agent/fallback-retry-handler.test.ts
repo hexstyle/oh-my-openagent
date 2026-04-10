@@ -1,28 +1,9 @@
-import { afterAll, afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test"
-
-mock.module("../../shared", () => ({
-  log: mock(() => {}),
-  readConnectedProvidersCache: mock(() => null),
-  readProviderModelsCache: mock(() => null),
-  readCachedModelCatalog: mock(() => new Set<string>()),
-  resolveKnownCachedModel: mock((_target: string, availableModels: Set<string>) => availableModels.size > 0 ? null : "known"),
-}))
-
-mock.module("../../shared/model-error-classifier", () => ({
-  shouldRetryError: mock(() => true),
-  shouldSwitchFallback: mock(() => true),
-  getNextFallback: mock((chain: Array<{ model: string }>, attempt: number) => chain[attempt]),
-  hasMoreFallbacks: mock((chain: Array<{ model: string }>, attempt: number) => attempt < chain.length),
-  selectFallbackProvider: mock((providers: string[]) => providers[0]),
-}))
-
-mock.module("../../shared/provider-model-id-transform", () => ({
-  transformModelForProvider: mock((_provider: string, model: string) => model),
-}))
+import { afterEach, beforeEach, describe, expect, jest, mock, spyOn, test } from "bun:test"
 
 import { tryFallbackRetry, tryFallbackSwitch } from "./fallback-retry-handler"
-import { shouldRetryError, shouldSwitchFallback, selectFallbackProvider } from "../../shared/model-error-classifier"
-import { readCachedModelCatalog, readProviderModelsCache, resolveKnownCachedModel } from "../../shared"
+import * as shared from "../../shared"
+import * as modelErrorClassifier from "../../shared/model-error-classifier"
+import * as providerModelTransform from "../../shared/provider-model-id-transform"
 import type { BackgroundTask } from "./types"
 import type { ConcurrencyManager } from "./concurrency"
 
@@ -86,21 +67,24 @@ function createDefaultArgs(taskOverrides: Partial<BackgroundTask> = {}) {
 }
 
 describe("tryFallbackRetry", () => {
-  afterAll(() => {
-    mock.restore()
-  })
-
   beforeEach(() => {
-    ;(shouldRetryError as any).mockImplementation(() => true)
-    ;(shouldSwitchFallback as any).mockImplementation(() => true)
-    ;(selectFallbackProvider as any).mockImplementation((providers: string[]) => providers[0])
-    ;(readProviderModelsCache as any).mockReturnValue(null)
-    ;(readCachedModelCatalog as any).mockReturnValue(new Set())
-    ;(resolveKnownCachedModel as any).mockImplementation((_target: string, availableModels: Set<string>) => availableModels.size > 0 ? null : "known")
+    mock.restore()
+    spyOn(shared, "log").mockImplementation(() => {})
+    spyOn(shared, "readConnectedProvidersCache").mockReturnValue(null)
+    spyOn(shared, "readProviderModelsCache").mockReturnValue(null)
+    spyOn(shared, "readCachedModelCatalog").mockReturnValue(new Set())
+    spyOn(shared, "resolveKnownCachedModel").mockImplementation((_target: string, availableModels: Set<string>) => availableModels.size > 0 ? null : "known")
+    spyOn(modelErrorClassifier, "shouldRetryError").mockImplementation(() => true)
+    spyOn(modelErrorClassifier, "shouldSwitchFallback").mockImplementation(() => true)
+    spyOn(modelErrorClassifier, "getNextFallback").mockImplementation((chain: Array<{ model: string }>, attempt: number) => chain[attempt])
+    spyOn(modelErrorClassifier, "hasMoreFallbacks").mockImplementation((chain: Array<{ model: string }>, attempt: number) => attempt < chain.length)
+    spyOn(modelErrorClassifier, "selectFallbackProvider").mockImplementation((providers: string[]) => providers[0])
+    spyOn(providerModelTransform, "transformModelForProvider").mockImplementation((_provider: string, model: string) => model)
   })
 
   afterEach(() => {
     jest.useRealTimers()
+    mock.restore()
   })
 
   test("schedules delayed same-model retry for transient errors instead of burning the fallback chain immediately", () => {
@@ -208,10 +192,10 @@ describe("tryFallbackRetry", () => {
   })
 
   test("skips fallback entries that are absent from the cached model catalog", () => {
-    ;(readCachedModelCatalog as any).mockReturnValue(new Set([
+    ;(shared.readCachedModelCatalog as any).mockReturnValue(new Set([
       "provider-b/fallback-model-1",
     ]))
-    ;(resolveKnownCachedModel as any).mockImplementation((target: string, availableModels: Set<string>) =>
+    ;(shared.resolveKnownCachedModel as any).mockImplementation((target: string, availableModels: Set<string>) =>
       availableModels.has(target) ? target : null
     )
 
@@ -240,8 +224,41 @@ describe("tryFallbackRetry", () => {
     expect(args.processKey).toHaveBeenCalledWith("provider-b/fallback-model-1")
   })
 
+  test("trusts explicit fallback chains even when the cached catalog is stale", () => {
+    ;(shared.readCachedModelCatalog as any).mockReturnValue(new Set([
+      "provider-a/original-model",
+    ]))
+    ;(shared.resolveKnownCachedModel as any).mockImplementation((target: string, availableModels: Set<string>) =>
+      availableModels.has(target) ? target : null
+    )
+
+    const args = createDefaultArgs({
+      trustFallbackChain: true,
+      fallbackChain: [
+        { model: "original-model", providers: ["provider-a"], variant: undefined },
+        { model: "fallback-model-1", providers: ["provider-b"], variant: undefined },
+      ],
+    })
+
+    const result = tryFallbackRetry({
+      ...args,
+      errorInfo: {
+        name: "ProviderModelNotFoundError",
+        message: "Model not found: provider-a/original-model.",
+      },
+    })
+
+    expect(result).toBe(true)
+    expect(args.task.attemptCount).toBe(2)
+    expect(args.task.model).toEqual({
+      providerID: "provider-b",
+      modelID: "fallback-model-1",
+    })
+    expect(args.processKey).toHaveBeenCalledWith("provider-b/fallback-model-1")
+  })
+
   test("returns false when the error is not retryable", () => {
-    ;(shouldRetryError as any).mockImplementation(() => false)
+    ;(modelErrorClassifier.shouldRetryError as any).mockImplementation(() => false)
     const args = createDefaultArgs()
 
     const result = tryFallbackRetry(args)
@@ -252,9 +269,18 @@ describe("tryFallbackRetry", () => {
 
 describe("tryFallbackSwitch", () => {
   beforeEach(() => {
-    ;(shouldSwitchFallback as any).mockImplementation(() => true)
-    ;(selectFallbackProvider as any).mockImplementation((providers: string[]) => providers[0])
-    ;(readProviderModelsCache as any).mockReturnValue(null)
+    mock.restore()
+    spyOn(shared, "log").mockImplementation(() => {})
+    spyOn(shared, "readConnectedProvidersCache").mockReturnValue(null)
+    spyOn(shared, "readProviderModelsCache").mockReturnValue(null)
+    spyOn(shared, "readCachedModelCatalog").mockReturnValue(new Set())
+    spyOn(shared, "resolveKnownCachedModel").mockImplementation((_target: string, availableModels: Set<string>) => availableModels.size > 0 ? null : "known")
+    spyOn(modelErrorClassifier, "shouldRetryError").mockImplementation(() => true)
+    spyOn(modelErrorClassifier, "shouldSwitchFallback").mockImplementation(() => true)
+    spyOn(modelErrorClassifier, "getNextFallback").mockImplementation((chain: Array<{ model: string }>, attempt: number) => chain[attempt])
+    spyOn(modelErrorClassifier, "hasMoreFallbacks").mockImplementation((chain: Array<{ model: string }>, attempt: number) => attempt < chain.length)
+    spyOn(modelErrorClassifier, "selectFallbackProvider").mockImplementation((providers: string[]) => providers[0])
+    spyOn(providerModelTransform, "transformModelForProvider").mockImplementation((_provider: string, model: string) => model)
   })
 
   test("switches quota failures to the next distinct fallback model and clears transient retry timers", () => {

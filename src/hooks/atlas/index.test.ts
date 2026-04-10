@@ -537,7 +537,7 @@ session_id: ses_auth_flow_123
       cleanupMessageStorage(sessionID)
     })
 
-     test("should preserve the delegated task key even after the plan advances to the next task", async () => {
+    test("should preserve the delegated task key even after the plan advances to the next task", async () => {
        // given - Atlas caller starts task 1, then the plan advances before task output is processed
        const sessionID = "session-stable-task-key-test"
        setupMessageStorage(sessionID, "atlas")
@@ -593,6 +593,51 @@ session_id: ses_auth_flow_123
      const updatedState = readBoulderState(TEST_DIR)
       expect(updatedState?.task_sessions?.["todo:1"]?.session_id).toBe("ses_auth_flow_123")
       expect(updatedState?.task_sessions?.["todo:2"]).toBeUndefined()
+
+      cleanupMessageStorage(sessionID)
+    })
+
+    test("should not persist explore sessions as preferred reusable task sessions", async () => {
+      // given - Atlas caller delegates research for the current top-level task
+      const sessionID = "session-explore-task-session-test"
+      setupMessageStorage(sessionID, "atlas")
+
+      const planPath = join(TEST_DIR, "explore-task-session-plan.md")
+      writeFileSync(planPath, `# Plan
+
+## TODOs
+- [ ] 1. Investigate failing grid behavior
+`)
+
+      writeBoulderState(TEST_DIR, {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: ["session-1"],
+        plan_name: "explore-task-session-plan",
+      })
+
+      const hook = createAtlasHook(createMockPluginInput())
+
+      // when
+      await hook["tool.execute.after"](
+        { tool: "task", sessionID },
+        {
+          title: "Explore Task",
+          output: `Research completed
+
+<task_metadata>
+session_id: ses_explore_123
+</task_metadata>`,
+          metadata: {
+            agent: "Explore (Code Search)",
+            category: "",
+          },
+        },
+      )
+
+      // then
+      const updatedState = readBoulderState(TEST_DIR)
+      expect(updatedState?.task_sessions?.["todo:1"]).toBeUndefined()
 
       cleanupMessageStorage(sessionID)
     })
@@ -1846,6 +1891,55 @@ session_id: ses_untrusted_999
 
       // then - should only call prompt ONCE due to debouncing
       expect(mockInput._promptMock).toHaveBeenCalledTimes(1)
+    })
+
+    test("should stop continuation after repeated no-progress cycles and resume after user input", async () => {
+      const originalDateNow = Date.now
+
+      try {
+        let now = 0
+        Date.now = () => now
+
+        const planPath = join(TEST_DIR, "stagnation-plan.md")
+        writeFileSync(planPath, `# Plan
+
+## TODOs
+- [ ] 1. Execute the only task
+`)
+
+        writeBoulderState(TEST_DIR, {
+          active_plan: planPath,
+          started_at: "2026-01-02T10:00:00Z",
+          session_ids: [MAIN_SESSION_ID],
+          plan_name: "stagnation-plan",
+        })
+
+        const mockInput = createMockPluginInput()
+        const hook = createAtlasHook(mockInput)
+
+        await hook.handler({ event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } } })
+        now += 6000
+        await hook.handler({ event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } } })
+        now += 6000
+        await hook.handler({ event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } } })
+        now += 6000
+        await hook.handler({ event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } } })
+
+        expect(mockInput._promptMock).toHaveBeenCalledTimes(3)
+
+        await hook.handler({
+          event: {
+            type: "message.updated",
+            properties: { info: { sessionID: MAIN_SESSION_ID, role: "user" } },
+          },
+        })
+        now += 6000
+        await hook.handler({ event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } } })
+
+        expect(mockInput._promptMock).toHaveBeenCalledTimes(4)
+      } finally {
+        Date.now = originalDateNow
+      }
     })
 
     test("should stop continuation after 10 consecutive prompt failures (issue #1355)", async () => {

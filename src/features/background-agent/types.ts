@@ -47,6 +47,8 @@ export interface BackgroundTask {
   model?: DelegatedModelConfig
   /** Fallback chain for runtime retry on model errors */
   fallbackChain?: FallbackEntry[]
+  /** Trust explicit fallback chain entries even when the cached model catalog is stale */
+  trustFallbackChain?: boolean
   /** Number of fallback retry attempts made */
   attemptCount?: number
   /** Number of delayed transient retries attempted on the current model */
@@ -90,6 +92,8 @@ export interface LaunchInput {
   model?: DelegatedModelConfig
   /** Fallback chain for runtime retry on model errors */
   fallbackChain?: FallbackEntry[]
+  /** Trust explicit fallback chain entries even when the cached model catalog is stale */
+  trustFallbackChain?: boolean
   isUnstableAgent?: boolean
   skills?: string[]
   skillContent?: string

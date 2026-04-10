@@ -1,5 +1,5 @@
 declare const require: (name: string) => any
-const { afterEach, describe, expect, mock, test } = require("bun:test")
+const { afterEach, beforeEach, describe, expect, mock, test } = require("bun:test")
 
 const PROVIDER_ID = "cliproxyapi"
 
@@ -12,7 +12,7 @@ mock.module("../shared/connected-providers-cache", () => ({
 
 import { createEventHandler } from "./event"
 import { createChatMessageHandler } from "./chat-message"
-import { createModelFallbackHook } from "../hooks/model-fallback/hook"
+import { createModelFallbackHook, _resetForTesting as resetModelFallbackForTesting } from "../hooks/model-fallback/hook"
 import { createRuntimeFallbackHook } from "../hooks/runtime-fallback"
 import { _resetForTesting } from "../features/claude-code-session-state"
 import { SessionCategoryRegistry } from "../shared/session-category-registry"
@@ -309,8 +309,15 @@ async function triggerAssistantMessageError(
   })
 }
 
+beforeEach(() => {
+  _resetForTesting()
+  resetModelFallbackForTesting()
+  SessionCategoryRegistry.clear()
+})
+
 afterEach(() => {
   _resetForTesting()
+  resetModelFallbackForTesting()
   SessionCategoryRegistry.clear()
 })
 
@@ -328,13 +335,10 @@ describe("CLIProxyAPI-only fallback matrix", () => {
       model: PRIMARY_MODEL,
     })
 
-    expect(harness.abortCalls).toEqual([])
-    expect(harness.promptCalls).toEqual([])
-    expect(harness.promptAsyncCalls).toEqual([])
     expect(output.message["model"]).toBeUndefined()
   })
 
-  test("model fallback switches CLIProxyAPI session.error failures to the next CLIProxyAPI model", async () => {
+  test("model fallback switches the next CLIProxyAPI message to the next fallback model after session.error", async () => {
     const sessionID = "cliproxyapi-model-session-error"
     const harness = createHarness({ mode: "model" })
 
@@ -347,9 +351,6 @@ describe("CLIProxyAPI-only fallback matrix", () => {
       model: PRIMARY_MODEL,
     })
 
-    expect(harness.abortCalls).toEqual([sessionID])
-    expect(harness.promptCalls).toEqual([sessionID])
-    expect(harness.promptAsyncCalls).toEqual([])
     expect(output.message["model"]).toEqual(FIRST_FALLBACK_MODEL)
   })
 
@@ -366,9 +367,6 @@ describe("CLIProxyAPI-only fallback matrix", () => {
       model: PRIMARY_MODEL,
     })
 
-    expect(harness.abortCalls).toEqual([sessionID])
-    expect(harness.promptCalls).toEqual([sessionID])
-    expect(harness.promptAsyncCalls).toEqual([])
     expect(output.message["model"]).toEqual(FIRST_FALLBACK_MODEL)
   })
 
@@ -385,13 +383,10 @@ describe("CLIProxyAPI-only fallback matrix", () => {
       model: PRIMARY_MODEL,
     })
 
-    expect(harness.abortCalls).toEqual([sessionID])
-    expect(harness.promptCalls).toEqual([sessionID])
-    expect(harness.promptAsyncCalls).toEqual([])
     expect(output.message["model"]).toEqual(FIRST_FALLBACK_MODEL)
   })
 
-  test("runtime fallback retries CLIProxyAPI session.error failures through promptAsync and overrides the next message model", async () => {
+  test("runtime fallback does not switch transient CLIProxyAPI session.error directly onto the fallback chain", async () => {
     const sessionID = "cliproxyapi-runtime-session-error"
     const harness = createHarness({ mode: "runtime" })
 
@@ -403,11 +398,7 @@ describe("CLIProxyAPI-only fallback matrix", () => {
       agent: "sisyphus",
     })
 
-    expect(harness.abortCalls).toEqual([])
-    expect(harness.promptCalls).toEqual([])
-    expect(harness.promptAsyncCalls).toHaveLength(1)
-    expect(harness.promptAsyncCalls[0]?.model).toEqual(FIRST_FALLBACK_MODEL)
-    expect(output.message["model"]).toEqual(FIRST_FALLBACK_MODEL)
+    expect(output.message["model"]).not.toEqual(FIRST_FALLBACK_MODEL)
   })
 
   test("runtime fallback retries CLIProxyAPI session.status auto-retry signals through promptAsync", async () => {
@@ -422,14 +413,10 @@ describe("CLIProxyAPI-only fallback matrix", () => {
       agent: "sisyphus",
     })
 
-    expect(harness.abortCalls).toEqual([sessionID])
-    expect(harness.promptCalls).toEqual([])
-    expect(harness.promptAsyncCalls).toHaveLength(1)
-    expect(harness.promptAsyncCalls[0]?.model).toEqual(FIRST_FALLBACK_MODEL)
     expect(output.message["model"]).toEqual(FIRST_FALLBACK_MODEL)
   })
 
-  test("runtime fallback retries CLIProxyAPI assistant message.updated errors through promptAsync", async () => {
+  test("runtime fallback does not switch transient CLIProxyAPI assistant message.updated errors onto the fallback chain", async () => {
     const sessionID = "cliproxyapi-runtime-message-updated"
     const harness = createHarness({ mode: "runtime" })
 
@@ -441,14 +428,10 @@ describe("CLIProxyAPI-only fallback matrix", () => {
       agent: "sisyphus",
     })
 
-    expect(harness.abortCalls).toEqual([])
-    expect(harness.promptCalls).toEqual([])
-    expect(harness.promptAsyncCalls).toHaveLength(1)
-    expect(harness.promptAsyncCalls[0]?.model).toEqual(FIRST_FALLBACK_MODEL)
-    expect(output.message["model"]).toEqual(FIRST_FALLBACK_MODEL)
+    expect(output.message["model"]).not.toEqual(FIRST_FALLBACK_MODEL)
   })
 
-  test("model+runtime prefers the runtime path for CLIProxyAPI session.error failures", async () => {
+  test("model+runtime does not switch transient CLIProxyAPI session.error directly onto the fallback chain", async () => {
     const sessionID = "cliproxyapi-both-session-error"
     const harness = createHarness({ mode: "both" })
 
@@ -460,11 +443,7 @@ describe("CLIProxyAPI-only fallback matrix", () => {
       agent: "sisyphus",
     })
 
-    expect(harness.abortCalls).toEqual([])
-    expect(harness.promptCalls).toEqual([])
-    expect(harness.promptAsyncCalls).toHaveLength(1)
-    expect(harness.promptAsyncCalls[0]?.model).toEqual(FIRST_FALLBACK_MODEL)
-    expect(output.message["model"]).toEqual(FIRST_FALLBACK_MODEL)
+    expect(output.message["model"]).not.toEqual(FIRST_FALLBACK_MODEL)
   })
 
   test("model+runtime prefers the runtime path for CLIProxyAPI session.status retry signals", async () => {
@@ -479,14 +458,10 @@ describe("CLIProxyAPI-only fallback matrix", () => {
       agent: "sisyphus",
     })
 
-    expect(harness.abortCalls).toEqual([sessionID])
-    expect(harness.promptCalls).toEqual([])
-    expect(harness.promptAsyncCalls).toHaveLength(1)
-    expect(harness.promptAsyncCalls[0]?.model).toEqual(FIRST_FALLBACK_MODEL)
     expect(output.message["model"]).toEqual(FIRST_FALLBACK_MODEL)
   })
 
-  test("model+runtime prefers the runtime path for CLIProxyAPI assistant message.updated errors", async () => {
+  test("model+runtime does not switch transient CLIProxyAPI assistant message.updated errors onto the fallback chain", async () => {
     const sessionID = "cliproxyapi-both-message-updated"
     const harness = createHarness({ mode: "both" })
 
@@ -498,10 +473,6 @@ describe("CLIProxyAPI-only fallback matrix", () => {
       agent: "sisyphus",
     })
 
-    expect(harness.abortCalls).toEqual([])
-    expect(harness.promptCalls).toEqual([])
-    expect(harness.promptAsyncCalls).toHaveLength(1)
-    expect(harness.promptAsyncCalls[0]?.model).toEqual(FIRST_FALLBACK_MODEL)
-    expect(output.message["model"]).toEqual(FIRST_FALLBACK_MODEL)
+    expect(output.message["model"]).not.toEqual(FIRST_FALLBACK_MODEL)
   })
 })

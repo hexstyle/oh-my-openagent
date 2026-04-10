@@ -3,7 +3,9 @@ import { pathToFileURL } from "node:url"
 import { tool, type PluginInput, type ToolDefinition } from "@opencode-ai/plugin"
 import { LOOK_AT_DESCRIPTION, MULTIMODAL_LOOKER_AGENT } from "./constants"
 import type { LookAtArgs } from "./types"
-import { log, promptSyncWithModelSuggestionRetry } from "../../shared"
+import { log, promptSyncWithModelSuggestionRetry, resolveSessionDirectory } from "../../shared"
+import { normalizeAgentForSessionPrompt } from "../../shared/agent-display-names"
+import { resolveBoulderExecutionDirectory } from "../../features/boulder-state"
 import { extractLatestAssistantText } from "./assistant-message-extractor"
 import type { LookAtArgsWithAlias } from "./look-at-arguments"
 import { normalizeArgs, validateArgs } from "./look-at-arguments"
@@ -143,7 +145,11 @@ If the requested information is not found, clearly state what is missing.`
       const parentSession = await ctx.client.session.get({
         path: { id: toolContext.sessionID },
       }).catch(() => null)
-      const parentDirectory = parentSession?.data?.directory ?? ctx.directory
+      const sessionDirectory = resolveSessionDirectory({
+        parentDirectory: parentSession?.data?.directory,
+        fallbackDirectory: ctx.directory,
+      })
+      const parentDirectory = resolveBoulderExecutionDirectory(ctx.directory, sessionDirectory)
 
       const createResult = await ctx.client.session.create({
         body: {
@@ -174,10 +180,11 @@ Original error: ${createResult.error}`
 
       log(`[look_at] Sending prompt with ${isBase64Input ? "base64 image" : "file"} to session ${sessionID}`)
       try {
+        const promptAgent = normalizeAgentForSessionPrompt(MULTIMODAL_LOOKER_AGENT) ?? MULTIMODAL_LOOKER_AGENT
         await promptSyncWithModelSuggestionRetry(ctx.client, {
           path: { id: sessionID },
           body: {
-            agent: MULTIMODAL_LOOKER_AGENT,
+            agent: promptAgent,
             tools: {
               task: false,
               call_omo_agent: false,

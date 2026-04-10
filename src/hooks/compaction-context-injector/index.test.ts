@@ -183,9 +183,9 @@ describe("createCompactionContextInjector", () => {
       //#then
       expect(promptAsyncMock).toHaveBeenCalledWith({
         path: { id: "ses_checkpoint" },
-        body: {
+        body: expect.objectContaining({
           noReply: true,
-          agent: "atlas",
+          agent: "Atlas (Plan Executor)",
           model: { providerID: "openai", modelID: "gpt-5" },
           tools: { bash: true },
           parts: [
@@ -194,7 +194,7 @@ describe("createCompactionContextInjector", () => {
               text: expect.stringContaining("restore checkpointed session agent configuration"),
             },
           ],
-        },
+        }),
         query: { directory: "/tmp/test" },
       })
     })
@@ -267,7 +267,7 @@ describe("createCompactionContextInjector", () => {
           path: { id: "ses_no_text_tail" },
           body: expect.objectContaining({
             noReply: true,
-            agent: "atlas",
+            agent: "Atlas (Plan Executor)",
           }),
         }),
       )

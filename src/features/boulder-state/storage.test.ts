@@ -7,11 +7,13 @@ import {
   writeBoulderState,
   appendSessionId,
   clearBoulderState,
+  getBoulderWorktreePath,
   getPlanProgress,
   getPlanName,
   createBoulderState,
   findPrometheusPlans,
   getTaskSessionState,
+  resolveBoulderExecutionDirectory,
   upsertTaskSessionState,
 } from "./storage"
 import type { BoulderState } from "./types"
@@ -135,7 +137,7 @@ describe("boulder-state", () => {
       expect(result).not.toBeNull()
       expect(result?.active_plan).toBe("/path/to/plan.md")
       expect(result?.session_ids).toEqual(["session-1", "session-2"])
-      expect(result?.plan_name).toBe("my-plan")
+      expect(result?.plan_name).toBe("plan")
     })
 
     test("should default task_sessions to empty object when missing from JSON", () => {
@@ -154,6 +156,34 @@ describe("boulder-state", () => {
       // then
       expect(result).not.toBeNull()
       expect(result!.task_sessions).toEqual({})
+    })
+
+    test("should clear stale task_sessions when active_plan and plan_name disagree", () => {
+      // given - a mismatched boulder state copied from another plan/worktree
+      const boulderFile = join(SISYPHUS_DIR, "boulder.json")
+      writeFileSync(boulderFile, JSON.stringify({
+        active_plan: "/Users/redff00xx/eurochemeopt-hotfix-4797/.sisyphus/plans/ci-green-builds.md",
+        started_at: "2026-01-01T00:00:00Z",
+        session_ids: ["session-1"],
+        plan_name: "ci-green-playwright-parity",
+        task_sessions: {
+          "todo:6": {
+            task_key: "todo:6",
+            task_label: "6",
+            task_title: "Old task from another plan",
+            session_id: "ses_old_task",
+            updated_at: "2026-01-01T00:00:00Z",
+          },
+        },
+      }))
+
+      // when
+      const result = readBoulderState(TEST_DIR)
+
+      // then
+      expect(result).not.toBeNull()
+      expect(result?.plan_name).toBe("ci-green-builds")
+      expect(result?.task_sessions).toEqual({})
     })
   })
 
@@ -380,7 +410,7 @@ describe("boulder-state", () => {
   })
 
   describe("getPlanProgress", () => {
-    test("should count completed and uncompleted checkboxes", () => {
+    test("should count completed and uncompleted top-level checkboxes", () => {
       // given - plan file with checkboxes
       const planPath = join(TEST_DIR, "test-plan.md")
       writeFileSync(planPath, `# Plan
@@ -399,7 +429,7 @@ describe("boulder-state", () => {
       expect(progress.isComplete).toBe(false)
     })
 
-    test("should count space-indented unchecked checkbox", () => {
+    test("should ignore space-indented checkbox entries", () => {
       // given - plan file with a two-space indented checkbox
       const planPath = join(TEST_DIR, "space-indented-plan.md")
       writeFileSync(planPath, `# Plan
@@ -410,12 +440,12 @@ describe("boulder-state", () => {
       const progress = getPlanProgress(planPath)
 
       // then
-      expect(progress.total).toBe(1)
+      expect(progress.total).toBe(0)
       expect(progress.completed).toBe(0)
       expect(progress.isComplete).toBe(false)
     })
 
-    test("should count tab-indented unchecked checkbox", () => {
+    test("should ignore tab-indented checkbox entries", () => {
       // given - plan file with a tab-indented checkbox
       const planPath = join(TEST_DIR, "tab-indented-plan.md")
       writeFileSync(planPath, `# Plan
@@ -426,12 +456,12 @@ describe("boulder-state", () => {
       const progress = getPlanProgress(planPath)
 
       // then
-      expect(progress.total).toBe(1)
+      expect(progress.total).toBe(0)
       expect(progress.completed).toBe(0)
       expect(progress.isComplete).toBe(false)
     })
 
-    test("should count mixed top-level checked and indented unchecked checkboxes", () => {
+    test("should ignore nested checklist items when a top-level task exists", () => {
       // given - plan file with checked top-level and unchecked indented task
       const planPath = join(TEST_DIR, "mixed-indented-plan.md")
       writeFileSync(planPath, `# Plan
@@ -443,25 +473,33 @@ describe("boulder-state", () => {
       const progress = getPlanProgress(planPath)
 
       // then
-      expect(progress.total).toBe(2)
+      expect(progress.total).toBe(1)
       expect(progress.completed).toBe(1)
-      expect(progress.isComplete).toBe(false)
+      expect(progress.isComplete).toBe(true)
     })
 
-    test("should count space-indented completed checkbox", () => {
-      // given - plan file with a two-space indented completed checkbox
-      const planPath = join(TEST_DIR, "indented-completed-plan.md")
+    test("should use only top-level TODO and Final Verification Wave tasks when present", () => {
+      // given - a Prometheus-style plan with nested acceptance criteria
+      const planPath = join(TEST_DIR, "structured-plan.md")
       writeFileSync(planPath, `# Plan
-  - [x] indented completed task
+
+## TODOs
+- [x] 1. Finished implementation
+  - [ ] Acceptance criteria left unchecked on purpose
+- [ ] 2. Pending implementation
+
+## Final Verification Wave
+- [ ] F1. Final review
+  - [ ] Evidence artifact
 `)
 
       // when
       const progress = getPlanProgress(planPath)
 
       // then
-      expect(progress.total).toBe(1)
+      expect(progress.total).toBe(3)
       expect(progress.completed).toBe(1)
-      expect(progress.isComplete).toBe(true)
+      expect(progress.isComplete).toBe(false)
     })
 
     test("should return isComplete true when all checked", () => {
@@ -512,6 +550,41 @@ describe("boulder-state", () => {
       const name = getPlanName(path)
       // then
       expect(name).toBe("my-feature")
+    })
+  })
+
+  describe("resolveBoulderExecutionDirectory", () => {
+    test("should prefer existing worktree_path when boulder is active", () => {
+      const worktreePath = join(TEST_DIR, "worktree")
+      mkdirSync(worktreePath, { recursive: true })
+      writeBoulderState(TEST_DIR, {
+        active_plan: join(worktreePath, ".sisyphus", "plans", "feature.md"),
+        started_at: "2026-04-10T00:00:00.000Z",
+        session_ids: ["ses-1"],
+        plan_name: "feature",
+        worktree_path: worktreePath,
+      })
+
+      expect(getBoulderWorktreePath(TEST_DIR)).toBe(worktreePath)
+      expect(resolveBoulderExecutionDirectory(TEST_DIR, "/fallback")).toBe(worktreePath)
+    })
+
+    test("should fall back when stored worktree_path no longer exists", () => {
+      writeBoulderState(TEST_DIR, {
+        active_plan: "/tmp/missing/.sisyphus/plans/feature.md",
+        started_at: "2026-04-10T00:00:00.000Z",
+        session_ids: ["ses-1"],
+        plan_name: "feature",
+        worktree_path: "/tmp/definitely-missing-worktree-path",
+      })
+
+      expect(getBoulderWorktreePath(TEST_DIR)).toBeUndefined()
+      expect(resolveBoulderExecutionDirectory(TEST_DIR, "/fallback")).toBe("/fallback")
+    })
+
+    test("should handle missing directory by using the fallback directory", () => {
+      expect(getBoulderWorktreePath(undefined)).toBeUndefined()
+      expect(resolveBoulderExecutionDirectory(undefined, "/fallback")).toBe("/fallback")
     })
   })
 

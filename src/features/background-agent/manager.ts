@@ -14,6 +14,7 @@ import {
   promptWithModelSuggestionRetry,
   resolveInheritedPromptTools,
   createInternalAgentTextPart,
+  resolveSessionDirectory,
 } from "../../shared"
 import { applySessionPromptParams } from "../../shared/session-prompt-params-helpers"
 import { setSessionTools } from "../../shared/session-tools-store"
@@ -35,6 +36,7 @@ import {
 const BACKGROUND_STATUS_UPDATE_INTERVAL_MS = 15_000
 
 import { subagentSessions } from "../claude-code-session-state"
+import { resolveBoulderExecutionDirectory } from "../boulder-state"
 import { getTaskToastManager } from "../task-toast-manager"
 import { formatDuration } from "./duration-formatter"
 import {
@@ -433,6 +435,7 @@ export class BackgroundManager {
         parentTools: input.parentTools,
         model: input.model,
         fallbackChain: input.fallbackChain,
+        trustFallbackChain: input.trustFallbackChain,
         attemptCount: 0,
         category: input.category,
       }
@@ -514,7 +517,16 @@ export class BackgroundManager {
         } catch (error) {
           log("[background-agent] Error starting task:", error)
           this.rollbackPreStartDescendantReservation(item.task)
-          if (item.task.concurrencyKey) {
+          if (item.task.status === "pending" || item.task.status === "running") {
+            if (!item.task.concurrencyKey) {
+              item.task.concurrencyKey = key
+            }
+            await this.failTask(
+              item.task,
+              error instanceof Error ? error.message : String(error),
+              "task startup failure",
+            )
+          } else if (item.task.concurrencyKey) {
             this.concurrencyManager.release(item.task.concurrencyKey)
             item.task.concurrencyKey = undefined
           } else {
@@ -549,7 +561,11 @@ export class BackgroundManager {
       log(`[background-agent] Failed to get parent session: ${err}`)
       return null
     })
-    const parentDirectory = parentSession?.data?.directory ?? this.directory
+    const sessionDirectory = resolveSessionDirectory({
+      parentDirectory: parentSession?.data?.directory,
+      fallbackDirectory: this.directory,
+    })
+    const parentDirectory = resolveBoulderExecutionDirectory(this.directory, sessionDirectory)
     log(`[background-agent] Parent dir: ${parentSession?.data?.directory}, using: ${parentDirectory}`)
 
     const createResult = await this.client.session.create({
@@ -1049,17 +1065,18 @@ export class BackgroundManager {
   }
 
   private async failTask(task: BackgroundTask, errorMessage: string, source: string): Promise<void> {
-    if (task.status !== "running") {
+    if (task.status !== "running" && task.status !== "pending") {
       log("[background-agent] Task already terminal while failing:", { taskId: task.id, status: task.status, source })
       return
     }
 
+    const wasRunning = task.status === "running"
     task.status = "error"
     task.error = errorMessage
     task.completedAt = new Date()
     task.idleTodoStallPolls = 0
 
-    if (task.rootSessionID) {
+    if (wasRunning && task.rootSessionID) {
       this.unregisterRootDescendant(task.rootSessionID)
     }
     this.taskHistory.record(task.parentSessionID, { id: task.id, sessionID: task.sessionID, agent: task.agent, description: task.description, status: "error", category: task.category, startedAt: task.startedAt, completedAt: task.completedAt })

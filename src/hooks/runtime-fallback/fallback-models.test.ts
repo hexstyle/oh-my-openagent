@@ -6,6 +6,12 @@ const resolveKnownCachedModelMock = mock((_target: string, availableModels: Set<
 mock.module("../../shared/model-availability", () => ({
   readCachedModelCatalog: readCachedModelCatalogMock,
   resolveKnownCachedModel: resolveKnownCachedModelMock,
+  fuzzyMatchModel: mock(() => null),
+  isModelAvailable: mock(() => false),
+  getConnectedProviders: mock(async () => []),
+  fetchAvailableModels: mock(async () => new Set<string>()),
+  __resetModelCache: mock(() => {}),
+  isModelCacheAvailable: mock(() => false),
 }))
 
 import { getFallbackModelsForSession } from "./fallback-models"

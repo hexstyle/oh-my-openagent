@@ -487,6 +487,18 @@ describe("readCachedModelCatalog", () => {
 		]))
 	})
 
+	it("treats provider-models cache without a models map as empty", () => {
+		providerModelsCacheSpy?.mockRestore()
+		providerModelsCacheSpy = spyOn(connectedProvidersCache, "readProviderModelsCache").mockReturnValue({
+			connected: ["cliproxyapi"],
+			updatedAt: new Date().toISOString(),
+		} as never)
+
+		const result = readCachedModelCatalog()
+
+		expect(result).toEqual(new Set())
+	})
+
 	it("reads models.json from the readable cache path when the writable cache path differs", () => {
 		const readableCacheDir = join(tempDir, "preferred-cache", "opencode")
 		const writableCacheDir = join(tempDir, "sandbox-cache", "opencode")

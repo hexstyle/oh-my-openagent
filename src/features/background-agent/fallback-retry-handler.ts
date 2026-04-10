@@ -104,6 +104,7 @@ function buildRetryInput(task: BackgroundTask): LaunchInput {
     parentTools: task.parentTools,
     model: task.model,
     fallbackChain: task.fallbackChain,
+    trustFallbackChain: task.trustFallbackChain,
     category: task.category,
     isUnstableAgent: task.isUnstableAgent,
   }
@@ -200,6 +201,7 @@ function selectNextFallbackCandidate(args: {
     const fullModel = `${providerID}/${transformedModelId}`
 
     if (
+      !task.trustFallbackChain &&
       reachability.knownModels.size > 0 &&
       !resolveKnownCachedModel(fullModel, reachability.knownModels)
     ) {

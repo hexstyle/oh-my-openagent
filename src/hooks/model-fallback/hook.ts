@@ -29,6 +29,7 @@ export type ModelFallbackState = {
   fallbackChain: FallbackEntry[]
   attemptCount: number
   pending: boolean
+  trustSessionFallbackChain: boolean
 }
 
 /**
@@ -39,6 +40,7 @@ export type ModelFallbackState = {
 const pendingModelFallbacks = new Map<string, ModelFallbackState>()
 const lastToastKey = new Map<string, string>()
 const sessionFallbackChains = new Map<string, FallbackEntry[]>()
+const trustedSessionFallbackChains = new Set<string>()
 
 function canonicalizeModelID(modelID: string): string {
   return modelID
@@ -46,17 +48,28 @@ function canonicalizeModelID(modelID: string): string {
     .replace(/\./g, "-")
 }
 
-export function setSessionFallbackChain(sessionID: string, fallbackChain: FallbackEntry[] | undefined): void {
+export function setSessionFallbackChain(
+  sessionID: string,
+  fallbackChain: FallbackEntry[] | undefined,
+  options?: { trustUnknownModels?: boolean },
+): void {
   if (!sessionID) return
   if (!fallbackChain || fallbackChain.length === 0) {
     sessionFallbackChains.delete(sessionID)
+    trustedSessionFallbackChains.delete(sessionID)
     return
   }
   sessionFallbackChains.set(sessionID, fallbackChain)
+  if (options?.trustUnknownModels) {
+    trustedSessionFallbackChains.add(sessionID)
+  } else {
+    trustedSessionFallbackChains.delete(sessionID)
+  }
 }
 
 export function clearSessionFallbackChain(sessionID: string): void {
   sessionFallbackChains.delete(sessionID)
+  trustedSessionFallbackChains.delete(sessionID)
 }
 
 /**
@@ -72,7 +85,10 @@ export function setPendingModelFallback(
   const agentKey = getAgentConfigKey(agentName)
   const requirements = AGENT_MODEL_REQUIREMENTS[agentKey]
   const sessionFallback = sessionFallbackChains.get(sessionID)
-  const fallbackChain = sessionFallback && sessionFallback.length > 0
+  const usesSessionFallbackChain = !!(sessionFallback && sessionFallback.length > 0)
+  const trustSessionFallbackChain =
+    usesSessionFallbackChain && trustedSessionFallbackChains.has(sessionID)
+  const fallbackChain = usesSessionFallbackChain
     ? sessionFallback
     : requirements?.fallbackChain
 
@@ -94,6 +110,7 @@ export function setPendingModelFallback(
     existing.providerID = currentProviderID
     existing.modelID = currentModelID
     existing.pending = true
+    existing.trustSessionFallbackChain = trustSessionFallbackChain
     if (existing.attemptCount >= existing.fallbackChain.length) {
       log("[model-fallback] Fallback chain exhausted for session: " + sessionID)
       return false
@@ -108,6 +125,7 @@ export function setPendingModelFallback(
     fallbackChain,
     attemptCount: 0,
     pending: true,
+    trustSessionFallbackChain,
   }
 
   pendingModelFallbacks.set(sessionID, state)
@@ -149,6 +167,14 @@ export function getNextFallback(
     return connectedSet.has(preferredProvider)
   }
 
+  const isKnownFallbackModel = (providerID: string, modelID: string): boolean => {
+    if (knownModels.size === 0) {
+      return true
+    }
+
+    return resolveKnownCachedModel(`${providerID}/${modelID}`, knownModels) !== null
+  }
+
   while (state.attemptCount < fallbackChain.length) {
     const attemptCount = state.attemptCount
     const fallback = fallbackChain[attemptCount]
@@ -163,7 +189,7 @@ export function getNextFallback(
     const modelID = transformModelForProvider(providerID, fallback.model)
     const fullModel = `${providerID}/${modelID}`
 
-    if (knownModels.size > 0 && !resolveKnownCachedModel(fullModel, knownModels)) {
+    if (!state.trustSessionFallbackChain && !isKnownFallbackModel(providerID, modelID)) {
       log("[model-fallback] Skipping unknown fallback for session: " + sessionID + ", attempt: " + attemptCount + ", model: " + fullModel)
       continue
     }
@@ -291,4 +317,5 @@ export function _resetForTesting(): void {
   pendingModelFallbacks.clear()
   lastToastKey.clear()
   sessionFallbackChains.clear()
+  trustedSessionFallbackChains.clear()
 }

@@ -446,7 +446,7 @@ describe("start-work hook", () => {
 
       // then
       expect(output.message.agent).toBe("Sisyphus (Ultraworker)")
-      expect(sessionState.getSessionAgent("ses-prometheus-to-sisyphus")).toBe("sisyphus")
+      expect(sessionState.getSessionAgent("ses-prometheus-to-sisyphus")).toBe("Sisyphus (Ultraworker)")
     })
   })
 

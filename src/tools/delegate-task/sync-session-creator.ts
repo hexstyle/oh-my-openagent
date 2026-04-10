@@ -1,6 +1,8 @@
 import type { OpencodeClient } from "./types"
 import { QUESTION_DENIED_SESSION_PERMISSION } from "../../shared/question-denied-session-permission"
 import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
+import { resolveSessionDirectory } from "../../shared"
+import { resolveBoulderExecutionDirectory } from "../../features/boulder-state"
 
 export async function createSyncSession(
   client: OpencodeClient,
@@ -9,7 +11,11 @@ export async function createSyncSession(
   const parentSession = client.session.get
     ? await client.session.get({ path: { id: input.parentSessionID } }).catch(() => null)
     : null
-  const parentDirectory = parentSession?.data?.directory ?? input.defaultDirectory
+  const sessionDirectory = resolveSessionDirectory({
+    parentDirectory: parentSession?.data?.directory,
+    fallbackDirectory: input.defaultDirectory,
+  })
+  const parentDirectory = resolveBoulderExecutionDirectory(input.defaultDirectory, sessionDirectory)
   const titleAgent = normalizeAgentForDisplay(input.agentToUse) ?? input.agentToUse
 
   const createResult = await client.session.create({

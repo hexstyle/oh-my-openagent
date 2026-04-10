@@ -1,10 +1,44 @@
 declare const require: (name: string) => any
-const { beforeEach, describe, expect, mock, test } = require("bun:test")
+const { afterEach, beforeEach, describe, expect, mock, spyOn, test } = require("bun:test")
+
+import * as connectedProvidersCache from "../../shared/connected-providers-cache"
+import * as providerModelTransform from "../../shared/provider-model-id-transform"
+import * as modelAvailability from "../../shared/model-availability"
+import * as modelErrorClassifier from "../../shared/model-error-classifier"
 
 const readConnectedProvidersCacheMock = mock(() => null)
 const readProviderModelsCacheMock = mock(() => null)
 const readCachedModelCatalogMock = mock(() => new Set<string>())
 const resolveKnownCachedModelMock = mock((_target: string, availableModels: Set<string>) => availableModels.size > 0 ? null : "known")
+const shouldRetryErrorMock = mock((error: { message?: string } = {}) => {
+  const message = (error.message ?? "").toLowerCase()
+  return [
+    "bad gateway",
+    "overloaded",
+    "retrying in",
+    "unknown provider",
+    "model not found",
+    "too many requests",
+    "service unavailable",
+    "503",
+    "529",
+  ].some((token) => message.includes(token))
+})
+const shouldSwitchFallbackMock = mock((error: { message?: string } = {}) => {
+  const message = (error.message ?? "").toLowerCase()
+  return [
+    "quota",
+    "usage limit",
+    "limit reached",
+    "insufficient",
+    "billing",
+    "payment required",
+    "429",
+    "402",
+  ].some((token) => message.includes(token))
+})
+const getNextFallbackMock = mock((chain: Array<{ model: string }>, attempt: number) => chain[attempt])
+const hasMoreFallbacksMock = mock((chain: Array<{ model: string }>, attempt: number) => attempt < chain.length)
 const selectFallbackProviderMock = mock((providers: string[], preferredProviderID?: string) => {
   const connectedProviders = readConnectedProvidersCacheMock()
   if (connectedProviders) {
@@ -42,24 +76,6 @@ const transformModelForProviderMock = mock((provider: string, model: string) => 
   return model
 })
 
-mock.module("../../shared/connected-providers-cache", () => ({
-  readConnectedProvidersCache: readConnectedProvidersCacheMock,
-  readProviderModelsCache: readProviderModelsCacheMock,
-}))
-
-mock.module("../../shared/provider-model-id-transform", () => ({
-  transformModelForProvider: transformModelForProviderMock,
-}))
-
-mock.module("../../shared/model-availability", () => ({
-  readCachedModelCatalog: readCachedModelCatalogMock,
-  resolveKnownCachedModel: resolveKnownCachedModelMock,
-}))
-
-mock.module("../../shared/model-error-classifier", () => ({
-  selectFallbackProvider: selectFallbackProviderMock,
-}))
-
 import {
   clearPendingModelFallback,
   clearSessionFallbackChain,
@@ -70,6 +86,32 @@ import {
 
 describe("model fallback hook", () => {
   beforeEach(() => {
+    mock.restore()
+    spyOn(connectedProvidersCache, "readConnectedProvidersCache").mockImplementation(() => readConnectedProvidersCacheMock())
+    spyOn(connectedProvidersCache, "readProviderModelsCache").mockImplementation(() => readProviderModelsCacheMock())
+    spyOn(providerModelTransform, "transformModelForProvider").mockImplementation((provider: string, model: string) =>
+      transformModelForProviderMock(provider, model)
+    )
+    spyOn(modelAvailability, "readCachedModelCatalog").mockImplementation(() => readCachedModelCatalogMock())
+    spyOn(modelAvailability, "resolveKnownCachedModel").mockImplementation((target: string, availableModels: Set<string>) =>
+      resolveKnownCachedModelMock(target, availableModels)
+    )
+    spyOn(modelErrorClassifier, "shouldRetryError").mockImplementation((error: { message?: string } = {}) =>
+      shouldRetryErrorMock(error)
+    )
+    spyOn(modelErrorClassifier, "shouldSwitchFallback").mockImplementation((error: { message?: string } = {}) =>
+      shouldSwitchFallbackMock(error)
+    )
+    spyOn(modelErrorClassifier, "getNextFallback").mockImplementation((chain: Array<{ model: string }>, attempt: number) =>
+      getNextFallbackMock(chain, attempt)
+    )
+    spyOn(modelErrorClassifier, "hasMoreFallbacks").mockImplementation((chain: Array<{ model: string }>, attempt: number) =>
+      hasMoreFallbacksMock(chain, attempt)
+    )
+    spyOn(modelErrorClassifier, "selectFallbackProvider").mockImplementation((providers: string[], preferredProviderID?: string) =>
+      selectFallbackProviderMock(providers, preferredProviderID)
+    )
+
     readConnectedProvidersCacheMock.mockReturnValue(null)
     readProviderModelsCacheMock.mockReturnValue(null)
     readCachedModelCatalogMock.mockReturnValue(new Set())
@@ -77,6 +119,10 @@ describe("model fallback hook", () => {
     readProviderModelsCacheMock.mockClear()
     readCachedModelCatalogMock.mockClear()
     selectFallbackProviderMock.mockClear()
+    shouldRetryErrorMock.mockClear()
+    shouldSwitchFallbackMock.mockClear()
+    getNextFallbackMock.mockClear()
+    hasMoreFallbacksMock.mockClear()
     resolveKnownCachedModelMock.mockImplementation((_target: string, availableModels: Set<string>) => availableModels.size > 0 ? null : "known")
 
     clearPendingModelFallback("ses_model_fallback_main")
@@ -85,6 +131,10 @@ describe("model fallback hook", () => {
     clearSessionFallbackChain("ses_model_fallback_main")
     clearSessionFallbackChain("ses_model_fallback_ghcp")
     clearSessionFallbackChain("ses_model_fallback_google")
+  })
+
+  afterEach(() => {
+    mock.restore()
   })
 
   test("applies pending fallback on chat.message by overriding model", async () => {
@@ -165,6 +215,49 @@ describe("model fallback hook", () => {
     expect(output.message["model"]).toEqual({
       providerID: "openai",
       modelID: "gpt-5.4",
+    })
+  })
+
+  test("preserves explicit session fallback chains even when cached catalog does not know the first model", async () => {
+    readCachedModelCatalogMock.mockReturnValue(new Set([
+      "quotio/kimi-k2.5",
+    ]))
+    resolveKnownCachedModelMock.mockImplementation((target: string, availableModels: Set<string>) =>
+      availableModels.has(target) ? target : null
+    )
+
+    setSessionFallbackChain("ses_model_fallback_main", [
+      { providers: ["quotio"], model: "gpt-5.2" },
+      { providers: ["quotio"], model: "kimi-k2.5" },
+    ], { trustUnknownModels: true })
+
+    const hook = createModelFallbackHook() as unknown as {
+      "chat.message"?: (
+        input: { sessionID: string },
+        output: { message: Record<string, unknown>; parts: Array<{ type: string; text?: string }> },
+      ) => Promise<void>
+    }
+
+    const set = setPendingModelFallback(
+      "ses_model_fallback_main",
+      "Sisyphus (Ultraworker)",
+      "quotio",
+      "claude-opus-4-6",
+    )
+    expect(set).toBe(true)
+
+    const output = {
+      message: {
+        model: { providerID: "quotio", modelID: "claude-opus-4-6" },
+      },
+      parts: [{ type: "text", text: "continue" }],
+    }
+
+    await hook["chat.message"]?.({ sessionID: "ses_model_fallback_main" }, output)
+
+    expect(output.message["model"]).toEqual({
+      providerID: "quotio",
+      modelID: "gpt-5.2",
     })
   })
 

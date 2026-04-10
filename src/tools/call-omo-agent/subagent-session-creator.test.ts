@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import { resolveOrCreateSessionId } from "./subagent-session-creator"
 import { _resetForTesting, subagentSessions } from "../../features/claude-code-session-state"
@@ -88,5 +91,33 @@ describe("call-omo-agent resolveOrCreateSessionId", () => {
     } finally {
       Object.defineProperty(process, "platform", { value: originalPlatform })
     }
+  })
+
+  test("uses active boulder worktree when creating sync child session", async () => {
+    //#given
+    _resetForTesting()
+    const repoDirectory = join(tmpdir(), `subagent-session-worktree-${crypto.randomUUID()}`)
+    const worktreeDirectory = join(repoDirectory, "feature-worktree")
+    mkdirSync(join(repoDirectory, ".sisyphus"), { recursive: true })
+    mkdirSync(worktreeDirectory, { recursive: true })
+    writeFileSync(join(repoDirectory, ".sisyphus", "boulder.json"), JSON.stringify({
+      active_plan: join(worktreeDirectory, ".sisyphus", "plans", "feature.md"),
+      started_at: "2026-04-10T00:00:00.000Z",
+      session_ids: ["ses_parent"],
+      plan_name: "feature",
+      worktree_path: worktreeDirectory,
+    }))
+
+    const { ctx, args, toolContext, createCalls } = buildInput({
+      parentDirectory: repoDirectory,
+      contextDirectory: repoDirectory,
+    })
+
+    //#when
+    await resolveOrCreateSessionId(ctx, args, toolContext)
+
+    //#then
+    expect(createCalls).toHaveLength(1)
+    expect(createCalls[0]?.query?.directory).toBe(worktreeDirectory)
   })
 })

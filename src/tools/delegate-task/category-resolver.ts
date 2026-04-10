@@ -34,6 +34,7 @@ export interface CategoryResolutionResult {
   actualModel: string | undefined
   isUnstableAgent: boolean
   fallbackChain?: FallbackEntry[]  // For runtime retry on model errors
+  trustFallbackChain?: boolean
   error?: string
 }
 
@@ -262,5 +263,6 @@ Available categories: ${categoryNames.join(", ")}`,
     isUnstableAgent,
     // Don't use hardcoded fallback chain when resolution was skipped (cold cache)
     fallbackChain: configuredFallbackChain ?? (isModelResolutionSkipped ? undefined : requirement?.fallbackChain),
+    trustFallbackChain: !!configuredFallbackChain,
   }
 }

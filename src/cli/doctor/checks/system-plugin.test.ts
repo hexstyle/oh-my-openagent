@@ -1,6 +1,8 @@
 /// <reference types="bun-types" />
 
-import { beforeEach, describe, expect, it, mock } from "bun:test"
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test"
+import * as fs from "node:fs"
+import * as shared from "../../../shared"
 
 type SystemPluginModule = typeof import("./system-plugin")
 
@@ -12,24 +14,17 @@ const mockGetOpenCodeConfigPaths = mock(() => ({
 }))
 const mockParseJsonc = mock((content: string) => JSON.parse(content) as { plugin?: string[] })
 
-mock.module("node:fs", () => ({
-  existsSync: mockExistsSync,
-  readFileSync: mockReadFileSync,
-}))
-
-mock.module("../../../shared", () => ({
-  LEGACY_PLUGIN_NAME: "oh-my-opencode",
-  PLUGIN_NAME: "oh-my-openagent",
-  getOpenCodeConfigPaths: mockGetOpenCodeConfigPaths,
-  parseJsonc: mockParseJsonc,
-}))
-
 async function importFreshSystemPluginModule(): Promise<SystemPluginModule> {
   return import(`./system-plugin?test=${Date.now()}-${Math.random()}`)
 }
 
 describe("system plugin detection", () => {
   beforeEach(() => {
+    spyOn(fs, "existsSync").mockImplementation(mockExistsSync)
+    spyOn(fs, "readFileSync").mockImplementation(mockReadFileSync as typeof fs.readFileSync)
+    spyOn(shared, "getOpenCodeConfigPaths").mockImplementation(mockGetOpenCodeConfigPaths as typeof shared.getOpenCodeConfigPaths)
+    spyOn(shared, "parseJsonc").mockImplementation(mockParseJsonc as typeof shared.parseJsonc)
+
     mockExistsSync.mockReset()
     mockReadFileSync.mockReset()
     mockGetOpenCodeConfigPaths.mockReset()
@@ -44,6 +39,10 @@ describe("system plugin detection", () => {
       configJson: "/tmp/opencode.json",
     })
     mockParseJsonc.mockImplementation((content: string) => JSON.parse(content) as { plugin?: string[] })
+  })
+
+  afterEach(() => {
+    mock.restore()
   })
 
   it("accepts the canonical package entry as a registered plugin", async () => {

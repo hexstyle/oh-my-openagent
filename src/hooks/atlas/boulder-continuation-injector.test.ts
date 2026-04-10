@@ -35,6 +35,7 @@ describe("injectBoulderContinuation", () => {
       ctx,
       sessionID: "ses_test_123",
       planName: "test-plan",
+      planDigest: "{\"total\":2,\"completed\":1,\"currentTaskKey\":\"todo:1\"}",
       remaining: 1,
       total: 2,
       agent: "atlas",
@@ -46,7 +47,7 @@ describe("injectBoulderContinuation", () => {
     expect(promptAsyncMock).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.objectContaining({
-          agent: "atlas",
+          agent: "Atlas (Plan Executor)",
         }),
       }),
     )
@@ -73,6 +74,7 @@ describe("injectBoulderContinuation", () => {
       ctx,
       sessionID: "ses_test_explore",
       planName: "test-plan",
+      planDigest: "{\"total\":2,\"completed\":1,\"currentTaskKey\":\"todo:1\"}",
       remaining: 1,
       total: 2,
       agent: "Explore (Code Search)",

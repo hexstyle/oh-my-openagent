@@ -19,6 +19,60 @@ const FAILURE_BACKOFF_MS = 5 * 60 * 1000
 const MAX_CONSECUTIVE_PROMPT_FAILURES = 10
 const SESSION_ERROR_BACKOFF_MS = 30 * 1000
 const RETRY_DELAY_MS = CONTINUATION_COOLDOWN_MS + 1000
+const MAX_STAGNATION_COUNT = 3
+
+function buildPlanExecutionDigest(planPath: string, progress: { total: number; completed: number }): string {
+  const currentTask = readCurrentTopLevelTask(planPath)
+  return JSON.stringify({
+    total: progress.total,
+    completed: progress.completed,
+    currentTaskKey: currentTask?.key ?? null,
+  })
+}
+
+function shouldStopForStagnation(input: {
+  sessionID: string
+  sessionState: SessionState
+  currentPlanDigest: string
+}): boolean {
+  const { sessionID, sessionState, currentPlanDigest } = input
+  const previousObservedPlanDigest = sessionState.lastObservedPlanDigest
+
+  if (
+    previousObservedPlanDigest !== undefined
+    && previousObservedPlanDigest !== currentPlanDigest
+  ) {
+    sessionState.stagnationCount = 0
+  }
+
+  if (sessionState.awaitingPostInjectionProgressCheck) {
+    if (sessionState.lastInjectedPlanDigest === currentPlanDigest) {
+      sessionState.stagnationCount = (sessionState.stagnationCount ?? 0) + 1
+      log(`[${HOOK_NAME}] Detected no plan progress after continuation`, {
+        sessionID,
+        stagnationCount: sessionState.stagnationCount,
+        maxStagnationCount: MAX_STAGNATION_COUNT,
+      })
+    } else {
+      sessionState.stagnationCount = 0
+    }
+
+    sessionState.awaitingPostInjectionProgressCheck = false
+  }
+
+  sessionState.lastObservedPlanDigest = currentPlanDigest
+
+  if ((sessionState.stagnationCount ?? 0) < MAX_STAGNATION_COUNT) {
+    return false
+  }
+
+  log(`[${HOOK_NAME}] Skipped: continuation stagnated with no plan progress`, {
+    sessionID,
+    stagnationCount: sessionState.stagnationCount,
+    maxStagnationCount: MAX_STAGNATION_COUNT,
+  })
+  return true
+}
 
 function hasRunningBackgroundTasks(sessionID: string, options?: AtlasHookOptions): boolean {
   const backgroundTasks = inspectParentSessionTasks({
@@ -39,6 +93,7 @@ async function injectContinuation(input: {
   sessionState: SessionState
   options?: AtlasHookOptions
   planName: string
+  planDigest: string
   progress: { total: number; completed: number }
   agent?: string
   worktreePath?: string
@@ -59,6 +114,7 @@ async function injectContinuation(input: {
       ctx: input.ctx,
       sessionID: input.sessionID,
       planName: input.planName,
+      planDigest: input.planDigest,
       remaining,
       total: input.progress.total,
       agent: input.agent,
@@ -99,13 +155,16 @@ function scheduleRetry(input: {
     if (currentProgress.isComplete) return
     if (options?.isContinuationStopped?.(sessionID)) return
     if (hasRunningBackgroundTasks(sessionID, options)) return
+    if ((sessionState.stagnationCount ?? 0) >= MAX_STAGNATION_COUNT) return
 
+    const currentPlanDigest = buildPlanExecutionDigest(currentBoulder.active_plan, currentProgress)
     await injectContinuation({
       ctx,
       sessionID,
       sessionState,
       options,
       planName: currentBoulder.plan_name,
+      planDigest: currentPlanDigest,
       progress: currentProgress,
       agent: currentBoulder.agent,
       worktreePath: currentBoulder.worktree_path,
@@ -173,6 +232,7 @@ export async function handleAtlasSessionIdle(input: {
 
   const sessionState = getState(sessionID)
   const now = Date.now()
+  const currentPlanDigest = buildPlanExecutionDigest(boulderState.active_plan, progress)
 
   if (sessionState.waitingForFinalWaveApproval) {
     log(`[${HOOK_NAME}] Skipped: waiting for explicit final-wave approval`, { sessionID })
@@ -224,6 +284,10 @@ export async function handleAtlasSessionIdle(input: {
     return
   }
 
+  if (shouldStopForStagnation({ sessionID, sessionState, currentPlanDigest })) {
+    return
+  }
+
   if (sessionState.lastContinuationInjectedAt && now - sessionState.lastContinuationInjectedAt < CONTINUATION_COOLDOWN_MS) {
     scheduleRetry({ ctx, sessionID, sessionState, options })
     log(`[${HOOK_NAME}] Skipped: continuation cooldown active`, {
@@ -240,6 +304,7 @@ export async function handleAtlasSessionIdle(input: {
     sessionState,
     options,
     planName: boulderState.plan_name,
+    planDigest: currentPlanDigest,
     progress,
     agent: boulderState.agent,
     worktreePath: boulderState.worktree_path,

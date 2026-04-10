@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test, mock } from "bun:test"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin/tool"
+import { getAgentDisplayName } from "../../shared/agent-display-names"
 import { clearVisionCapableModelsCache, setVisionCapableModelsCache } from "../../shared/vision-capable-models-cache"
 import { normalizeArgs, validateArgs, createLookAt } from "./tools"
 
@@ -269,7 +273,7 @@ describe("look-at tool", () => {
           agents: async () => ({
             data: [
               {
-                name: "multimodal-looker",
+                name: getAgentDisplayName("multimodal-looker"),
                 mode: "subagent",
                 model: { providerID: "google", modelID: "gemini-3-flash" },
               },
@@ -316,6 +320,7 @@ describe("look-at tool", () => {
         providerID: "google",
         modelID: "gemini-3-flash",
       })
+      expect(promptBody.agent).toBe(getAgentDisplayName("multimodal-looker"))
     })
   })
 
@@ -460,6 +465,67 @@ describe("look-at tool", () => {
 
       expect(result).toContain("Error")
       expect(result).toContain("multimodal-looker")
+    })
+
+    test("creates multimodal child session inside active boulder worktree", async () => {
+      const repoDirectory = join(tmpdir(), `look-at-worktree-${crypto.randomUUID()}`)
+      const worktreeDirectory = join(repoDirectory, "feature-worktree")
+      mkdirSync(join(repoDirectory, ".sisyphus"), { recursive: true })
+      mkdirSync(worktreeDirectory, { recursive: true })
+      writeFileSync(join(repoDirectory, ".sisyphus", "boulder.json"), JSON.stringify({
+        active_plan: join(worktreeDirectory, ".sisyphus", "plans", "feature.md"),
+        started_at: "2026-04-10T00:00:00.000Z",
+        session_ids: ["parent-session"],
+        plan_name: "feature",
+        worktree_path: worktreeDirectory,
+      }))
+
+      const createCalls: Array<Record<string, unknown>> = []
+      const mockClient = {
+        app: {
+          agents: async () => ({ data: [] }),
+        },
+        session: {
+          get: async () => ({ data: { directory: repoDirectory } }),
+          create: async (input: Record<string, unknown>) => {
+            createCalls.push(input)
+            return { data: { id: "ses_sync_test" } }
+          },
+          prompt: async () => ({}),
+          promptAsync: async () => ({}),
+          status: async () => ({ data: {} }),
+          messages: async () => ({
+            data: [
+              { info: { role: "assistant", time: { created: 1 } }, parts: [{ type: "text", text: "result" }] },
+            ],
+          }),
+        },
+      }
+
+      const tool = createLookAt({
+        client: mockClient,
+        directory: repoDirectory,
+      } as any)
+
+      const toolContext: ToolContext = {
+        sessionID: "parent-session",
+        messageID: "parent-message",
+        agent: "sisyphus",
+        directory: repoDirectory,
+        worktree: repoDirectory,
+        abort: new AbortController().signal,
+        metadata: () => {},
+        ask: async () => {},
+      }
+
+      const result = await tool.execute(
+        { file_path: "/test/file.png", goal: "analyze" },
+        toolContext,
+      )
+
+      expect(result).toBe("result")
+      expect(createCalls).toHaveLength(1)
+      expect(createCalls[0]?.query).toEqual({ directory: worktreeDirectory })
     })
   })
 

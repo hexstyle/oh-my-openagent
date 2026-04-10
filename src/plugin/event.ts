@@ -300,7 +300,7 @@ function applyUserConfiguredFallbackChain(
   const fallbackChain = buildFallbackChainFromModels(rawFallbackModels, currentProviderID);
 
   if (fallbackChain && fallbackChain.length > 0) {
-    setSessionFallbackChain(sessionID, fallbackChain);
+    setSessionFallbackChain(sessionID, fallbackChain, { trustUnknownModels: true });
   }
 }
 

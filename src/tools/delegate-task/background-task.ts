@@ -20,6 +20,7 @@ export async function executeBackgroundTask(
   categoryModel: DelegatedModelConfig | undefined,
   systemContent: string | undefined,
   fallbackChain?: FallbackEntry[],
+  trustFallbackChain = false,
 ): Promise<string> {
   const { manager } = executorCtx
 
@@ -37,6 +38,7 @@ export async function executeBackgroundTask(
       parentTools: getSessionTools(parentContext.sessionID),
       model: categoryModel,
       fallbackChain,
+      trustFallbackChain,
       skills: args.load_skills.length > 0 ? args.load_skills : undefined,
       skillContent: systemContent,
       category: args.category,
@@ -61,7 +63,9 @@ export async function executeBackgroundTask(
     }
 
     if (sessionId) {
-      setSessionFallbackChain(sessionId, fallbackChain)
+      setSessionFallbackChain(sessionId, fallbackChain, {
+        trustUnknownModels: trustFallbackChain,
+      })
     }
     if (args.category && sessionId) {
       SessionCategoryRegistry.register(sessionId, args.category)

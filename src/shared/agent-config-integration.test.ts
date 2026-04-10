@@ -97,10 +97,10 @@ describe("Agent Config Integration", () => {
       expect(displayNames).toContain("Prometheus (Plan Builder)")
       expect(displayNames).toContain("Metis (Plan Consultant)")
       expect(displayNames).toContain("Momus (Plan Critic)")
-      expect(displayNames).toContain("oracle")
-      expect(displayNames).toContain("librarian")
-      expect(displayNames).toContain("explore")
-      expect(displayNames).toContain("multimodal-looker")
+      expect(displayNames).toContain("Oracle (Strategic Advisor)")
+      expect(displayNames).toContain("Librarian (OSS Research)")
+      expect(displayNames).toContain("Explore (Code Search)")
+      expect(displayNames).toContain("Multimodal Looker (Document Vision)")
     })
 
     test("handles lowercase keys case-insensitively", () => {

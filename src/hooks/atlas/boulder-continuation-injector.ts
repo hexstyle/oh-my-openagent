@@ -14,6 +14,7 @@ export async function injectBoulderContinuation(input: {
   ctx: PluginInput
   sessionID: string
   planName: string
+  planDigest: string
   remaining: number
   total: number
   agent?: string
@@ -27,6 +28,7 @@ export async function injectBoulderContinuation(input: {
     ctx,
     sessionID,
     planName,
+    planDigest,
     remaining,
     total,
     agent,
@@ -89,6 +91,8 @@ export async function injectBoulderContinuation(input: {
     })
 
     sessionState.promptFailureCount = 0
+    sessionState.lastInjectedPlanDigest = planDigest
+    sessionState.awaitingPostInjectionProgressCheck = true
     log(`[${HOOK_NAME}] Boulder continuation injected`, { sessionID })
   } catch (err) {
     sessionState.promptFailureCount += 1

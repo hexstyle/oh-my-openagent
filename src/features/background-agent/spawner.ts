@@ -7,6 +7,7 @@ import {
   normalizeAgentForExecution,
   normalizeAgentForSessionPrompt,
 } from "../../shared/agent-display-names"
+import { resolveBoulderExecutionDirectory } from "../boulder-state"
 import { subagentSessions } from "../claude-code-session-state"
 import { getTaskToastManager } from "../task-toast-manager"
 import { isInsideTmux } from "../../shared/tmux"
@@ -72,7 +73,8 @@ export async function startTask(
     log(`[background-agent] Failed to get parent session: ${err}`)
     return null
   })
-  const parentDirectory = parentSession?.data?.directory ?? directory
+  const sessionDirectory = parentSession?.data?.directory ?? directory
+  const parentDirectory = resolveBoulderExecutionDirectory(directory, sessionDirectory)
   log(`[background-agent] Parent dir: ${parentSession?.data?.directory}, using: ${parentDirectory}`)
 
   const createResult = await client.session.create({

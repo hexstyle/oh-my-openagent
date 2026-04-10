@@ -2,6 +2,7 @@ import type { PluginInput } from "@opencode-ai/plugin"
 import { log } from "../../shared"
 import { resolveSessionDirectory } from "../../shared"
 import { subagentSessions, syncSubagentSessions } from "../../features/claude-code-session-state"
+import { resolveBoulderExecutionDirectory } from "../../features/boulder-state"
 import type { CallOmoAgentArgs } from "./types"
 import type { ToolContextWithMetadata } from "./tool-context-with-metadata"
 import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
@@ -37,6 +38,7 @@ export async function resolveOrCreateSessionId(
 		parentDirectory: parentSession?.data?.directory,
 		fallbackDirectory: ctx.directory,
 	})
+	const executionDirectory = resolveBoulderExecutionDirectory(ctx.directory, parentDirectory)
 	const titleAgent = normalizeAgentForDisplay(args.subagent_type) ?? args.subagent_type
 
 	const body = {
@@ -46,7 +48,7 @@ export async function resolveOrCreateSessionId(
 
 	const createResult = await ctx.client.session.create({
 		body,
-		query: { directory: parentDirectory },
+		query: { directory: executionDirectory },
 	})
 
 	if (createResult.error) {

@@ -132,10 +132,10 @@ describe("local delta fixture regression", () => {
       "atlas",
       "librarian",
       "multimodal-looker",
+      "sisyphus-junior",
     ])
     expect(modelPolicyEntry.evidence?.spark_agents).toEqual([
       "explore",
-      "sisyphus-junior",
     ])
     expect(modelPolicyEntry.evidence?.context_limit).toBe(200000)
 

@@ -149,7 +149,7 @@ describe("createCompactionContextInjector recovery", () => {
 
     //#then
     expect(promptAsyncRecorder.calls.length).toBe(1)
-    expect(promptAsyncRecorder.calls[0]?.body.agent).toBe("atlas")
+    expect(promptAsyncRecorder.calls[0]?.body.agent).toBe("Atlas (Plan Executor)")
     expect(promptAsyncRecorder.calls[0]?.body.model).toEqual({
       providerID: "openai",
       modelID: "gpt-5",
