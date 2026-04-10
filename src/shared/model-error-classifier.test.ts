@@ -150,4 +150,10 @@ describe("model-error-classifier", () => {
     //#then
     expect(result).toBe(true)
   })
+
+  test("treats 403 forbidden/request-not-allowed messages as retryable", () => {
+    expect(shouldRetryError({ message: "403 Forbidden" })).toBe(true)
+    expect(shouldRetryError({ message: "403 Request not allowed" })).toBe(true)
+    expect(shouldSwitchFallback({ message: "403 Forbidden" })).toBe(false)
+  })
 })

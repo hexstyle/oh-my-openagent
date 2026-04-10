@@ -1,5 +1,10 @@
 import { DEFAULT_CONFIG, RETRYABLE_ERROR_PATTERNS } from "./constants"
 
+const TRANSIENT_FORBIDDEN_MESSAGE_PATTERNS = [
+  /\brequest not allowed\b/i,
+  /\bforbidden\b/i,
+]
+
 export function getErrorMessage(error: unknown): string {
   if (!error) return ""
   if (typeof error === "string") return error.toLowerCase()
@@ -148,6 +153,16 @@ export function classifyErrorType(error: unknown): string | undefined {
   }
 
   return undefined
+}
+
+export function isTransientForbiddenError(error: unknown): boolean {
+  const statusCode = extractStatusCode(error, [403])
+  if (statusCode !== 403) {
+    return false
+  }
+
+  const message = getErrorMessage(error)
+  return TRANSIENT_FORBIDDEN_MESSAGE_PATTERNS.some((pattern) => pattern.test(message))
 }
 
 export interface AutoRetrySignal {

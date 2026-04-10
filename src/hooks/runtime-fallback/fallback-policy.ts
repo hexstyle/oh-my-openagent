@@ -1,5 +1,5 @@
 import type { FallbackState } from "./types"
-import { classifyErrorType, extractStatusCode, getErrorMessage } from "./error-classifier"
+import { classifyErrorType, extractStatusCode, getErrorMessage, isTransientForbiddenError } from "./error-classifier"
 
 export type RuntimeFallbackAction =
   | "retry_same_model"
@@ -58,6 +58,10 @@ export function getRuntimeFallbackAction(error: unknown, retryOnErrors: number[]
     errorType === "agent_not_found"
   ) {
     return "fallback_chain"
+  }
+
+  if (isTransientForbiddenError(error)) {
+    return "retry_same_model_delayed"
   }
 
   if (statusCode !== undefined && TRANSIENT_STATUS_CODES.has(statusCode)) {

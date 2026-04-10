@@ -206,8 +206,8 @@ describe("managed custom OpenCode config assets", () => {
     expect(pluginConfig.runtime_fallback?.max_full_chain_cycles).toBe(5)
     expect(pluginConfig.runtime_fallback?.cooldown_seconds).toBe(300)
     expect(pluginConfig.runtime_fallback?.timeout_seconds).toBe(45)
-    expect(pluginConfig.runtime_fallback?.transient_retry_window_seconds).toBe(14400)
-    expect(pluginConfig.runtime_fallback?.transient_retry_initial_delay_seconds).toBe(30)
+    expect(pluginConfig.runtime_fallback?.transient_retry_window_seconds).toBe(900)
+    expect(pluginConfig.runtime_fallback?.transient_retry_initial_delay_seconds).toBe(10)
     expect(pluginConfig.runtime_fallback?.transient_retry_max_delay_seconds).toBe(300)
 
     expect(pluginConfig.sisyphus?.tasks).toEqual({

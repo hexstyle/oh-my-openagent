@@ -101,14 +101,14 @@ describe("tryFallbackRetry", () => {
       modelID: "original-model",
     })
     expect(args.task.transientRetryCount).toBe(1)
-    expect(args.task.transientRetryDelayMs).toBe(30_000)
+    expect(args.task.transientRetryDelayMs).toBe(10_000)
     expect(args.client.session.abort).toHaveBeenCalledWith({
       path: { id: "session-to-abort" },
     })
     expect(args.processKey).not.toHaveBeenCalled()
     expect(args.queuesByKey.size).toBe(0)
 
-    jest.advanceTimersByTime(29_999)
+    jest.advanceTimersByTime(9_999)
     expect(args.processKey).not.toHaveBeenCalled()
 
     jest.advanceTimersByTime(1)
@@ -146,7 +146,7 @@ describe("tryFallbackRetry", () => {
         { model: "original-model", providers: ["provider-a"], variant: undefined },
         { model: "fallback-model-1", providers: ["provider-b"], variant: undefined },
       ],
-      transientRetryStartedAt: Date.now() - (4 * 60 * 60 * 1000 + 1_000),
+      transientRetryStartedAt: Date.now() - (15 * 60 * 1000 + 1_000),
       transientRetryCount: 9,
       transientRetryDelayMs: 300_000,
     })
@@ -189,6 +189,29 @@ describe("tryFallbackRetry", () => {
     })
     expect(args.task.transientRetryCount).toBe(0)
     expect(args.processKey).toHaveBeenCalledWith("provider-b/fallback-model-1")
+  })
+
+  test("treats transient 403 forbidden failures as delayed same-model retries", () => {
+    jest.useFakeTimers()
+    const args = createDefaultArgs({
+      sessionID: "session-forbidden-retry",
+    })
+
+    const result = tryFallbackRetry({
+      ...args,
+      errorInfo: {
+        name: "AuthenticationError",
+        message: "403 Forbidden",
+      },
+    })
+
+    expect(result).toBe(true)
+    expect(args.task.attemptCount).toBe(0)
+    expect(args.task.transientRetryCount).toBe(1)
+    expect(args.task.transientRetryDelayMs).toBe(10_000)
+
+    jest.advanceTimersByTime(10_000)
+    expect(args.processKey).toHaveBeenCalledWith("provider-a/original-model")
   })
 
   test("skips fallback entries that are absent from the cached model catalog", () => {
@@ -261,7 +284,13 @@ describe("tryFallbackRetry", () => {
     ;(modelErrorClassifier.shouldRetryError as any).mockImplementation(() => false)
     const args = createDefaultArgs()
 
-    const result = tryFallbackRetry(args)
+    const result = tryFallbackRetry({
+      ...args,
+      errorInfo: {
+        name: "PermissionDeniedError",
+        message: "Permission denied",
+      },
+    })
 
     expect(result).toBe(false)
   })

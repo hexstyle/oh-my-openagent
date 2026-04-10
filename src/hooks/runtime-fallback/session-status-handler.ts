@@ -8,7 +8,7 @@ import { getFallbackModelsForSession } from "./fallback-models"
 import { normalizeRetryStatusMessage, extractRetryAttempt } from "../../shared/retry-status-utils"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
-import { selectFallbackModelsForAction } from "./fallback-policy"
+import { getRuntimeFallbackAction, selectFallbackModelsForAction } from "./fallback-policy"
 import { isQuotaAutoRetrySignal } from "./error-classifier"
 import {
   clearRecentCompletionState,
@@ -183,6 +183,21 @@ export function createSessionStatusHandler(
       retryAttempt: status.attempt,
       isQuota,
     })
+
+    const retryAction = getRuntimeFallbackAction({ message: retryMessage }, deps.config.retry_on_errors)
+    if (retryAction === "retry_same_model_delayed") {
+      await helpers.abortSessionRequest(sessionID, "session.status.transient-retry")
+
+      const retried = await helpers.retryCurrentModel(
+        sessionID,
+        resolvedAgent,
+        "session.status.transient_same_model",
+        { immediate: false },
+      )
+      if (retried) {
+        return
+      }
+    }
 
     await helpers.abortSessionRequest(sessionID, "session.status.retry-signal")
 

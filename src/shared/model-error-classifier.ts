@@ -100,6 +100,11 @@ const AUTO_RETRY_GATE_PATTERNS = [
   "exhausted your capacity",
 ]
 
+function isTransientForbiddenMessage(message: string): boolean {
+  return message.includes("403")
+    && (message.includes("request not allowed") || message.includes("forbidden"))
+}
+
 function hasProviderAutoRetrySignal(message: string): boolean {
   if (!message.includes("retrying in")) {
     return false
@@ -136,6 +141,10 @@ export function isRetryableModelError(error: ErrorInfo): boolean {
   }
 
   if (hasProviderAutoRetrySignal(msg)) {
+    return true
+  }
+
+  if (isTransientForbiddenMessage(msg)) {
     return true
   }
 

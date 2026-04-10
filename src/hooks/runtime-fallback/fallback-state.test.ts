@@ -24,8 +24,8 @@ describe("runtime fallback state recovery", () => {
         max_full_chain_cycles: 5,
         cooldown_seconds: 600,
         timeout_seconds: 30,
-        transient_retry_window_seconds: 14_400,
-        transient_retry_initial_delay_seconds: 30,
+        transient_retry_window_seconds: 900,
+        transient_retry_initial_delay_seconds: 10,
         transient_retry_max_delay_seconds: 300,
         notify_on_fallback: true,
       },
@@ -44,7 +44,7 @@ describe("runtime fallback state recovery", () => {
     state.attemptCount = 2
     state.transientRetryCount = 1
     state.transientRetryStartedAt = Date.now() - 1000
-    state.transientRetryDelayMs = 30_000
+    state.transientRetryDelayMs = 10_000
     state.pendingTransientRetry = true
 
     markFallbackResponseSuccess(state)
@@ -100,7 +100,7 @@ describe("runtime fallback state recovery", () => {
     expect(state.attemptCount).toBe(0)
   })
 
-  it("keeps transient retries alive for up to four hours and caps delay at five minutes", () => {
+  it("keeps transient retries alive for up to fifteen minutes and caps delay at five minutes", () => {
     const now = Date.now()
     const state = createFallbackState("openai/gpt-5.4")
     const config = {
@@ -110,14 +110,14 @@ describe("runtime fallback state recovery", () => {
       max_full_chain_cycles: 5,
       cooldown_seconds: 300,
       timeout_seconds: 45,
-      transient_retry_window_seconds: 14_400,
-      transient_retry_initial_delay_seconds: 30,
+      transient_retry_window_seconds: 900,
+      transient_retry_initial_delay_seconds: 10,
       transient_retry_max_delay_seconds: 300,
       notify_on_fallback: true,
     } as const
 
     expect(canKeepRetryingTransiently(state, config, now)).toBe(true)
-    expect(getNextTransientRetryDelayMs(state, config)).toBe(30_000)
+    expect(getNextTransientRetryDelayMs(state, config)).toBe(10_000)
 
     state.transientRetryStartedAt = now - 60_000
     state.transientRetryDelayMs = 240_000
@@ -125,7 +125,7 @@ describe("runtime fallback state recovery", () => {
     expect(canKeepRetryingTransiently(state, config, now)).toBe(true)
     expect(getNextTransientRetryDelayMs(state, config)).toBe(300_000)
 
-    state.transientRetryStartedAt = now - 14_401_000
+    state.transientRetryStartedAt = now - 901_000
     expect(canKeepRetryingTransiently(state, config, now)).toBe(false)
   })
 })

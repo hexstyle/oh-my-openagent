@@ -31,8 +31,8 @@ function createDeps(): HookDeps {
       max_full_chain_cycles: 5,
       cooldown_seconds: 60,
       timeout_seconds: 30,
-      transient_retry_window_seconds: 14_400,
-      transient_retry_initial_delay_seconds: 30,
+      transient_retry_window_seconds: 900,
+      transient_retry_initial_delay_seconds: 10,
       transient_retry_max_delay_seconds: 300,
       notify_on_fallback: false,
     },
@@ -211,5 +211,55 @@ describe("createSessionStatusHandler", () => {
       },
     ])
     expect(deps.sessionLastAccess.has(sessionID)).toBe(true)
+  })
+
+  it("#given a transient 403 retry status #when the handler sees it #then it schedules delayed same-model retry instead of switching models", async () => {
+    const sessionID = "session-status-transient-forbidden"
+    SessionCategoryRegistry.clear()
+    SessionCategoryRegistry.register(sessionID, "test")
+    const deps = createDeps()
+    const abortCalls: string[] = []
+    const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" }> = []
+    const state = createFallbackState("anthropic/claude-opus-4-6")
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createSessionStatusHandler(
+      deps,
+      {
+        ...createHelpers(abortCalls, retryCalls, scheduleCalls),
+        retryCurrentModel: async (_sessionID, _resolvedAgent, source, options) => {
+          retryCalls.push({
+            sessionID,
+            model: state.currentModel,
+            source: `${source}:${options?.immediate === false ? "delayed" : "immediate"}`,
+          })
+          return true
+        },
+      },
+      deps.sessionStatusRetryKeys,
+    )
+
+    await handler({
+      sessionID,
+      model: "anthropic/claude-opus-4-6",
+      status: {
+        type: "retry",
+        attempt: 1,
+        message: "403 Request not allowed [retrying in 10s attempt #1]",
+      },
+    })
+
+    expect(abortCalls).toEqual([sessionID])
+    expect(retryCalls).toEqual([
+      {
+        sessionID,
+        model: "anthropic/claude-opus-4-6",
+        source: "session.status.transient_same_model:delayed",
+      },
+    ])
+    expect(scheduleCalls).toEqual([])
+    expect(state.currentModel).toBe("anthropic/claude-opus-4-6")
+    SessionCategoryRegistry.clear()
   })
 })

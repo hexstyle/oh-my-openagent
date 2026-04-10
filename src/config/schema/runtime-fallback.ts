@@ -13,9 +13,9 @@ export const RuntimeFallbackConfigSchema = z.object({
   cooldown_seconds: z.number().min(0).optional(),
   /** Session-level timeout in seconds to advance fallback when provider hangs (default: 30). Set to 0 to disable auto-retry signal detection (only error-based fallback remains active). */
   timeout_seconds: z.number().min(0).optional(),
-  /** How long transient same-model retries may continue before falling back (default: 14400 / 4h). */
+  /** How long transient same-model retries may continue before falling back (default: 900 / 15m). */
   transient_retry_window_seconds: z.number().min(0).optional(),
-  /** Delay before the first delayed transient retry after the immediate attempt (default: 30). */
+  /** Delay before the first delayed transient retry after the immediate attempt (default: 10). */
   transient_retry_initial_delay_seconds: z.number().min(0).optional(),
   /** Maximum delay between transient retries; retries will never become less frequent than this (default: 300 / 5m). */
   transient_retry_max_delay_seconds: z.number().min(1).optional(),

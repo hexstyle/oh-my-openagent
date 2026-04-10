@@ -144,8 +144,8 @@ describe("local delta fixture regression", () => {
     expect(fallbackPolicyEntry.evidence?.max_fallback_attempts).toBe(12)
     expect(fallbackPolicyEntry.evidence?.max_full_chain_cycles).toBe(5)
     expect(fallbackPolicyEntry.evidence?.timeout_seconds).toBe(45)
-    expect(fallbackPolicyEntry.evidence?.transient_retry_window_seconds).toBe(14400)
-    expect(fallbackPolicyEntry.evidence?.transient_retry_initial_delay_seconds).toBe(30)
+    expect(fallbackPolicyEntry.evidence?.transient_retry_window_seconds).toBe(900)
+    expect(fallbackPolicyEntry.evidence?.transient_retry_initial_delay_seconds).toBe(10)
     expect(fallbackPolicyEntry.evidence?.transient_retry_max_delay_seconds).toBe(300)
   })
 

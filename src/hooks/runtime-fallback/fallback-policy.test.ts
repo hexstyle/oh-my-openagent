@@ -68,6 +68,22 @@ describe("runtime fallback policy", () => {
     ).toBe("retry_same_model_delayed")
   })
 
+  it("treats transient 403 forbidden/request-not-allowed errors as delayed same-model retries", () => {
+    expect(
+      getRuntimeFallbackAction(
+        { statusCode: 403, message: "Request not allowed" },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("retry_same_model_delayed")
+
+    expect(
+      getRuntimeFallbackAction(
+        { message: "403 Forbidden" },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("retry_same_model_delayed")
+  })
+
   it("routes quota and cooldown failures to spark then free models", () => {
     expect(
       getRuntimeFallbackAction(

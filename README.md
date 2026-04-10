@@ -43,8 +43,8 @@ Managed source of truth for this table: `assets/custom-opencode/oh-my-opencode.j
 
 ## Fallback behavior
 
-- transient network/TLS/5xx/unknown failures retry on the same model first
-- same-model transient retries stay alive for up to 4 hours
+- transient network/TLS/5xx/unknown failures, plus transient `403 Forbidden` / `Request not allowed`, retry on the same model first
+- same-model transient retries stay alive for up to 15 minutes
 - the retry interval grows over time and caps at 5 minutes between attempts
 - quota/cooldown/payment/usage-limit failures fall back to `gpt-5.3-codex-spark`, then to free models
 - for `Explore`, `spark` is already the primary model, so its limit/fallback path is `spark` -> free models

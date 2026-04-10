@@ -379,20 +379,20 @@ export function tryFallbackRetry(args: {
 }): boolean {
   const { task, errorInfo, source, concurrencyManager, client, idleDeferralTimers, transientRetryTimers, queuesByKey, processKey } = args
   const fallbackChain = task.fallbackChain
+  const action = getRuntimeFallbackAction(
+    errorInfo,
+    DEFAULT_RUNTIME_FALLBACK_CONFIG.retry_on_errors,
+  )
+  const prefersSameModelRetry = action === "retry_same_model" || action === "retry_same_model_delayed"
   const canRetry =
-    shouldRetryError(errorInfo) &&
+    (prefersSameModelRetry || shouldRetryError(errorInfo)) &&
     fallbackChain &&
     fallbackChain.length > 0 &&
     hasMoreFallbacks(fallbackChain, task.attemptCount ?? 0)
 
   if (!canRetry) return false
 
-  const action = getRuntimeFallbackAction(
-    errorInfo,
-    DEFAULT_RUNTIME_FALLBACK_CONFIG.retry_on_errors,
-  )
-
-  if (action === "retry_same_model") {
+  if (prefersSameModelRetry) {
     return scheduleTransientRetry({
       task,
       errorInfo,

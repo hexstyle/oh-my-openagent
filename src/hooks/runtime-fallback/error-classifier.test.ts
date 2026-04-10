@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test"
 
-import { classifyErrorType, extractAutoRetrySignal, extractStatusCode, isRetryableError } from "./error-classifier"
+import {
+  classifyErrorType,
+  extractAutoRetrySignal,
+  extractStatusCode,
+  isRetryableError,
+  isTransientForbiddenError,
+} from "./error-classifier"
 
 describe("runtime-fallback error classifier", () => {
   test("detects cooling-down auto-retry status signals", () => {
@@ -127,6 +133,12 @@ describe("runtime-fallback error classifier", () => {
     expect(signal).toBeUndefined()
     expect(errorType).toBe("quota_exceeded")
     expect(retryable).toBe(true)
+  })
+
+  test("detects transient 403 forbidden/request-not-allowed errors", () => {
+    expect(isTransientForbiddenError({ statusCode: 403, message: "Request not allowed" })).toBe(true)
+    expect(isTransientForbiddenError({ message: "403 Forbidden" })).toBe(true)
+    expect(isTransientForbiddenError({ statusCode: 403, message: "Permission denied" })).toBe(false)
   })
 })
 
