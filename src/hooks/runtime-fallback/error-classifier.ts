@@ -13,6 +13,8 @@ export function getErrorMessage(error: unknown): string {
   const paths = [
     errorObj.data,
     errorObj.error,
+    errorObj.cause,
+    (errorObj.cause as Record<string, unknown>)?.error,
     errorObj,
     (errorObj.data as Record<string, unknown>)?.error,
   ]
@@ -228,6 +230,10 @@ export function isRetryableError(error: unknown, retryOnErrors: number[]): boole
   const statusCode = extractStatusCode(error, retryOnErrors)
   const message = getErrorMessage(error)
   const errorType = classifyErrorType(error)
+
+  if (isTransientForbiddenError(error)) {
+    return true
+  }
 
   if (errorType === "missing_api_key") {
     return true

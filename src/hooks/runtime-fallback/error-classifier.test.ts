@@ -4,6 +4,7 @@ import {
   classifyErrorType,
   extractAutoRetrySignal,
   extractStatusCode,
+  getErrorMessage,
   isRetryableError,
   isTransientForbiddenError,
 } from "./error-classifier"
@@ -139,6 +140,28 @@ describe("runtime-fallback error classifier", () => {
     expect(isTransientForbiddenError({ statusCode: 403, message: "Request not allowed" })).toBe(true)
     expect(isTransientForbiddenError({ message: "403 Forbidden" })).toBe(true)
     expect(isTransientForbiddenError({ statusCode: 403, message: "Permission denied" })).toBe(false)
+  })
+
+  test("prefers nested cause message when tool execution is aborted around a transient 403", () => {
+    const error = {
+      message: "Tool execution aborted",
+      cause: {
+        statusCode: 403,
+        message: "Request not allowed",
+      },
+    }
+
+    expect(getErrorMessage(error)).toBe("request not allowed")
+    expect(isTransientForbiddenError(error)).toBe(true)
+  })
+
+  test("treats remote compact 403 forbidden errors as transient forbidden failures", () => {
+    const error = {
+      message: "Error running remote compact task: unexpected status 403 Forbidden",
+    }
+
+    expect(getErrorMessage(error)).toBe("error running remote compact task: unexpected status 403 forbidden")
+    expect(isTransientForbiddenError(error)).toBe(true)
   })
 })
 

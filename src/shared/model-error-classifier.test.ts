@@ -156,4 +156,13 @@ describe("model-error-classifier", () => {
     expect(shouldRetryError({ message: "403 Request not allowed" })).toBe(true)
     expect(shouldSwitchFallback({ message: "403 Forbidden" })).toBe(false)
   })
+
+  test("treats remote compact unexpected status 403 Forbidden as retryable", () => {
+    expect(
+      shouldRetryError({ message: "Error running remote compact task: unexpected status 403 Forbidden" }),
+    ).toBe(true)
+    expect(
+      shouldSwitchFallback({ message: "Error running remote compact task: unexpected status 403 Forbidden" }),
+    ).toBe(false)
+  })
 })

@@ -82,6 +82,28 @@ describe("runtime fallback policy", () => {
         [402, 429, 500, 502, 503, 504],
       ),
     ).toBe("retry_same_model_delayed")
+
+    expect(
+      getRuntimeFallbackAction(
+        {
+          message: "Tool execution aborted",
+          cause: {
+            statusCode: 403,
+            message: "Request not allowed",
+          },
+        },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("retry_same_model_delayed")
+
+    expect(
+      getRuntimeFallbackAction(
+        {
+          message: "Error running remote compact task: unexpected status 403 Forbidden",
+        },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("retry_same_model_delayed")
   })
 
   it("routes quota and cooldown failures to spark then free models", () => {
