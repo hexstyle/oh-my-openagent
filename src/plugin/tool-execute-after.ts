@@ -129,7 +129,7 @@ export function createToolExecuteAfterHandler(args: {
       await hooks.jsonErrorRecovery?.["tool.execute.after"]?.(input, output)
     }
 
-    if (input.tool === "extract" || input.tool === "discard") {
+    const runToolExecuteAfterHooksSafely = async (): Promise<void> => {
       const originalOutput = {
         title: output.title,
         output: output.output,
@@ -142,17 +142,20 @@ export function createToolExecuteAfterHandler(args: {
         output.title = originalOutput.title
         output.output = originalOutput.output
         output.metadata = originalOutput.metadata
-        log("[tool-execute-after] Failed to process extract/discard hooks", {
+        log(
+          input.tool === "extract" || input.tool === "discard"
+            ? "[tool-execute-after] Failed to process extract/discard hooks"
+            : "[tool-execute-after] Failed to process post-tool hooks",
+          {
           tool: input.tool,
           sessionID: input.sessionID,
           callID: input.callID,
           error,
-        })
+          }
+        )
       }
-
-      return
     }
 
-    await runToolExecuteAfterHooks()
+    await runToolExecuteAfterHooksSafely()
   }
 }
