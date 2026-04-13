@@ -106,6 +106,17 @@ describe("runtime fallback policy", () => {
     ).toBe("retry_same_model_delayed")
   })
 
+  it("treats embedded forbidden json wrapper messages as delayed same-model retries", () => {
+    expect(
+      getRuntimeFallbackAction(
+        {
+          message: 'Forbidden: {"error":{"type":"forbidden","message":"Request not allowed"}}',
+        },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("retry_same_model_delayed")
+  })
+
   it("treats wrapped and remote compact 500 internal-server errors as immediate same-model retries", () => {
     expect(
       getRuntimeFallbackAction(
@@ -124,6 +135,15 @@ describe("runtime fallback policy", () => {
       getRuntimeFallbackAction(
         {
           message: "Error running remote compact task: unexpected status 500 Internal Server Error",
+        },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("retry_same_model")
+
+    expect(
+      getRuntimeFallbackAction(
+        {
+          message: 'Internal Server Error: {"error":{"type":"api_error","message":"Internal server error"}}',
         },
         [402, 429, 500, 502, 503, 504],
       ),

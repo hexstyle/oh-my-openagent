@@ -177,12 +177,32 @@ describe("runtime-fallback error classifier", () => {
     expect(isTransientForbiddenError(error)).toBe(true)
   })
 
+  test("treats embedded forbidden json wrapper messages as transient forbidden failures", () => {
+    const error = {
+      message: 'Forbidden: {"error":{"type":"forbidden","message":"Request not allowed"}}',
+    }
+
+    expect(getErrorMessage(error)).toBe('forbidden: {"error":{"type":"forbidden","message":"request not allowed"}}')
+    expect(isTransientForbiddenError(error)).toBe(true)
+  })
+
   test("treats remote compact 500 internal server errors as retryable transient failures", () => {
     const error = {
       message: "Error running remote compact task: unexpected status 500 Internal Server Error",
     }
 
     expect(getErrorMessage(error)).toBe("error running remote compact task: unexpected status 500 internal server error")
+    expect(isRetryableError(error, [402, 403, 429, 500, 502, 503, 504, 529])).toBe(true)
+  })
+
+  test("treats embedded internal-server-error json wrapper messages as retryable transient failures", () => {
+    const error = {
+      message: 'Internal Server Error: {"error":{"type":"api_error","message":"Internal server error"}}',
+    }
+
+    expect(getErrorMessage(error)).toBe(
+      'internal server error: {"error":{"type":"api_error","message":"internal server error"}}',
+    )
     expect(isRetryableError(error, [402, 403, 429, 500, 502, 503, 504, 529])).toBe(true)
   })
 })

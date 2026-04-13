@@ -9,6 +9,14 @@ function isStandaloneTransientForbiddenMessage(message: string): boolean {
   return /^\s*(request not allowed|forbidden)\s*$/i.test(message)
 }
 
+function isWrappedTransientForbiddenMessage(message: string): boolean {
+  return message.includes("request not allowed")
+    || (
+      message.startsWith("forbidden:")
+      && message.includes('"type":"forbidden"')
+    )
+}
+
 export function getErrorMessage(error: unknown): string {
   if (!error) return ""
   if (typeof error === "string") return error.toLowerCase()
@@ -169,7 +177,9 @@ export function isTransientForbiddenError(error: unknown): boolean {
   }
 
   const statusCode = extractStatusCode(error, [403])
-  return statusCode === 403 || isStandaloneTransientForbiddenMessage(message)
+  return statusCode === 403
+    || isStandaloneTransientForbiddenMessage(message)
+    || isWrappedTransientForbiddenMessage(message)
 }
 
 export interface AutoRetrySignal {

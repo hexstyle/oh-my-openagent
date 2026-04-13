@@ -111,6 +111,11 @@ function isTransientForbiddenMessage(message: string): boolean {
   }
 
   return message.includes("403")
+    || message.includes("request not allowed")
+    || (
+      message.startsWith("forbidden:")
+      && message.includes('"type":"forbidden"')
+    )
     || message.trim() === "request not allowed"
     || message.trim() === "forbidden"
 }

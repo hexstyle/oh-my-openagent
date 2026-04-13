@@ -1274,6 +1274,68 @@ describe("todo-continuation-enforcer", () => {
     expect(promptCalls).toHaveLength(0)
   })
 
+  test("should skip injection when transient forbidden json wrapper runtime fallback is already retrying the same model", async () => {
+    const sessionID = "main-event-forbidden-json-wrapper"
+    setMainSession(sessionID)
+    mockMessages = [
+      { info: { id: "msg-1", role: "user" } },
+      { info: { id: "msg-2", role: "assistant" } },
+    ]
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    await hook.handler({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID,
+          error: {
+            message: 'Forbidden: {"error":{"type":"forbidden","message":"Request not allowed"}}',
+          },
+        },
+      },
+    })
+
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await fakeTimers.advanceBy(3000)
+
+    expect(promptCalls).toHaveLength(0)
+  })
+
+  test("should skip injection when transient internal-server-error json wrapper runtime fallback is already retrying the same model", async () => {
+    const sessionID = "main-event-internal-server-error-json-wrapper"
+    setMainSession(sessionID)
+    mockMessages = [
+      { info: { id: "msg-1", role: "user" } },
+      { info: { id: "msg-2", role: "assistant" } },
+    ]
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    await hook.handler({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID,
+          error: {
+            message: 'Internal Server Error: {"error":{"type":"api_error","message":"Internal server error"}}',
+          },
+        },
+      },
+    })
+
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await fakeTimers.advanceBy(3000)
+
+    expect(promptCalls).toHaveLength(0)
+  })
+
   test("should skip injection when transient 500 runtime fallback is already retrying the same model", async () => {
     const sessionID = "main-event-transient-500"
     setMainSession(sessionID)

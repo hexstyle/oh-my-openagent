@@ -260,6 +260,29 @@ describe("tryFallbackRetry", () => {
     expect(args.processKey).toHaveBeenCalledWith("provider-a/original-model")
   })
 
+  test("treats embedded forbidden json wrapper failures as delayed same-model retries", () => {
+    jest.useFakeTimers()
+    const args = createDefaultArgs({
+      sessionID: "session-forbidden-json-wrapper-retry",
+    })
+
+    const result = tryFallbackRetry({
+      ...args,
+      errorInfo: {
+        name: "AuthenticationError",
+        message: 'Forbidden: {"error":{"type":"forbidden","message":"Request not allowed"}}',
+      },
+    })
+
+    expect(result).toBe(true)
+    expect(args.task.attemptCount).toBe(0)
+    expect(args.task.transientRetryCount).toBe(1)
+    expect(args.task.transientRetryDelayMs).toBe(10_000)
+
+    jest.advanceTimersByTime(10_000)
+    expect(args.processKey).toHaveBeenCalledWith("provider-a/original-model")
+  })
+
   test("treats internal-server-error 500 failures as delayed same-model retries", () => {
     jest.useFakeTimers()
     const args = createDefaultArgs({
@@ -271,6 +294,29 @@ describe("tryFallbackRetry", () => {
       errorInfo: {
         name: "AI_APICallError",
         message: "Internal server error",
+      },
+    })
+
+    expect(result).toBe(true)
+    expect(args.task.attemptCount).toBe(0)
+    expect(args.task.transientRetryCount).toBe(1)
+    expect(args.task.transientRetryDelayMs).toBe(10_000)
+
+    jest.advanceTimersByTime(10_000)
+    expect(args.processKey).toHaveBeenCalledWith("provider-a/original-model")
+  })
+
+  test("treats embedded internal-server-error json wrapper failures as delayed same-model retries", () => {
+    jest.useFakeTimers()
+    const args = createDefaultArgs({
+      sessionID: "session-internal-server-error-json-wrapper-retry",
+    })
+
+    const result = tryFallbackRetry({
+      ...args,
+      errorInfo: {
+        name: "AI_APICallError",
+        message: 'Internal Server Error: {"error":{"type":"api_error","message":"Internal server error"}}',
       },
     })
 

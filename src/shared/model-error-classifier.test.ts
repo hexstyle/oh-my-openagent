@@ -157,6 +157,15 @@ describe("model-error-classifier", () => {
     expect(shouldSwitchFallback({ message: "403 Forbidden" })).toBe(false)
   })
 
+  test("treats embedded forbidden json wrapper messages as retryable", () => {
+    expect(
+      shouldRetryError({ message: 'Forbidden: {"error":{"type":"forbidden","message":"Request not allowed"}}' }),
+    ).toBe(true)
+    expect(
+      shouldSwitchFallback({ message: 'Forbidden: {"error":{"type":"forbidden","message":"Request not allowed"}}' }),
+    ).toBe(false)
+  })
+
   test("treats remote compact unexpected status 403 Forbidden as retryable", () => {
     expect(
       shouldRetryError({ message: "Error running remote compact task: unexpected status 403 Forbidden" }),
@@ -169,6 +178,15 @@ describe("model-error-classifier", () => {
   test("treats plain internal server error messages as retryable", () => {
     expect(shouldRetryError({ message: "Internal server error" })).toBe(true)
     expect(shouldSwitchFallback({ message: "Internal server error" })).toBe(false)
+  })
+
+  test("treats embedded internal-server-error json wrapper messages as retryable", () => {
+    expect(
+      shouldRetryError({ message: 'Internal Server Error: {"error":{"type":"api_error","message":"Internal server error"}}' }),
+    ).toBe(true)
+    expect(
+      shouldSwitchFallback({ message: 'Internal Server Error: {"error":{"type":"api_error","message":"Internal server error"}}' }),
+    ).toBe(false)
   })
 
   test("treats remote compact unexpected status 500 Internal Server Error as retryable", () => {
