@@ -625,6 +625,241 @@ describe("runtime-fallback", () => {
       expect(fallbackLogs).toHaveLength(0)
     })
 
+    test("transient 403 retry survives the immediate session.idle event that follows the error", async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
+            }),
+            promptAsync: async (input) => {
+              promptCalls.push(input as Record<string, unknown>)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({
+            notify_on_fallback: false,
+            transient_retry_initial_delay_seconds: 0.01,
+            transient_retry_max_delay_seconds: 0.05,
+          }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback([
+            "anthropic/claude-opus-4-6",
+            "openai/gpt-5.4",
+          ]),
+        },
+      )
+      const sessionID = "test-session-transient-403-idle-race"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "anthropic/claude-opus-4-6" } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            error: {
+              name: "AI_APICallError",
+              message: "Forbidden",
+              statusCode: 403,
+              responseBody: JSON.stringify({
+                error: {
+                  type: "forbidden",
+                  message: "Request not allowed",
+                },
+              }),
+            },
+          },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.idle",
+          properties: { sessionID },
+        },
+      })
+
+      expect(promptCalls).toHaveLength(0)
+
+      await new Promise((resolve) => setTimeout(resolve, 20))
+
+      expect(promptCalls).toHaveLength(1)
+      expect(
+        (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
+      ).toEqual({
+        providerID: "anthropic",
+        modelID: "claude-opus-4-6",
+      })
+
+      const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
+      expect(fallbackLogs).toHaveLength(0)
+    })
+
+    test("duplicate assistant error updates do not back off an already scheduled transient 403 retry", async () => {
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
+            }),
+          },
+        }),
+        {
+          config: createMockConfig({
+            notify_on_fallback: false,
+            transient_retry_initial_delay_seconds: 0.05,
+            transient_retry_max_delay_seconds: 0.2,
+          }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback([
+            "anthropic/claude-opus-4-6",
+            "openai/gpt-5.4",
+          ]),
+        },
+      )
+      const sessionID = "test-session-duplicate-403-message-updated"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "anthropic/claude-opus-4-6" } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            error: {
+              name: "AI_APICallError",
+              message: "Forbidden",
+              statusCode: 403,
+            },
+          },
+        },
+      })
+
+      const stateAfterSessionError = hook._deps?.sessionStates.get(sessionID)
+      expect(stateAfterSessionError?.transientRetryDelayMs).toBe(50)
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              sessionID,
+              role: "assistant",
+              model: "anthropic/claude-opus-4-6",
+              error: {
+                name: "AI_APICallError",
+                message: "Forbidden",
+                statusCode: 403,
+              },
+            },
+          },
+        },
+      })
+
+      const stateAfterMessageUpdated = hook._deps?.sessionStates.get(sessionID)
+      expect(stateAfterMessageUpdated?.transientRetryDelayMs).toBe(50)
+    })
+
+    test("duplicate transient 403 message.updated plus session.idle still retries on the initial schedule", async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
+            }),
+            promptAsync: async (input) => {
+              promptCalls.push(input as Record<string, unknown>)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({
+            notify_on_fallback: false,
+            transient_retry_initial_delay_seconds: 0.03,
+            transient_retry_max_delay_seconds: 0.2,
+          }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback([
+            "anthropic/claude-opus-4-6",
+            "openai/gpt-5.4",
+          ]),
+        },
+      )
+      const sessionID = "test-session-duplicate-403-message-updated-idle"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "anthropic/claude-opus-4-6" } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            error: {
+              name: "AI_APICallError",
+              message: "Forbidden",
+              statusCode: 403,
+            },
+          },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              sessionID,
+              role: "assistant",
+              model: "anthropic/claude-opus-4-6",
+              error: {
+                name: "AI_APICallError",
+                message: "Forbidden",
+                statusCode: 403,
+              },
+            },
+          },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.idle",
+          properties: { sessionID },
+        },
+      })
+
+      await new Promise((resolve) => setTimeout(resolve, 45))
+
+      expect(promptCalls).toHaveLength(1)
+      expect(
+        (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
+      ).toEqual({
+        providerID: "anthropic",
+        modelID: "claude-opus-4-6",
+      })
+    })
+
     test("agent-not-found UnknownError falls back immediately without same-model retry", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(

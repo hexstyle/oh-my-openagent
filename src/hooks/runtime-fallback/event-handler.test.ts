@@ -152,4 +152,29 @@ describe("createEventHandler", () => {
       },
     ])
   })
+
+  it("#given a delayed transient retry is pending #when session.idle fires #then the retry state is preserved", async () => {
+    // given
+    const sessionID = "session-idle-transient-retry"
+    const deps = createDeps()
+    const abortCalls: string[] = []
+    const clearCalls: string[] = []
+    const state = createFallbackState("anthropic/claude-opus-4-6")
+    state.pendingTransientRetry = true
+    deps.sessionStates.set(sessionID, state)
+    deps.sessionTransientRetryTimeouts.set(sessionID, 1)
+    deps.sessionStatusRetryKeys.set(sessionID, "retry:1")
+    const helpers = createHelpers(deps, abortCalls, clearCalls)
+    const handler = createEventHandler(deps, helpers)
+
+    // when
+    await handler({ event: { type: "session.idle", properties: { sessionID } } })
+
+    // then
+    expect(clearCalls).toEqual([])
+    expect(abortCalls).toEqual([])
+    expect(state.pendingTransientRetry).toBe(true)
+    expect(deps.sessionTransientRetryTimeouts.has(sessionID)).toBe(true)
+    expect(deps.sessionStatusRetryKeys.get(sessionID)).toBe("retry:1")
+  })
 })

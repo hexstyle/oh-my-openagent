@@ -14,7 +14,7 @@ import { clearRecentCompletionState, markSessionRecentlyCompleted } from "./rece
 import { getRuntimeFallbackAction, selectFallbackModelsForAction } from "./fallback-policy"
 
 export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
-  const { config, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionFallbackTimeouts, sessionStatusRetryKeys } = deps
+  const { config, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionFallbackTimeouts, sessionTransientRetryTimeouts, sessionStatusRetryKeys } = deps
   const sessionStatusHandler = createSessionStatusHandler(deps, helpers, sessionStatusRetryKeys)
   const timeoutEnabled = config.timeout_seconds > 0
 
@@ -205,12 +205,40 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       return
     }
 
+    const state = sessionStates.get(sessionID)
+    const hasTransientRetryTimer = sessionTransientRetryTimeouts.has(sessionID)
+    if (state?.pendingTransientRetry || hasTransientRetryTimer) {
+      if (!hasTransientRetryTimer && state?.pendingTransientRetry) {
+        const resolvedAgent = await helpers.resolveAgentForSessionFromContext(
+          sessionID,
+          props?.agent as string | undefined,
+        )
+        const retried = await helpers.retryCurrentModel(
+          sessionID,
+          resolvedAgent,
+          "session.idle.transient-rearm",
+          { immediate: false },
+        )
+        if (retried) {
+          log(`[${HOOK_NAME}] session.idle while delayed transient retry was pending; re-armed retry`, {
+            sessionID,
+            resolvedAgent,
+          })
+          return
+        }
+      }
+
+      log(`[${HOOK_NAME}] session.idle while delayed transient retry is pending; preserving retry state`, {
+        sessionID,
+      })
+      return
+    }
+
     const hadTimeout = sessionFallbackTimeouts.has(sessionID)
     helpers.clearSessionFallbackTimeout(sessionID)
     sessionRetryInFlight.delete(sessionID)
     sessionStatusRetryKeys.delete(sessionID)
 
-    const state = sessionStates.get(sessionID)
     if (state) {
       state.pendingFallbackModel = undefined
       resetTransientRetryState(state)

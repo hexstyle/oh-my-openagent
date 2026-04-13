@@ -22,7 +22,7 @@ import {
 export { hasVisibleAssistantResponse } from "./visible-assistant-response"
 
 export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
-  const { ctx, config, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionStatusRetryKeys } = deps
+  const { ctx, config, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionTransientRetryTimeouts, sessionStatusRetryKeys } = deps
   const checkVisibleResponse = hasVisibleAssistantResponse(extractAutoRetrySignal)
   const timeoutEnabled = config.timeout_seconds > 0
 
@@ -226,6 +226,18 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       if (retrySignal && timeoutEnabled) {
         log(`[${HOOK_NAME}] Detected provider auto-retry signal`, { sessionID, model })
       }
+      const retryable = isRetryableError(error, config.retry_on_errors)
+      const retryAction = retryable
+        ? getRuntimeFallbackAction(error, config.retry_on_errors)
+        : undefined
+
+      if (retryAction === "retry_same_model_delayed" && sessionTransientRetryTimeouts.has(sessionID)) {
+        log(`[${HOOK_NAME}] message.updated transient retry already scheduled; preserving existing timer`, {
+          sessionID,
+          model,
+        })
+        return
+      }
 
       if (!retrySignal) {
         helpers.clearSessionFallbackTimeout(sessionID)
@@ -239,7 +251,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         errorType: classifyErrorType(error),
       })
 
-      if (!isRetryableError(error, config.retry_on_errors)) {
+      if (!retryable) {
         log(`[${HOOK_NAME}] message.updated error not retryable, skipping fallback`, {
           sessionID,
           statusCode: extractStatusCode(error, config.retry_on_errors),
@@ -248,6 +260,8 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         })
         return
       }
+
+      const action = retryAction ?? getRuntimeFallbackAction(error, config.retry_on_errors)
 
       let state = sessionStates.get(sessionID)
       const agent = info?.agent as string | undefined
@@ -298,8 +312,6 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
           }
         }
       }
-
-      const action = getRuntimeFallbackAction(error, config.retry_on_errors)
 
       if (action === "limit_fallback") {
         markLimitError(state)
