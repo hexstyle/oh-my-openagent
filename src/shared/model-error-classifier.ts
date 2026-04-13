@@ -80,6 +80,7 @@ const RETRYABLE_MESSAGE_PATTERNS = [
   "timeout",
   "service unavailable",
   "internal_server_error",
+  "internal server error",
   "temporarily unavailable",
   "try again",
   "503",

@@ -625,6 +625,130 @@ describe("runtime-fallback", () => {
       expect(fallbackLogs).toHaveLength(0)
     })
 
+    test("tool execution aborted wrapper around transient 500 retries the current model immediately", async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
+            }),
+            promptAsync: async (input) => {
+              promptCalls.push(input as Record<string, unknown>)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({
+            notify_on_fallback: false,
+            transient_retry_initial_delay_seconds: 0.01,
+            transient_retry_max_delay_seconds: 0.05,
+          }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback([
+            "openai/gpt-5.4",
+            "openai/gpt-5.3-codex-spark",
+          ]),
+        },
+      )
+      const sessionID = "test-session-tool-execution-aborted-500"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "openai/gpt-5.4" } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            error: {
+              message: "Tool execution aborted",
+              cause: {
+                statusCode: 500,
+                message: "Internal server error",
+              },
+            },
+          },
+        },
+      })
+
+      expect(promptCalls).toHaveLength(1)
+      expect(
+        (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
+      ).toEqual({
+        providerID: "openai",
+        modelID: "gpt-5.4",
+      })
+
+      const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
+      expect(fallbackLogs).toHaveLength(0)
+    })
+
+    test("remote compact 500 internal-server errors retry the current model immediately", async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
+            }),
+            promptAsync: async (input) => {
+              promptCalls.push(input as Record<string, unknown>)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({
+            notify_on_fallback: false,
+            transient_retry_initial_delay_seconds: 0.01,
+            transient_retry_max_delay_seconds: 0.05,
+          }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback([
+            "openai/gpt-5.4",
+            "openai/gpt-5.3-codex-spark",
+          ]),
+        },
+      )
+      const sessionID = "test-session-remote-compact-500"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "openai/gpt-5.4" } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            error: {
+              message: "Error running remote compact task: unexpected status 500 Internal Server Error",
+            },
+          },
+        },
+      })
+
+      expect(promptCalls).toHaveLength(1)
+      expect(
+        (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
+      ).toEqual({
+        providerID: "openai",
+        modelID: "gpt-5.4",
+      })
+
+      const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
+      expect(fallbackLogs).toHaveLength(0)
+    })
+
     test("transient 403 retry survives the immediate session.idle event that follows the error", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(

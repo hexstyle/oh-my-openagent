@@ -258,6 +258,15 @@ describe("extractErrorMessage", () => {
         }),
       ).toBe("Request not allowed")
     })
+
+    test("prefers nested transient 500 details over generic tool execution wrapper messages", () => {
+      expect(
+        extractErrorMessage({
+          message: "Tool execution aborted",
+          cause: { statusCode: 500, message: "Internal server error" },
+        }),
+      ).toBe("Internal server error")
+    })
   })
 
   describe("#given complex error with data wrapper", () => {
@@ -354,6 +363,33 @@ describe("getSessionErrorMessage", () => {
 
       expect(getSessionErrorMessage(properties)).toBe(
         "Error running remote compact task: unexpected status 403 Forbidden",
+      )
+    })
+
+    test("extracts nested data.error.message for transient 500 session errors", () => {
+      const properties = {
+        error: {
+          statusCode: 500,
+          data: {
+            error: {
+              message: "Internal server error",
+            },
+          },
+        },
+      }
+
+      expect(getSessionErrorMessage(properties)).toBe("Internal server error")
+    })
+
+    test("preserves remote compact 500 messages for downstream retry classification", () => {
+      const properties = {
+        error: {
+          message: "Error running remote compact task: unexpected status 500 Internal Server Error",
+        },
+      }
+
+      expect(getSessionErrorMessage(properties)).toBe(
+        "Error running remote compact task: unexpected status 500 Internal Server Error",
       )
     })
   })

@@ -39,6 +39,7 @@ export const RETRYABLE_ERROR_PATTERNS = [
   /model.{0,20}?not.{0,10}?supported/i,
   /model_not_supported/i,
   /service.?unavailable/i,
+  /internal[_\s-]*server[_\s-]*error/i,
   /overloaded/i,
   /temporarily.?unavailable/i,
   /try.?again/i,

@@ -165,4 +165,18 @@ describe("model-error-classifier", () => {
       shouldSwitchFallback({ message: "Error running remote compact task: unexpected status 403 Forbidden" }),
     ).toBe(false)
   })
+
+  test("treats plain internal server error messages as retryable", () => {
+    expect(shouldRetryError({ message: "Internal server error" })).toBe(true)
+    expect(shouldSwitchFallback({ message: "Internal server error" })).toBe(false)
+  })
+
+  test("treats remote compact unexpected status 500 Internal Server Error as retryable", () => {
+    expect(
+      shouldRetryError({ message: "Error running remote compact task: unexpected status 500 Internal Server Error" }),
+    ).toBe(true)
+    expect(
+      shouldSwitchFallback({ message: "Error running remote compact task: unexpected status 500 Internal Server Error" }),
+    ).toBe(false)
+  })
 })

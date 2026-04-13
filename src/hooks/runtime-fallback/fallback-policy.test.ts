@@ -106,6 +106,30 @@ describe("runtime fallback policy", () => {
     ).toBe("retry_same_model_delayed")
   })
 
+  it("treats wrapped and remote compact 500 internal-server errors as immediate same-model retries", () => {
+    expect(
+      getRuntimeFallbackAction(
+        {
+          message: "Tool execution aborted",
+          cause: {
+            statusCode: 500,
+            message: "Internal server error",
+          },
+        },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("retry_same_model")
+
+    expect(
+      getRuntimeFallbackAction(
+        {
+          message: "Error running remote compact task: unexpected status 500 Internal Server Error",
+        },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("retry_same_model")
+  })
+
   it("routes quota and cooldown failures to spark then free models", () => {
     expect(
       getRuntimeFallbackAction(

@@ -131,13 +131,28 @@ export function getSessionErrorMessage(properties: EventPropertiesLike): string 
 
   const directMessage = typeof errorRaw["message"] === "string" ? errorRaw["message"] : undefined
   const causeRaw = errorRaw["cause"]
-  const causeMessage = isRecord(causeRaw) && typeof causeRaw["message"] === "string"
-    ? causeRaw["message"]
-    : undefined
-  const errorMessage = isRecord(errorRaw["error"]) && typeof errorRaw["error"]["message"] === "string"
-    ? errorRaw["error"]["message"]
-    : undefined
-  const nestedMessage = causeMessage ?? errorMessage
+  const nestedCandidates: unknown[] = [
+    causeRaw,
+    isRecord(causeRaw) ? causeRaw["error"] : undefined,
+    isRecord(dataRaw) ? dataRaw["error"] : undefined,
+    errorRaw["error"],
+  ]
+
+  let nestedMessage: string | undefined
+  for (const candidate of nestedCandidates) {
+    if (typeof candidate === "string" && candidate.length > 0) {
+      nestedMessage = candidate
+      break
+    }
+    if (
+      isRecord(candidate) &&
+      typeof candidate["message"] === "string" &&
+      candidate["message"].length > 0
+    ) {
+      nestedMessage = candidate["message"]
+      break
+    }
+  }
 
   if (nestedMessage && isGenericWrapperMessage(directMessage)) {
     return nestedMessage

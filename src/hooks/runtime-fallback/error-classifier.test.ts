@@ -155,6 +155,19 @@ describe("runtime-fallback error classifier", () => {
     expect(isTransientForbiddenError(error)).toBe(true)
   })
 
+  test("prefers nested cause message when tool execution is aborted around a transient 500", () => {
+    const error = {
+      message: "Tool execution aborted",
+      cause: {
+        statusCode: 500,
+        message: "Internal server error",
+      },
+    }
+
+    expect(getErrorMessage(error)).toBe("internal server error")
+    expect(isRetryableError(error, [402, 403, 429, 500, 502, 503, 504, 529])).toBe(true)
+  })
+
   test("treats remote compact 403 forbidden errors as transient forbidden failures", () => {
     const error = {
       message: "Error running remote compact task: unexpected status 403 Forbidden",
@@ -162,6 +175,15 @@ describe("runtime-fallback error classifier", () => {
 
     expect(getErrorMessage(error)).toBe("error running remote compact task: unexpected status 403 forbidden")
     expect(isTransientForbiddenError(error)).toBe(true)
+  })
+
+  test("treats remote compact 500 internal server errors as retryable transient failures", () => {
+    const error = {
+      message: "Error running remote compact task: unexpected status 500 Internal Server Error",
+    }
+
+    expect(getErrorMessage(error)).toBe("error running remote compact task: unexpected status 500 internal server error")
+    expect(isRetryableError(error, [402, 403, 429, 500, 502, 503, 504, 529])).toBe(true)
   })
 })
 
