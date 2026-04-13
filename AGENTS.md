@@ -136,7 +136,8 @@ Current policy:
 
 - transient network/TLS/5xx/unknown failures stay on the current model first
 - transient same-model retries must:
-  - open a retry window of 4 hours by default
+  - open a retry window of 15 minutes by default
+  - start with a 10-second retry delay
   - increase delay between attempts over time
   - never become less frequent than once every 5 minutes
   - fall back only after that retry window expires
@@ -196,3 +197,14 @@ bun run script/verify-local-opencode-install.ts
 ```
 
 The live runtime is not considered fixed until the clean install path passes.
+
+## Completion Protocol
+
+After successful changes and green validation, finish the work end-to-end:
+
+- create a normal commit for the completed changes
+- push the branch updates to the remote
+- apply the fork locally with `./script/install-local-opencode-fork.sh --reset`
+- verify the live local install with `bun run script/verify-local-opencode-install.ts`
+
+Do not stop at a green test run when the task expects a usable local runtime.

@@ -13,6 +13,7 @@ const PREEMPTIVE_COMPACTION_THRESHOLD = 0.78
 const PREEMPTIVE_COMPACTION_LOW_LIMIT_THRESHOLD = 0.68
 const PREEMPTIVE_COMPACTION_LOW_LIMIT_CUTOFF = 300_000
 const PREEMPTIVE_COMPACTION_COOLDOWN_MS = 60_000
+const POST_COMPACTION_REARM_TOKEN_DELTA = 25_000
 
 declare function setTimeout(handler: () => void, timeout?: number): unknown
 declare function clearTimeout(timeoutID: unknown): void
@@ -30,6 +31,14 @@ interface CachedCompactionState {
   tokens: TokenInfo
 }
 
+interface CompactionUsageSnapshot {
+  totalInputTokens: number
+  reachedAbsoluteThreshold: boolean
+  actualLimit: number | null
+  usageRatio: number | null
+  threshold: number | null
+}
+
 function getPreemptiveCompactionThreshold(actualLimit: number): number {
   return actualLimit <= PREEMPTIVE_COMPACTION_LOW_LIMIT_CUTOFF
     ? PREEMPTIVE_COMPACTION_LOW_LIMIT_THRESHOLD
@@ -43,6 +52,41 @@ function getPreemptiveCompactionAbsoluteThreshold(pluginConfig: OhMyOpenCodeConf
   }
 
   return Math.floor(configured)
+}
+
+function getTotalInputTokens(tokens: TokenInfo): number {
+  return (tokens.input ?? 0) + (tokens.cache?.read ?? 0)
+}
+
+function resolveCompactionUsageSnapshot(
+  cached: CachedCompactionState,
+  pluginConfig: OhMyOpenCodeConfig,
+  modelCacheState?: ContextLimitModelCacheState,
+): CompactionUsageSnapshot {
+  const totalInputTokens = getTotalInputTokens(cached.tokens)
+  const absoluteThreshold = getPreemptiveCompactionAbsoluteThreshold(pluginConfig)
+  const reachedAbsoluteThreshold = absoluteThreshold !== null && totalInputTokens >= absoluteThreshold
+  const actualLimit = resolveActualContextLimit(
+    cached.providerID,
+    cached.modelID,
+    modelCacheState,
+  )
+  const usageRatio = actualLimit === null ? null : totalInputTokens / actualLimit
+  const threshold = actualLimit === null ? null : getPreemptiveCompactionThreshold(actualLimit)
+
+  return {
+    totalInputTokens,
+    reachedAbsoluteThreshold,
+    actualLimit,
+    usageRatio,
+    threshold,
+  }
+}
+
+function isCompactionThresholdReached(snapshot: CompactionUsageSnapshot): boolean {
+  if (snapshot.reachedAbsoluteThreshold) return true
+  if (snapshot.usageRatio === null || snapshot.threshold === null) return false
+  return snapshot.usageRatio >= snapshot.threshold
 }
 
 async function withTimeout<TValue>(
@@ -87,6 +131,7 @@ export function createPreemptiveCompactionHook(
   const compactionInProgress = new Set<string>()
   const compactedSessions = new Set<string>()
   const lastCompactionTime = new Map<string, number>()
+  const postCompactionBaselineTokens = new Map<string, number>()
   const tokenCache = new Map<string, CachedCompactionState>()
 
   const maybeCompactSession = async (sessionID: string): Promise<void> => {
@@ -98,14 +143,9 @@ export function createPreemptiveCompactionHook(
     const cached = tokenCache.get(sessionID)
     if (!cached) return
 
-    const totalInputTokens = (cached.tokens.input ?? 0) + (cached.tokens.cache?.read ?? 0)
+    const usageSnapshot = resolveCompactionUsageSnapshot(cached, pluginConfig, modelCacheState)
+    const { totalInputTokens, reachedAbsoluteThreshold, actualLimit, usageRatio, threshold } = usageSnapshot
     const absoluteThreshold = getPreemptiveCompactionAbsoluteThreshold(pluginConfig)
-    const reachedAbsoluteThreshold = absoluteThreshold !== null && totalInputTokens >= absoluteThreshold
-    const actualLimit = resolveActualContextLimit(
-      cached.providerID,
-      cached.modelID,
-      modelCacheState,
-    )
 
     if (actualLimit === null && !reachedAbsoluteThreshold) {
       log("[preemptive-compaction] Skipping preemptive compaction: unknown context limit for model", {
@@ -117,11 +157,8 @@ export function createPreemptiveCompactionHook(
       return
     }
 
-    const usageRatio = actualLimit === null ? null : totalInputTokens / actualLimit
-    const threshold = actualLimit === null ? null : getPreemptiveCompactionThreshold(actualLimit)
-
     if (
-      (!reachedAbsoluteThreshold && usageRatio !== null && threshold !== null && usageRatio < threshold)
+      (!isCompactionThresholdReached(usageSnapshot))
       || !cached.modelID
     ) {
       return
@@ -160,7 +197,9 @@ export function createPreemptiveCompactionHook(
         `Compaction summarize timed out after ${PREEMPTIVE_COMPACTION_TIMEOUT_MS}ms`,
       )
 
+      lastCompactionTime.set(sessionID, Date.now())
       compactedSessions.add(sessionID)
+      postCompactionBaselineTokens.delete(sessionID)
     } catch (error) {
       log("[preemptive-compaction] Compaction failed", { sessionID, error: String(error) })
     } finally {
@@ -192,6 +231,7 @@ export function createPreemptiveCompactionHook(
         compactionInProgress.delete(sessionID)
         compactedSessions.delete(sessionID)
         lastCompactionTime.delete(sessionID)
+        postCompactionBaselineTokens.delete(sessionID)
         tokenCache.delete(sessionID)
         postCompactionMonitor.clear(sessionID)
       }
@@ -202,6 +242,8 @@ export function createPreemptiveCompactionHook(
       const sessionID = (props?.sessionID as string | undefined)
         ?? (props?.info as { id?: string } | undefined)?.id
       if (sessionID) {
+        lastCompactionTime.set(sessionID, Date.now())
+        postCompactionBaselineTokens.delete(sessionID)
         postCompactionMonitor.onSessionCompacted(sessionID)
       }
       return
@@ -236,7 +278,37 @@ export function createPreemptiveCompactionHook(
           tokens: info.tokens,
         })
       }
-      compactedSessions.delete(info.sessionID)
+
+      if (compactedSessions.has(info.sessionID) && info.providerID && info.tokens) {
+        const usageSnapshot = resolveCompactionUsageSnapshot(
+          {
+            providerID: info.providerID,
+            modelID: info.modelID ?? "",
+            tokens: info.tokens,
+          },
+          pluginConfig,
+          modelCacheState,
+        )
+
+        if (!isCompactionThresholdReached(usageSnapshot)) {
+          compactedSessions.delete(info.sessionID)
+          postCompactionBaselineTokens.delete(info.sessionID)
+        } else {
+          const baselineTokens = postCompactionBaselineTokens.get(info.sessionID)
+
+          if (baselineTokens === undefined) {
+            postCompactionBaselineTokens.set(info.sessionID, usageSnapshot.totalInputTokens)
+          } else if (
+            usageSnapshot.totalInputTokens - baselineTokens >= POST_COMPACTION_REARM_TOKEN_DELTA
+          ) {
+            compactedSessions.delete(info.sessionID)
+            postCompactionBaselineTokens.delete(info.sessionID)
+          }
+        }
+      } else {
+        compactedSessions.delete(info.sessionID)
+        postCompactionBaselineTokens.delete(info.sessionID)
+      }
 
       await postCompactionMonitor.onAssistantMessageUpdated({
         sessionID: info.sessionID,

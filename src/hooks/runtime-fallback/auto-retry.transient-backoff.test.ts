@@ -8,6 +8,22 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+async function waitFor(predicate: () => boolean, timeoutMs = 300, intervalMs = 10): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return
+    }
+    await sleep(intervalMs)
+  }
+
+  if (predicate()) {
+    return
+  }
+
+  throw new Error(`Condition was not met within ${timeoutMs}ms`)
+}
+
 function createDeps(args: {
   promptCalls: Array<unknown>
   abortCalls: string[]
@@ -88,7 +104,7 @@ describe("runtime fallback transient backoff", () => {
     expect(retried).toBe(true)
     expect(promptCalls).toHaveLength(1)
 
-    await sleep(45)
+    await waitFor(() => abortCalls.length >= 1 && promptCalls.length >= 2)
 
     expect(abortCalls.length).toBeGreaterThanOrEqual(1)
     expect(promptCalls).toHaveLength(2)
@@ -122,7 +138,7 @@ describe("runtime fallback transient backoff", () => {
 
     expect(retried).toBe(true)
 
-    await sleep(60)
+    await waitFor(() => abortCalls.length >= 2 && promptCalls.length >= 3)
 
     expect(abortCalls.length).toBeGreaterThanOrEqual(2)
     expect(promptCalls).toHaveLength(3)
