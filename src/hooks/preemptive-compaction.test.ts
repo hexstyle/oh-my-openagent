@@ -697,6 +697,145 @@ describe("preemptive-compaction", () => {
     }
   })
 
+  it("should preserve the post-compaction guard when a finished assistant update has no token metadata", async () => {
+    const hook = createPreemptiveCompactionHook(ctx as never, {} as never)
+    const sessionID = "ses_preserve_guard_without_tokens"
+    const originalNow = Date.now
+    let now = 0
+
+    Date.now = () => now
+
+    try {
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              role: "assistant",
+              sessionID,
+              providerID: "anthropic",
+              modelID: "claude-sonnet-4-6",
+              finish: true,
+              tokens: {
+                input: 170000,
+                output: 0,
+                reasoning: 0,
+                cache: { read: 10000, write: 0 },
+              },
+            },
+          },
+        },
+      })
+
+      await hook["tool.execute.after"](
+        { tool: "bash", sessionID, callID: "call_1" },
+        { title: "", output: "test", metadata: null }
+      )
+
+      expect(ctx.client.session.summarize).toHaveBeenCalledTimes(1)
+
+      now = 121_000
+
+      await hook.event({
+        event: {
+          type: "session.compacted",
+          properties: { sessionID },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              role: "assistant",
+              sessionID,
+              finish: true,
+            },
+          },
+        },
+      })
+
+      now = 182_000
+
+      await hook.event({
+        event: {
+          type: "session.idle",
+          properties: { sessionID },
+        },
+      })
+
+      expect(ctx.client.session.summarize).toHaveBeenCalledTimes(1)
+    } finally {
+      Date.now = originalNow
+    }
+  })
+
+  it("should not start a second compaction before session.compacted even if a metadata-only assistant update arrives", async () => {
+    const hook = createPreemptiveCompactionHook(ctx as never, {} as never)
+    const sessionID = "ses_no_recompact_before_compacted"
+    const originalNow = Date.now
+    let now = 0
+
+    Date.now = () => now
+
+    try {
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              role: "assistant",
+              sessionID,
+              providerID: "anthropic",
+              modelID: "claude-sonnet-4-6",
+              finish: true,
+              tokens: {
+                input: 170000,
+                output: 0,
+                reasoning: 0,
+                cache: { read: 10000, write: 0 },
+              },
+            },
+          },
+        },
+      })
+
+      await hook["tool.execute.after"](
+        { tool: "bash", sessionID, callID: "call_1" },
+        { title: "", output: "test", metadata: null }
+      )
+
+      expect(ctx.client.session.summarize).toHaveBeenCalledTimes(1)
+
+      now = 61_000
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              role: "assistant",
+              sessionID,
+              finish: true,
+            },
+          },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.idle",
+          properties: { sessionID },
+        },
+      })
+
+      expect(ctx.client.session.summarize).toHaveBeenCalledTimes(1)
+    } finally {
+      Date.now = originalNow
+    }
+  })
+
   // #given modelContextLimitsCache has model-specific limit (256k)
   // #when tokens are above the 200k threshold but below 68% of 256k
   // #then should NOT trigger compaction

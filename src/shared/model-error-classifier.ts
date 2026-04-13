@@ -101,8 +101,17 @@ const AUTO_RETRY_GATE_PATTERNS = [
 ]
 
 function isTransientForbiddenMessage(message: string): boolean {
+  const hasTransientForbiddenText =
+    message.includes("request not allowed")
+    || message.includes("forbidden")
+
+  if (!hasTransientForbiddenText) {
+    return false
+  }
+
   return message.includes("403")
-    && (message.includes("request not allowed") || message.includes("forbidden"))
+    || message.trim() === "request not allowed"
+    || message.trim() === "forbidden"
 }
 
 function hasProviderAutoRetrySignal(message: string): boolean {

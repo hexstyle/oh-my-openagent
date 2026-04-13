@@ -214,6 +214,52 @@ describe("tryFallbackRetry", () => {
     expect(args.processKey).toHaveBeenCalledWith("provider-a/original-model")
   })
 
+  test("treats request-not-allowed 403 failures as delayed same-model retries", () => {
+    jest.useFakeTimers()
+    const args = createDefaultArgs({
+      sessionID: "session-request-not-allowed-retry",
+    })
+
+    const result = tryFallbackRetry({
+      ...args,
+      errorInfo: {
+        name: "AuthenticationError",
+        message: "Request not allowed",
+      },
+    })
+
+    expect(result).toBe(true)
+    expect(args.task.attemptCount).toBe(0)
+    expect(args.task.transientRetryCount).toBe(1)
+    expect(args.task.transientRetryDelayMs).toBe(10_000)
+
+    jest.advanceTimersByTime(10_000)
+    expect(args.processKey).toHaveBeenCalledWith("provider-a/original-model")
+  })
+
+  test("treats remote compact 403 forbidden failures as delayed same-model retries", () => {
+    jest.useFakeTimers()
+    const args = createDefaultArgs({
+      sessionID: "session-remote-compact-retry",
+    })
+
+    const result = tryFallbackRetry({
+      ...args,
+      errorInfo: {
+        name: "UnknownError",
+        message: "Error running remote compact task: unexpected status 403 Forbidden",
+      },
+    })
+
+    expect(result).toBe(true)
+    expect(args.task.attemptCount).toBe(0)
+    expect(args.task.transientRetryCount).toBe(1)
+    expect(args.task.transientRetryDelayMs).toBe(10_000)
+
+    jest.advanceTimersByTime(10_000)
+    expect(args.processKey).toHaveBeenCalledWith("provider-a/original-model")
+  })
+
   test("skips fallback entries that are absent from the cached model catalog", () => {
     ;(shared.readCachedModelCatalog as any).mockReturnValue(new Set([
       "provider-b/fallback-model-1",

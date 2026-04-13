@@ -5,6 +5,10 @@ const TRANSIENT_FORBIDDEN_MESSAGE_PATTERNS = [
   /\bforbidden\b/i,
 ]
 
+function isStandaloneTransientForbiddenMessage(message: string): boolean {
+  return /^\s*(request not allowed|forbidden)\s*$/i.test(message)
+}
+
 export function getErrorMessage(error: unknown): string {
   if (!error) return ""
   if (typeof error === "string") return error.toLowerCase()
@@ -158,13 +162,14 @@ export function classifyErrorType(error: unknown): string | undefined {
 }
 
 export function isTransientForbiddenError(error: unknown): boolean {
-  const statusCode = extractStatusCode(error, [403])
-  if (statusCode !== 403) {
+  const message = getErrorMessage(error)
+  const matchesTransientForbiddenMessage = TRANSIENT_FORBIDDEN_MESSAGE_PATTERNS.some((pattern) => pattern.test(message))
+  if (!matchesTransientForbiddenMessage) {
     return false
   }
 
-  const message = getErrorMessage(error)
-  return TRANSIENT_FORBIDDEN_MESSAGE_PATTERNS.some((pattern) => pattern.test(message))
+  const statusCode = extractStatusCode(error, [403])
+  return statusCode === 403 || isStandaloneTransientForbiddenMessage(message)
 }
 
 export interface AutoRetrySignal {

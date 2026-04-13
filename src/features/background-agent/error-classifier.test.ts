@@ -249,6 +249,15 @@ describe("extractErrorMessage", () => {
     test("extracts message from cause object with message", () => {
       expect(extractErrorMessage({ cause: { message: "cause message" } })).toBe("cause message")
     })
+
+    test("prefers nested transient 403 details over generic tool execution wrapper messages", () => {
+      expect(
+        extractErrorMessage({
+          message: "Tool execution aborted",
+          cause: { statusCode: 403, message: "Request not allowed" },
+        }),
+      ).toBe("Request not allowed")
+    })
   })
 
   describe("#given complex error with data wrapper", () => {
@@ -320,6 +329,32 @@ describe("getSessionErrorMessage", () => {
         },
       }
       expect(getSessionErrorMessage(properties)).toBe("nested")
+    })
+
+    test("prefers nested transient 403 cause message over generic session wrapper text", () => {
+      const properties = {
+        error: {
+          message: "Tool execution aborted",
+          cause: {
+            statusCode: 403,
+            message: "Request not allowed",
+          },
+        },
+      }
+
+      expect(getSessionErrorMessage(properties)).toBe("Request not allowed")
+    })
+
+    test("preserves remote compact forbidden messages for downstream retry classification", () => {
+      const properties = {
+        error: {
+          message: "Error running remote compact task: unexpected status 403 Forbidden",
+        },
+      }
+
+      expect(getSessionErrorMessage(properties)).toBe(
+        "Error running remote compact task: unexpected status 403 Forbidden",
+      )
     })
   })
 

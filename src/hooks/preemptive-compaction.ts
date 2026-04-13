@@ -13,6 +13,7 @@ const PREEMPTIVE_COMPACTION_THRESHOLD = 0.78
 const PREEMPTIVE_COMPACTION_LOW_LIMIT_THRESHOLD = 0.68
 const PREEMPTIVE_COMPACTION_LOW_LIMIT_CUTOFF = 300_000
 const PREEMPTIVE_COMPACTION_COOLDOWN_MS = 60_000
+const PREEMPTIVE_COMPACTION_COMPLETION_TIMEOUT_MS = 5 * 60_000
 const POST_COMPACTION_REARM_TOKEN_DELTA = 25_000
 
 declare function setTimeout(handler: () => void, timeout?: number): unknown
@@ -37,6 +38,15 @@ interface CompactionUsageSnapshot {
   actualLimit: number | null
   usageRatio: number | null
   threshold: number | null
+}
+
+function createZeroTokenInfo(): TokenInfo {
+  return {
+    input: 0,
+    output: 0,
+    reasoning: 0,
+    cache: { read: 0, write: 0 },
+  }
 }
 
 function getPreemptiveCompactionThreshold(actualLimit: number): number {
@@ -129,13 +139,40 @@ export function createPreemptiveCompactionHook(
   modelCacheState?: ContextLimitModelCacheState,
 ) {
   const compactionInProgress = new Set<string>()
+  const compactionAwaitingCompletion = new Set<string>()
+  const compactionCompletionTimers = new Map<string, unknown>()
   const compactedSessions = new Set<string>()
   const lastCompactionTime = new Map<string, number>()
   const postCompactionBaselineTokens = new Map<string, number>()
   const tokenCache = new Map<string, CachedCompactionState>()
 
+  const clearCompactionCompletionWait = (sessionID: string): void => {
+    const timer = compactionCompletionTimers.get(sessionID)
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      compactionCompletionTimers.delete(sessionID)
+    }
+    compactionAwaitingCompletion.delete(sessionID)
+  }
+
+  const armCompactionCompletionWait = (sessionID: string): void => {
+    clearCompactionCompletionWait(sessionID)
+    compactionAwaitingCompletion.add(sessionID)
+
+    const timer = setTimeout(() => {
+      compactionCompletionTimers.delete(sessionID)
+      compactionAwaitingCompletion.delete(sessionID)
+    }, PREEMPTIVE_COMPACTION_COMPLETION_TIMEOUT_MS)
+
+    compactionCompletionTimers.set(sessionID, timer)
+  }
+
   const maybeCompactSession = async (sessionID: string): Promise<void> => {
-    if (compactedSessions.has(sessionID) || compactionInProgress.has(sessionID)) return
+    if (
+      compactedSessions.has(sessionID)
+      || compactionInProgress.has(sessionID)
+      || compactionAwaitingCompletion.has(sessionID)
+    ) return
 
     const lastTime = lastCompactionTime.get(sessionID)
     if (lastTime && Date.now() - lastTime < PREEMPTIVE_COMPACTION_COOLDOWN_MS) return
@@ -198,10 +235,12 @@ export function createPreemptiveCompactionHook(
       )
 
       lastCompactionTime.set(sessionID, Date.now())
+      armCompactionCompletionWait(sessionID)
       compactedSessions.add(sessionID)
       postCompactionBaselineTokens.delete(sessionID)
     } catch (error) {
       log("[preemptive-compaction] Compaction failed", { sessionID, error: String(error) })
+      clearCompactionCompletionWait(sessionID)
     } finally {
       compactionInProgress.delete(sessionID)
     }
@@ -229,6 +268,7 @@ export function createPreemptiveCompactionHook(
       const sessionID = (props?.info as { id?: string } | undefined)?.id
       if (sessionID) {
         compactionInProgress.delete(sessionID)
+        clearCompactionCompletionWait(sessionID)
         compactedSessions.delete(sessionID)
         lastCompactionTime.delete(sessionID)
         postCompactionBaselineTokens.delete(sessionID)
@@ -242,8 +282,17 @@ export function createPreemptiveCompactionHook(
       const sessionID = (props?.sessionID as string | undefined)
         ?? (props?.info as { id?: string } | undefined)?.id
       if (sessionID) {
+        clearCompactionCompletionWait(sessionID)
         lastCompactionTime.set(sessionID, Date.now())
+        compactedSessions.add(sessionID)
         postCompactionBaselineTokens.delete(sessionID)
+        const cached = tokenCache.get(sessionID)
+        if (cached) {
+          tokenCache.set(sessionID, {
+            ...cached,
+            tokens: createZeroTokenInfo(),
+          })
+        }
         postCompactionMonitor.onSessionCompacted(sessionID)
       }
       return
@@ -279,34 +328,35 @@ export function createPreemptiveCompactionHook(
         })
       }
 
-      if (compactedSessions.has(info.sessionID) && info.providerID && info.tokens) {
-        const usageSnapshot = resolveCompactionUsageSnapshot(
-          {
-            providerID: info.providerID,
-            modelID: info.modelID ?? "",
-            tokens: info.tokens,
-          },
-          pluginConfig,
-          modelCacheState,
-        )
+      if (compactedSessions.has(info.sessionID)) {
+        if (info.providerID && info.tokens) {
+          const usageSnapshot = resolveCompactionUsageSnapshot(
+            {
+              providerID: info.providerID,
+              modelID: info.modelID ?? "",
+              tokens: info.tokens,
+            },
+            pluginConfig,
+            modelCacheState,
+          )
 
-        if (!isCompactionThresholdReached(usageSnapshot)) {
-          compactedSessions.delete(info.sessionID)
-          postCompactionBaselineTokens.delete(info.sessionID)
-        } else {
-          const baselineTokens = postCompactionBaselineTokens.get(info.sessionID)
-
-          if (baselineTokens === undefined) {
-            postCompactionBaselineTokens.set(info.sessionID, usageSnapshot.totalInputTokens)
-          } else if (
-            usageSnapshot.totalInputTokens - baselineTokens >= POST_COMPACTION_REARM_TOKEN_DELTA
-          ) {
+          if (!isCompactionThresholdReached(usageSnapshot)) {
             compactedSessions.delete(info.sessionID)
             postCompactionBaselineTokens.delete(info.sessionID)
+          } else {
+            const baselineTokens = postCompactionBaselineTokens.get(info.sessionID)
+
+            if (baselineTokens === undefined) {
+              postCompactionBaselineTokens.set(info.sessionID, usageSnapshot.totalInputTokens)
+            } else if (
+              usageSnapshot.totalInputTokens - baselineTokens >= POST_COMPACTION_REARM_TOKEN_DELTA
+            ) {
+              compactedSessions.delete(info.sessionID)
+              postCompactionBaselineTokens.delete(info.sessionID)
+            }
           }
         }
       } else {
-        compactedSessions.delete(info.sessionID)
         postCompactionBaselineTokens.delete(info.sessionID)
       }
 
