@@ -5,7 +5,7 @@ import { log } from "../../shared/logger"
 import { getAgentConfigKey } from "../../shared/agent-display-names"
 import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
 
-import { ABORT_WINDOW_MS, CONTINUATION_COOLDOWN_MS, DEFAULT_SKIP_AGENTS, FAILURE_RESET_WINDOW_MS, HOOK_NAME, MAX_CONSECUTIVE_FAILURES } from "./constants"
+import { ABORT_WINDOW_MS, CONTINUATION_COOLDOWN_MS, DEFAULT_SKIP_AGENTS, FAILURE_RESET_WINDOW_MS, HOOK_NAME, MAX_CONSECUTIVE_FAILURES, TRANSIENT_RETRY_GUARD_MS } from "./constants"
 import { isLastAssistantMessageAborted } from "./abort-detection"
 import { hasUnansweredQuestion } from "./pending-question-detection"
 import { shouldStopForStagnation } from "./stagnation-detection"
@@ -51,6 +51,19 @@ export async function handleSessionIdle(args: {
       return
     }
     state.abortDetectedAt = undefined
+  }
+
+  if (state.transientRetryDetectedAt) {
+    const timeSinceTransientRetry = Date.now() - state.transientRetryDetectedAt
+    if (timeSinceTransientRetry < TRANSIENT_RETRY_GUARD_MS) {
+      log(`[${HOOK_NAME}] Skipped: runtime fallback transient retry recently detected`, {
+        sessionID,
+        timeSinceTransientRetry,
+        guardRemaining: TRANSIENT_RETRY_GUARD_MS - timeSinceTransientRetry,
+      })
+      return
+    }
+    state.transientRetryDetectedAt = undefined
   }
 
   const backgroundTasks = inspectParentSessionTasks({

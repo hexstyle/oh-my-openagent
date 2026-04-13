@@ -1200,6 +1200,80 @@ describe("todo-continuation-enforcer", () => {
     expect(promptCalls).toHaveLength(0)
   })
 
+  test("should skip injection when transient 403 runtime fallback is already retrying the same model", async () => {
+    const sessionID = "main-event-transient-403"
+    setMainSession(sessionID)
+    mockMessages = [
+      { info: { id: "msg-1", role: "user" } },
+      { info: { id: "msg-2", role: "assistant" } },
+    ]
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    await hook.handler({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID,
+          error: {
+            name: "AI_APICallError",
+            message: "Forbidden",
+            statusCode: 403,
+            responseBody: JSON.stringify({
+              error: {
+                type: "forbidden",
+                message: "Request not allowed",
+              },
+            }),
+          },
+        },
+      },
+    })
+
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await fakeTimers.advanceBy(3000)
+
+    expect(promptCalls).toHaveLength(0)
+  })
+
+  test("should skip injection when session.error wraps transient 403 as tool execution aborted", async () => {
+    const sessionID = "main-event-tool-execution-aborted-403"
+    setMainSession(sessionID)
+    mockMessages = [
+      { info: { id: "msg-1", role: "user" } },
+      { info: { id: "msg-2", role: "assistant" } },
+    ]
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    await hook.handler({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID,
+          error: {
+            message: "Tool execution aborted",
+            cause: {
+              statusCode: 403,
+              message: "Request not allowed",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await fakeTimers.advanceBy(3000)
+
+    expect(promptCalls).toHaveLength(0)
+  })
+
   test("should inject when abort flag is stale (>3s old)", async () => {
     fakeTimers.restore()
     // given - session with incomplete todos and old abort timestamp

@@ -1,4 +1,5 @@
 import { createSystemDirective, SystemDirectiveTypes } from "../../shared/system-directive"
+import { DEFAULT_CONFIG as DEFAULT_RUNTIME_FALLBACK_CONFIG } from "../runtime-fallback/constants"
 
 export const HOOK_NAME = "todo-continuation-enforcer"
 
@@ -18,6 +19,8 @@ export const TOAST_DURATION_MS = 900
 export const COUNTDOWN_GRACE_PERIOD_MS = 500
 
 export const ABORT_WINDOW_MS = 3000
+export const TRANSIENT_RETRY_GUARD_MS =
+  (DEFAULT_RUNTIME_FALLBACK_CONFIG.transient_retry_initial_delay_seconds * 1000) + 5000
 export const COMPACTION_GUARD_MS = 60_000
 export const CONTINUATION_COOLDOWN_MS = 5_000
 export const MAX_STAGNATION_COUNT = 3

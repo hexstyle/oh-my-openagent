@@ -596,7 +596,7 @@ describe("preemptive-compaction", () => {
     }
   })
 
-  it("should allow re-compaction only after meaningful post-compaction token growth", async () => {
+  it("should allow re-compaction after context usage resets below threshold and grows again", async () => {
     const hook = createPreemptiveCompactionHook(ctx as never, {} as never)
     const sessionID = "ses_recompact_after_growth"
     const originalNow = Date.now
@@ -629,6 +629,107 @@ describe("preemptive-compaction", () => {
       await hook["tool.execute.after"](
         { tool: "bash", sessionID, callID: "call_1" },
         { title: "", output: "test", metadata: null }
+      )
+
+      expect(ctx.client.session.summarize).toHaveBeenCalledTimes(1)
+
+      now = 121_000
+
+      await hook.event({
+        event: {
+          type: "session.compacted",
+          properties: { sessionID },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              role: "assistant",
+              sessionID,
+              providerID: "anthropic",
+              modelID: "claude-sonnet-4-6",
+              finish: true,
+              tokens: {
+                input: 100000,
+                output: 0,
+                reasoning: 0,
+                cache: { read: 0, write: 0 },
+              },
+            },
+          },
+        },
+      })
+
+      now = 182_000
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              role: "assistant",
+              sessionID,
+              providerID: "anthropic",
+              modelID: "claude-sonnet-4-6",
+              finish: true,
+              tokens: {
+                input: 195000,
+                output: 0,
+                reasoning: 0,
+                cache: { read: 0, write: 0 },
+              },
+            },
+          },
+        },
+      })
+
+      await hook["tool.execute.after"](
+        { tool: "bash", sessionID, callID: "call_2" },
+        { title: "", output: "test", metadata: null }
+      )
+
+      expect(ctx.client.session.summarize).toHaveBeenCalledTimes(2)
+    } finally {
+      Date.now = originalNow
+    }
+  })
+
+  it("should ignore stale pre-compaction token snapshots that arrive after session.compacted", async () => {
+    const hook = createPreemptiveCompactionHook(ctx as never, {} as never)
+    const sessionID = "ses_ignore_stale_post_compaction_tokens"
+    const originalNow = Date.now
+    let now = 0
+
+    Date.now = () => now
+
+    try {
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              role: "assistant",
+              sessionID,
+              providerID: "anthropic",
+              modelID: "claude-sonnet-4-6",
+              finish: true,
+              tokens: {
+                input: 170000,
+                output: 0,
+                reasoning: 0,
+                cache: { read: 10000, write: 0 },
+              },
+            },
+          },
+        },
+      })
+
+      await hook["tool.execute.after"](
+        { tool: "bash", sessionID, callID: "call_1" },
+        { title: "", output: "test", metadata: null },
       )
 
       expect(ctx.client.session.summarize).toHaveBeenCalledTimes(1)
@@ -686,12 +787,14 @@ describe("preemptive-compaction", () => {
         },
       })
 
-      await hook["tool.execute.after"](
-        { tool: "bash", sessionID, callID: "call_2" },
-        { title: "", output: "test", metadata: null }
-      )
+      await hook.event({
+        event: {
+          type: "session.idle",
+          properties: { sessionID },
+        },
+      })
 
-      expect(ctx.client.session.summarize).toHaveBeenCalledTimes(2)
+      expect(ctx.client.session.summarize).toHaveBeenCalledTimes(1)
     } finally {
       Date.now = originalNow
     }
