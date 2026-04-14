@@ -1,5 +1,73 @@
 # AGENTS.md
 
+**Updated:** 2026-04-10
+**Commit:** 442de802
+**Branch:** dev
+
+## Overview
+
+OpenCode plugin fork (`oh-my-opencode` v3.15.2). Managed config, canonical agent naming, multi-model orchestration with runtime fallback, 48 hooks, 26 tools, 11 agents, 19 feature modules. Bun + TypeScript (ESNext, bundler resolution).
+
+## Structure
+
+```text
+oh-my-openagent/
+├── assets/custom-opencode/       # Managed config source of truth
+│   ├── opencode.json             # Host config (providers, limits, plugins)
+│   ├── oh-my-opencode.json       # Agent/model/category config
+│   ├── oh-my-openagent.local.template.jsonc  # User override template
+│   └── instructions/             # Non-interactive shell strategy
+├── script/                       # Install + verify + validate
+│   ├── install-local-opencode-fork.sh  # Zero-to-working installer
+│   ├── verify-local-opencode-install.ts  # Live drift detector
+│   ├── validate-effective-model-config.ts  # Model config validator
+│   └── prepare-local-opencode-model-config.ts
+├── src/
+│   ├── index.ts                  # Plugin entry point
+│   ├── plugin/                   # Hook composition + tool registry (20 files)
+│   ├── plugin-handlers/          # Config → runtime agent/tool/MCP mapping (25 files)
+│   ├── agents/                   # 11 agent definitions (24 files)
+│   ├── hooks/                    # 48 lifecycle hooks across 5 tiers
+│   │   ├── runtime-fallback/     # Model fallback on API errors (40 files) ★
+│   │   ├── atlas/                # Boulder session orchestrator (33 files)
+│   │   ├── anthropic-context-window-limit-recovery/ # (34 files)
+│   │   ├── todo-continuation-enforcer/  # Boulder mechanism (26 files)
+│   │   ├── ralph-loop/           # Self-referential dev loop (25 files)
+│   │   └── ... (20+ more hook dirs)
+│   ├── tools/                    # 26 tools across 15 dirs
+│   │   ├── delegate-task/        # task() delegation engine (54 files)
+│   │   ├── lsp/                  # Full LSP client stack (36 files)
+│   │   ├── hashline-edit/        # Hash-anchored editing (29 files)
+│   │   └── call-omo-agent/       # Direct agent invocation (23 files)
+│   ├── features/                 # 19 standalone modules
+│   │   ├── background-agent/     # Core task engine (50 files, 10k LOC)
+│   │   ├── tmux-subagent/        # Tmux pane management (35 files)
+│   │   ├── opencode-skill-loader/ # 4-scope skill discovery (31 files)
+│   │   └── mcp-oauth/            # OAuth 2.0 + PKCE + DCR (18 files)
+│   ├── shared/                   # Naming, auth, migration, utils (155 files)
+│   ├── config/                   # Zod v4 schema (24 schema files)
+│   ├── mcp/                      # 3 built-in remote MCPs
+│   └── cli/                      # CLI: install, run, doctor, mcp-oauth
+├── .opencode/                    # Plugin config + project skills
+└── bin/                          # CLI binary entry
+```
+
+## Where To Look
+
+| Task | Start Here | Then Check |
+|------|-----------|------------|
+| Change agent models/fallback | `assets/custom-opencode/oh-my-opencode.json` | `script/validate-effective-model-config.ts` |
+| Add/rename an agent | `src/agents/`, `src/shared/agent-display-names.ts` | `src/plugin-handlers/agent-key-remapper.ts`, verifier |
+| Add a new hook | `src/hooks/{name}/index.ts` | `src/plugin/hooks/create-{tier}-hooks.ts`, `src/config/schema/hooks.ts` |
+| Add a new tool | `src/tools/{name}/` | `src/plugin/tool-registry.ts` |
+| Debug runtime fallback | `src/hooks/runtime-fallback/error-classifier.ts` | `fallback-policy.ts`, `fallback-state.ts`, `auto-retry.ts` |
+| Fix install flow | `script/install-local-opencode-fork.sh` | `script/verify-local-opencode-install.ts` |
+| Add config option | `src/config/schema/{name}.ts` | `src/config/schema/oh-my-opencode-config.ts` |
+| Debug background tasks | `src/features/background-agent/manager.ts` | `src/tools/delegate-task/` |
+| Change skill loading | `src/features/opencode-skill-loader/loader.ts` | 4-scope priority: project > opencode > user > global |
+| Add CLI command | `src/cli/cli-program.ts` | Commander.js, follow existing pattern |
+
+
 ## Purpose
 
 This fork keeps the upstream package identity but changes the local install and runtime story:

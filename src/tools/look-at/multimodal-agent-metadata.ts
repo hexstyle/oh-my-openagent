@@ -1,5 +1,6 @@
 import type { PluginInput } from "@opencode-ai/plugin"
 import { MULTIMODAL_LOOKER_AGENT } from "./constants"
+import { getAgentConfigKey } from "../../shared/agent-display-names"
 import { fetchAvailableModels } from "../../shared/model-availability"
 import { log } from "../../shared/logger"
 import { readConnectedProvidersCache } from "../../shared/connected-providers-cache"
@@ -73,7 +74,7 @@ async function resolveRegisteredAgentMetadata(
   const agents = Array.isArray(agentsRaw) ? agentsRaw.map(toAgentInfo).filter(Boolean) : []
 
   const matched = agents.find(
-    (agent) => agent?.name?.toLowerCase() === MULTIMODAL_LOOKER_AGENT.toLowerCase()
+    (agent) => agent?.name && getAgentConfigKey(agent.name) === MULTIMODAL_LOOKER_AGENT
   )
 
   return {

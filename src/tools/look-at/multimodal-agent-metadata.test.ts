@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test"
 import type { PluginInput } from "@opencode-ai/plugin"
+import { getAgentDisplayName } from "../../shared/agent-display-names"
 import { resolveMultimodalLookerAgentMetadata } from "./multimodal-agent-metadata"
 import { setVisionCapableModelsCache, clearVisionCapableModelsCache } from "../../shared/vision-capable-models-cache"
 import * as connectedProvidersCache from "../../shared/connected-providers-cache"
@@ -168,6 +169,27 @@ describe("resolveMultimodalLookerAgentMetadata", () => {
     expect(result).toEqual({
       agentModel: { providerID: "openai", modelID: "gpt-5.4" },
       agentVariant: undefined,
+    })
+  })
+
+  test("matches registered display-name multimodal agent from app.agents()", async () => {
+    spyOn(modelAvailability, "fetchAvailableModels").mockResolvedValue(
+      new Set(["openai/gpt-5.4"]),
+    )
+    spyOn(connectedProvidersCache, "readConnectedProvidersCache").mockReturnValue(["openai"])
+    const ctx = createPluginInput([
+      {
+        name: getAgentDisplayName("multimodal-looker"),
+        model: { providerID: "openai", modelID: "gpt-5.4" },
+        variant: "medium",
+      },
+    ])
+
+    const result = await resolveMultimodalLookerAgentMetadata(ctx)
+
+    expect(result).toEqual({
+      agentModel: { providerID: "openai", modelID: "gpt-5.4" },
+      agentVariant: "medium",
     })
   })
 })
