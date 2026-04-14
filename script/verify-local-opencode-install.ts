@@ -54,6 +54,11 @@ type ListedAgent = {
   model?: string | { providerID?: string; modelID?: string }
 }
 
+type SmokeResult = {
+  output: string
+  exitCode: number
+}
+
 function buildExpectedAgents(pluginConfig: Record<string, unknown>): RuntimeAgentExpectation[] {
   const agents = (pluginConfig.agents ?? {}) as Record<string, { model?: unknown }>
   const expected: Array<{ key: string; configKey?: string; mode: "subagent" | "core" }> = [
@@ -190,8 +195,35 @@ function assertNoForbiddenRuntimeKeys(agentMap: Record<string, RuntimeAgentRecor
   }
 }
 
-function runSmoke(agentName: string): string {
-  return Bun.spawnSync(
+export function isSkippableProviderQuotaSmokeFailure(output: string): boolean {
+  const normalized = output.toLowerCase()
+  return [
+    "out of extra usage",
+    "usage limit",
+    "insufficient balance",
+    "add more at claude.ai/settings/usage",
+    "billing hard limit",
+  ].some((pattern) => normalized.includes(pattern))
+}
+
+export function assertSmokeSucceededOrSkippable(args: {
+  providerLabel: string
+  result: SmokeResult
+}): void {
+  if (/\bOK\b/.test(args.result.output)) {
+    return
+  }
+
+  if (isSkippableProviderQuotaSmokeFailure(args.result.output)) {
+    console.log(`[verify] skipping ${args.providerLabel} smoke: provider quota exhausted`)
+    return
+  }
+
+  fail(`${args.providerLabel} smoke test did not return OK`)
+}
+
+function runSmoke(agentName: string): SmokeResult {
+  const result = Bun.spawnSync(
     ["opencode", "run", "--agent", agentName, "Reply with OK only."],
     {
       cwd: repoRoot,
@@ -199,7 +231,12 @@ function runSmoke(agentName: string): string {
       stderr: "pipe",
       env: process.env,
     },
-  ).stdout.toString("utf-8")
+  )
+
+  return {
+    output: `${result.stdout.toString("utf-8")}\n${result.stderr.toString("utf-8")}`.trim(),
+    exitCode: result.exitCode ?? 0,
+  }
 }
 
 function killOpencodeServerOnPort(port: number): void {
@@ -342,17 +379,25 @@ async function main(): Promise<void> {
 
   if (authStore.anthropic && typeof authStore.anthropic === "object") {
     console.log("[verify] running Anthropic smoke")
-    const output = runSmoke("Prometheus (Plan Builder)")
-    assert(/\bOK\b/.test(output), "Anthropic smoke test did not return OK")
+    const result = runSmoke("Prometheus (Plan Builder)")
+    assertSmokeSucceededOrSkippable({
+      providerLabel: "Anthropic",
+      result,
+    })
   }
 
   if (authStore.openai && typeof authStore.openai === "object") {
     console.log("[verify] running OpenAI smoke")
-    const output = runSmoke("Hephaestus (Deep Agent)")
-    assert(/\bOK\b/.test(output), "OpenAI smoke test did not return OK")
+    const result = runSmoke("Hephaestus (Deep Agent)")
+    assertSmokeSucceededOrSkippable({
+      providerLabel: "OpenAI",
+      result,
+    })
   }
 
   console.log("Local OpenCode fork install verified successfully.")
 }
 
-await main()
+if (import.meta.main) {
+  await main()
+}

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { HookDeps, RuntimeFallbackTimeout } from "./types"
@@ -94,12 +94,46 @@ export function createAutoRetryHelpers(deps: HookDeps) {
   const getExternalWatchdogTokenPath = (sessionID: string): string =>
     join(EXTERNAL_WATCHDOG_DIR, `${sessionID}.token`)
 
+  const getExternalWatchdogPidPath = (sessionID: string): string =>
+    join(EXTERNAL_WATCHDOG_DIR, `${sessionID}.pid`)
+
+  const readExternalWatchdogPid = (sessionID: string): number | undefined => {
+    try {
+      const rawPid = readFileSync(getExternalWatchdogPidPath(sessionID), "utf-8").trim()
+      const pid = Number(rawPid)
+      return Number.isInteger(pid) && pid > 0 ? pid : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  const clearExternalWatchdogPid = (sessionID: string): void => {
+    try {
+      rmSync(getExternalWatchdogPidPath(sessionID), { force: true })
+    } catch {
+    }
+  }
+
+  const terminateExternalWatchdogProcess = (sessionID: string): void => {
+    const pid = readExternalWatchdogPid(sessionID)
+    clearExternalWatchdogPid(sessionID)
+    if (!pid) {
+      return
+    }
+
+    try {
+      process.kill(pid, "SIGKILL")
+    } catch {
+    }
+  }
+
   const invalidateExternalWatchdog = (sessionID: string): void => {
     externalWatchdogSpawnedAt.delete(sessionID)
     try {
       rmSync(getExternalWatchdogTokenPath(sessionID), { force: true })
     } catch {
     }
+    terminateExternalWatchdogProcess(sessionID)
   }
 
   const splitWatchdogCliModel = (model: string): {
@@ -237,6 +271,30 @@ fi
         },
       )
       child.unref()
+      if (child.pid) {
+        try {
+          writeFileSync(getExternalWatchdogPidPath(args.sessionID), String(child.pid))
+        } catch (error) {
+          log(`[${HOOK_NAME}] Failed to persist external watchdog pid`, {
+            sessionID: args.sessionID,
+            source: args.source,
+            error: String(error),
+          })
+        }
+
+        child.on("exit", () => {
+          const activePid = readExternalWatchdogPid(args.sessionID)
+          if (activePid === child.pid) {
+            clearExternalWatchdogPid(args.sessionID)
+          }
+        })
+        child.on("error", () => {
+          const activePid = readExternalWatchdogPid(args.sessionID)
+          if (activePid === child.pid) {
+            clearExternalWatchdogPid(args.sessionID)
+          }
+        })
+      }
       externalWatchdogSpawnedAt.set(args.sessionID, now)
       log(`[${HOOK_NAME}] Armed external watchdog`, {
         sessionID: args.sessionID,
