@@ -4,23 +4,56 @@ import { extractMessageIndex } from "./detect-error-type"
 import { findMessageByIndexNeedingThinking, findMessagesWithOrphanThinking, prependThinkingPart } from "./storage"
 import { isSqliteBackend } from "../../shared/opencode-storage-detection"
 import { prependThinkingPartAsync } from "./storage/thinking-prepend"
+import { stripThinkingPartsAsync } from "./storage/thinking-strip"
 import { THINKING_TYPES } from "./constants"
-import { normalizeSDKResponse } from "../../shared"
+import { deletePart, normalizeSDKResponse } from "../../shared"
 
 type Client = ReturnType<typeof createOpencodeClient>
+
+function getTrailingThinkingPartIDs(parts: MessageData["parts"]): string[] {
+  if (!parts || parts.length === 0) return []
+  const ids: string[] = []
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i]
+    if (part.type !== "thinking" && part.type !== "redacted_thinking") break
+    if (!part.id) return []
+    ids.push(part.id)
+  }
+  return ids
+}
+
+async function stripTrailingThinkingPartDeletes(
+  client: Client,
+  sessionID: string,
+  messageID: string,
+  partIDs: string[]
+): Promise<boolean> {
+  const results = await Promise.all(
+    partIDs.map((partID) => deletePart(client, sessionID, messageID, partID))
+  )
+  return results.some(Boolean)
+}
 
 export async function recoverThinkingBlockOrder(
   client: Client,
   sessionID: string,
-  _failedAssistantMsg: MessageData,
+  failedAssistantMsg: MessageData,
   _directory: string,
   error: unknown
 ): Promise<boolean> {
+  const targetIndex = extractMessageIndex(error)
+  const failedMessageID = failedAssistantMsg.info?.id
+  const trailingPartIDs = getTrailingThinkingPartIDs(failedAssistantMsg.parts)
+  if (targetIndex !== null && failedMessageID && trailingPartIDs.length > 0) {
+    return trailingPartIDs.length === failedAssistantMsg.parts?.length
+      ? stripThinkingPartsAsync(client, sessionID, failedMessageID)
+      : stripTrailingThinkingPartDeletes(client, sessionID, failedMessageID, trailingPartIDs)
+  }
+
   if (isSqliteBackend()) {
     return recoverThinkingBlockOrderFromSDK(client, sessionID, error)
   }
 
-  const targetIndex = extractMessageIndex(error)
   if (targetIndex !== null) {
     const targetMessageID = findMessageByIndexNeedingThinking(sessionID, targetIndex)
     if (targetMessageID) {

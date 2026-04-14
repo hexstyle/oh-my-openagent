@@ -88,6 +88,15 @@ function startsWithThinkingBlock(parts: Part[]): boolean {
   return type === "thinking" || type === "redacted_thinking" || type === "reasoning"
 }
 
+function stripTrailingThinkingParts(parts: Part[]): Part[] {
+  while (parts.length > 0) {
+    const type = parts[parts.length - 1]?.type as string
+    if (type !== "thinking" && type !== "redacted_thinking") break
+    parts.pop()
+  }
+  return parts
+}
+
 /**
  * Find the most recent Anthropic-signed thinking part from previous assistant messages.
  *
@@ -153,7 +162,6 @@ export function createThinkingBlockValidatorHook(): MessagesTransformHook {
         return
       }
 
-      // Process all assistant messages
       for (let i = 0; i < messages.length; i++) {
         const msg = messages[i]
 
@@ -175,6 +183,11 @@ export function createThinkingBlockValidatorHook(): MessagesTransformHook {
           // The downstream error (if any) is preferable to a guaranteed API
           // rejection caused by a signature-less synthetic thinking block.
         }
+      }
+
+      for (const msg of messages) {
+        if (msg.info.role !== "assistant") continue
+        msg.parts = stripTrailingThinkingParts(msg.parts)
       }
     },
   }
