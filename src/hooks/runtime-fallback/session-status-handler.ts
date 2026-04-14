@@ -1,6 +1,11 @@
 import type { HookDeps } from "./types"
 import type { AutoRetryHelpers } from "./auto-retry"
-import { HOOK_NAME, RETRYABLE_ERROR_PATTERNS } from "./constants"
+import {
+  ACTIVE_STATUS_MESSAGE_UPDATE_GRACE_MS,
+  HOOK_NAME,
+  RETRYABLE_ERROR_PATTERNS,
+  resolveLongRunningProgressTimeoutMs,
+} from "./constants"
 import { log } from "../../shared/logger"
 import { extractAutoRetrySignal } from "./error-classifier"
 import { createFallbackState, markLimitError } from "./fallback-state"
@@ -29,6 +34,7 @@ export function createSessionStatusHandler(
     sessionLastAccess,
     sessionLastUserMessageIDs,
     sessionRecentCompletionUntil,
+    sessionRecentActiveStatusUntil,
     sessionRetryInFlight,
   } = deps
 
@@ -75,9 +81,15 @@ export function createSessionStatusHandler(
           state.resolvedAgent = resolvedAgent
         }
         sessionLastAccess.set(sessionID, Date.now())
+        const baseTimeoutMs = deps.options?.session_timeout_ms ?? deps.config.timeout_seconds * 1000
+        sessionRecentActiveStatusUntil?.set(
+          sessionID,
+          Date.now() + ACTIVE_STATUS_MESSAGE_UPDATE_GRACE_MS,
+        )
         helpers.scheduleSessionFallbackTimeout(sessionID, {
           resolvedAgent,
           source: "session.status.active",
+          timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
         })
 
         log(`[${HOOK_NAME}] Refreshed fallback timeout after active session.status`, {
@@ -85,6 +97,7 @@ export function createSessionStatusHandler(
           statusType: status.type,
           model: state.currentModel,
           resolvedAgent,
+          timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
         })
       }
 

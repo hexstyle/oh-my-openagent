@@ -59,6 +59,21 @@ type SmokeResult = {
   exitCode: number
 }
 
+type SmokeMessage = {
+  role?: string
+  info?: {
+    role?: string
+    error?: unknown
+  }
+  error?: unknown
+  parts?: Array<{ type?: string; text?: string }>
+}
+
+type SmokeMessageOutcome = {
+  output: string
+  state: "success" | "skippable" | "failed" | "pending"
+}
+
 function buildExpectedAgents(pluginConfig: Record<string, unknown>): RuntimeAgentExpectation[] {
   const agents = (pluginConfig.agents ?? {}) as Record<string, { model?: unknown }>
   const expected: Array<{ key: string; configKey?: string; mode: "subagent" | "core" }> = [
@@ -222,20 +237,138 @@ export function assertSmokeSucceededOrSkippable(args: {
   fail(`${args.providerLabel} smoke test did not return OK`)
 }
 
-function runSmoke(agentName: string): SmokeResult {
-  const result = Bun.spawnSync(
-    ["opencode", "run", "--agent", agentName, "Reply with OK only."],
-    {
-      cwd: repoRoot,
-      stdout: "pipe",
-      stderr: "pipe",
-      env: process.env,
-    },
-  )
+function stringifySmokeError(error: unknown): string {
+  if (!error) return ""
+  if (typeof error === "string") return error
+  if (error instanceof Error) return error.message
+  if (typeof error === "object" && error && "message" in error && typeof error.message === "string") {
+    return error.message
+  }
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
 
-  return {
-    output: `${result.stdout.toString("utf-8")}\n${result.stderr.toString("utf-8")}`.trim(),
-    exitCode: result.exitCode ?? 0,
+function getSmokeMessageRole(message: SmokeMessage): string | undefined {
+  if (typeof message.role === "string") {
+    return message.role
+  }
+  return typeof message.info?.role === "string" ? message.info.role : undefined
+}
+
+function getSmokeMessageError(message: SmokeMessage): unknown {
+  return message.error ?? message.info?.error
+}
+
+function getSmokeMessageText(message: SmokeMessage): string {
+  return (message.parts ?? [])
+    .filter((part) => typeof part?.text === "string")
+    .map((part) => (part.text ?? "").trim())
+    .filter((text) => text.length > 0)
+    .join("\n")
+}
+
+export function interpretSmokeMessages(messages: SmokeMessage[]): SmokeMessageOutcome {
+  const latestMessage = [...messages]
+    .reverse()
+    .find((message) => getSmokeMessageRole(message) === "assistant" || getSmokeMessageRole(message) === "user")
+
+  if (!latestMessage) {
+    return { output: "", state: "pending" }
+  }
+
+  if (getSmokeMessageRole(latestMessage) === "user") {
+    return { output: "", state: "pending" }
+  }
+
+  const text = getSmokeMessageText(latestMessage)
+  const errorText = stringifySmokeError(getSmokeMessageError(latestMessage))
+  const output = [text, errorText].filter((value) => value.length > 0).join("\n").trim()
+
+  if (/\bOK\b/.test(text)) {
+    return { output: text, state: "success" }
+  }
+
+  if (isSkippableProviderQuotaSmokeFailure(output)) {
+    return { output, state: "skippable" }
+  }
+
+  if (errorText.length > 0) {
+    return { output, state: "failed" }
+  }
+
+  return { output, state: "pending" }
+}
+
+async function runSmoke(agentName: string): Promise<SmokeResult> {
+  const port = 44000 + Math.floor(Math.random() * 1000)
+  const server = await createOpencodeServer({ port, timeout: 30_000 })
+  const client = createOpencodeClient({
+    baseUrl: server.url,
+    directory: repoRoot,
+  })
+  const timeoutAt = Date.now() + 5 * 60 * 1000
+  let latestOutput = ""
+
+  try {
+    const created = await client.session.create({
+      body: {
+        title: `verify smoke ${agentName}`,
+        permission: [
+          { permission: "question", action: "deny", pattern: "*" },
+        ],
+      } as Record<string, unknown>,
+      query: { directory: repoRoot },
+    })
+    const session = normalizeSdkResponse(created, {} as { id?: string })
+    const sessionID = typeof session.id === "string" ? session.id : undefined
+    if (!sessionID) {
+      return {
+        output: "Failed to create smoke session",
+        exitCode: 1,
+      }
+    }
+
+    await client.session.promptAsync({
+      path: { id: sessionID },
+      body: {
+        agent: agentName,
+        parts: [{ type: "text", text: "Reply with OK only." }],
+      },
+      query: { directory: repoRoot },
+    })
+
+    while (Date.now() < timeoutAt) {
+      const messagesResponse = await client.session.messages({
+        path: { id: sessionID },
+        query: { directory: repoRoot },
+      })
+      const messages = normalizeSdkResponse(messagesResponse, [] as SmokeMessage[])
+      const outcome = interpretSmokeMessages(messages)
+      if (outcome.output.length > 0) {
+        latestOutput = outcome.output
+      }
+
+      if (outcome.state === "success") {
+        return { output: outcome.output, exitCode: 0 }
+      }
+
+      if (outcome.state === "skippable" || outcome.state === "failed") {
+        return { output: outcome.output, exitCode: 1 }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1_000))
+    }
+
+    return {
+      output: latestOutput || "Timed out waiting for smoke response",
+      exitCode: 1,
+    }
+  } finally {
+    server.close()
+    killOpencodeServerOnPort(port)
   }
 }
 
@@ -379,7 +512,7 @@ async function main(): Promise<void> {
 
   if (authStore.anthropic && typeof authStore.anthropic === "object") {
     console.log("[verify] running Anthropic smoke")
-    const result = runSmoke("Prometheus (Plan Builder)")
+    const result = await runSmoke("Prometheus (Plan Builder)")
     assertSmokeSucceededOrSkippable({
       providerLabel: "Anthropic",
       result,
@@ -388,7 +521,7 @@ async function main(): Promise<void> {
 
   if (authStore.openai && typeof authStore.openai === "object") {
     console.log("[verify] running OpenAI smoke")
-    const result = runSmoke("Hephaestus (Deep Agent)")
+    const result = await runSmoke("Hephaestus (Deep Agent)")
     assertSmokeSucceededOrSkippable({
       providerLabel: "OpenAI",
       result,

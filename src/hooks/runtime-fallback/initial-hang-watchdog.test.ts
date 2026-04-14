@@ -236,11 +236,635 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(abortCalls).toHaveLength(0)
     expect(retriedModels).toHaveLength(0)
 
-    jest.advanceTimersByTime(10)
+    jest.advanceTimersByTime(70)
     await Promise.resolve()
 
     expect(abortCalls).toContain(sessionID)
     expect(retriedModels).toContain("openai/gpt-5.4")
     expect(logCalls.some((call) => call.msg.includes("Refreshed session fallback timeout"))).toBe(true)
+  })
+
+  test("extends the quiet window when the session is still running but Anthropic has not produced a first token yet", async () => {
+    const retriedModels: string[] = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-active-without-first-token"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "Reply with OK only." }] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                retriedModels.push(`${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(10)
+    await hook.event({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionID,
+          agent: "Prometheus (Plan Builder)",
+          model: "anthropic/claude-opus-4-6",
+          status: {
+            type: "running",
+            message: "Still working",
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(25)
+    await Promise.resolve()
+
+    expect(abortCalls).toHaveLength(0)
+    expect(retriedModels).toHaveLength(0)
+
+    jest.advanceTimersByTime(60)
+    await Promise.resolve()
+
+    expect(abortCalls).toContain(sessionID)
+    expect(retriedModels).toContain("openai/gpt-5.4")
+  })
+
+  test("extends the quiet window on a second empty assistant update before the first token arrives", async () => {
+    const retriedModels: string[] = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-second-empty-assistant-update"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "Reply with OK only." }] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                retriedModels.push(`${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(10)
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(25)
+    await Promise.resolve()
+
+    expect(abortCalls).toHaveLength(0)
+    expect(retriedModels).toHaveLength(0)
+
+    jest.advanceTimersByTime(60)
+    await Promise.resolve()
+
+    expect(abortCalls).toContain(sessionID)
+    expect(retriedModels).toContain("openai/gpt-5.4")
+  })
+
+  test("treats compaction as meaningful progress and gives it a longer quiet window", async () => {
+    const retriedModels: string[] = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-compaction-progress"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                retriedModels.push(`${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(10)
+    await hook.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            sessionID,
+            type: "compaction",
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(15)
+    await Promise.resolve()
+
+    expect(abortCalls).toHaveLength(0)
+    expect(retriedModels).toHaveLength(0)
+
+    jest.advanceTimersByTime(70)
+    await Promise.resolve()
+
+    expect(abortCalls).toContain(sessionID)
+    expect(retriedModels).toContain("openai/gpt-5.4")
+  })
+
+  for (const toolName of ["write", "apply_patch"]) {
+    test(`extends the quiet window for a long-running ${toolName} tool call`, async () => {
+      const retriedModels: string[] = []
+      const abortCalls: string[] = []
+      const sessionID = `ses-long-tool-${toolName}`
+
+      const hook = createRuntimeFallbackHook(
+        {
+          client: {
+            tui: {
+              showToast: async () => ({}),
+            },
+            session: {
+              messages: async () => ({
+                data: [
+                  { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+                ],
+              }),
+              promptAsync: async (args: {
+                body?: { model?: { providerID?: string; modelID?: string } }
+              }) => {
+                const model = args.body?.model
+                if (model?.providerID && model?.modelID) {
+                  retriedModels.push(`${model.providerID}/${model.modelID}`)
+                }
+                return {}
+              },
+              abort: async (args: { path: { id: string } }) => {
+                abortCalls.push(args.path.id)
+                return {}
+              },
+            },
+          },
+          directory: "/test/dir",
+        },
+        {
+          config: createMockConfig({ timeout_seconds: 30 }),
+          pluginConfig: createPluginConfig(),
+          session_timeout_ms: 20,
+        },
+      )
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              sessionID,
+              role: "user",
+              agent: "Prometheus (Plan Builder)",
+              model: {
+                providerID: "anthropic",
+                modelID: "claude-opus-4-6",
+              },
+            },
+          },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              sessionID,
+              role: "assistant",
+              agent: "Prometheus (Plan Builder)",
+              model: {
+                providerID: "anthropic",
+                modelID: "claude-opus-4-6",
+              },
+            },
+          },
+        },
+      })
+
+      jest.advanceTimersByTime(10)
+      await hook.event({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            part: {
+              sessionID,
+              type: "tool",
+              tool: toolName,
+              state: {
+                status: "running",
+              },
+            },
+          },
+        },
+      })
+
+      jest.advanceTimersByTime(25)
+      await Promise.resolve()
+
+      expect(abortCalls).toHaveLength(0)
+      expect(retriedModels).toHaveLength(0)
+
+      jest.advanceTimersByTime(60)
+      await Promise.resolve()
+
+      expect(abortCalls).toContain(sessionID)
+      expect(retriedModels).toContain("openai/gpt-5.4")
+    })
+  }
+
+  for (const toolName of ["read", "write", "apply_patch"]) {
+    test(`extends the quiet window when ${toolName} starts through tool.execute.before`, async () => {
+      const retriedModels: string[] = []
+      const abortCalls: string[] = []
+      const sessionID = `ses-tool-before-${toolName}`
+
+      const hook = createRuntimeFallbackHook(
+        {
+          client: {
+            tui: {
+              showToast: async () => ({}),
+            },
+            session: {
+              messages: async () => ({
+                data: [
+                  { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+                ],
+              }),
+              promptAsync: async (args: {
+                body?: { model?: { providerID?: string; modelID?: string } }
+              }) => {
+                const model = args.body?.model
+                if (model?.providerID && model?.modelID) {
+                  retriedModels.push(`${model.providerID}/${model.modelID}`)
+                }
+                return {}
+              },
+              abort: async (args: { path: { id: string } }) => {
+                abortCalls.push(args.path.id)
+                return {}
+              },
+            },
+          },
+          directory: "/test/dir",
+        },
+        {
+          config: createMockConfig({ timeout_seconds: 30 }),
+          pluginConfig: createPluginConfig(),
+          session_timeout_ms: 20,
+        },
+      )
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              sessionID,
+              role: "user",
+              agent: "Prometheus (Plan Builder)",
+              model: {
+                providerID: "anthropic",
+                modelID: "claude-opus-4-6",
+              },
+            },
+          },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              sessionID,
+              role: "assistant",
+              agent: "Prometheus (Plan Builder)",
+              model: {
+                providerID: "anthropic",
+                modelID: "claude-opus-4-6",
+              },
+            },
+          },
+        },
+      })
+
+      jest.advanceTimersByTime(10)
+      await hook.event({
+        event: {
+          type: "tool.execute.before",
+          properties: {
+            sessionID,
+            tool: toolName,
+            agent: "Prometheus (Plan Builder)",
+          },
+        },
+      })
+
+      jest.advanceTimersByTime(25)
+      await Promise.resolve()
+
+      expect(abortCalls).toHaveLength(0)
+      expect(retriedModels).toHaveLength(0)
+
+      jest.advanceTimersByTime(60)
+      await Promise.resolve()
+
+      expect(abortCalls).toContain(sessionID)
+      expect(retriedModels).toContain("openai/gpt-5.4")
+    })
+  }
+
+  test("queues the timeout fallback retry before aborting the stalled request", async () => {
+    const retryModels: string[] = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-timeout-queue-before-abort"
+    let abortCompleted = false
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "Reply with OK only." }] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              if (abortCompleted) {
+                throw new Error("follow-up retry was scheduled after abort completed")
+              }
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                retryModels.push(`${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              abortCompleted = true
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(25)
+    await Promise.resolve()
+
+    expect(abortCalls).toContain(sessionID)
+    expect(retryModels).toContain("openai/gpt-5.4")
   })
 })

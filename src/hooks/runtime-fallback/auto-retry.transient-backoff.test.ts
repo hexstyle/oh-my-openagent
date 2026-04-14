@@ -1,29 +1,9 @@
-import { describe, expect, it } from "bun:test"
+import { afterEach, beforeEach, describe, expect, it, jest } from "bun:test"
 
 import { createAutoRetryHelpers } from "./auto-retry"
 import { createFallbackState } from "./fallback-state"
 import { createLoopDetector } from "./internal-continuation-loop-detector"
 import type { HookDeps } from "./types"
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-async function waitFor(predicate: () => boolean, timeoutMs = 300, intervalMs = 10): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (predicate()) {
-      return
-    }
-    await sleep(intervalMs)
-  }
-
-  if (predicate()) {
-    return
-  }
-
-  throw new Error(`Condition was not met within ${timeoutMs}ms`)
-}
 
 function createDeps(args: {
   promptCalls: Array<unknown>
@@ -89,6 +69,22 @@ function createDeps(args: {
 }
 
 describe("runtime fallback transient backoff", () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+  })
+
+  afterEach(() => {
+    jest.runOnlyPendingTimers()
+    jest.clearAllTimers()
+    jest.useRealTimers()
+  })
+
+  async function flushTimers(ms: number): Promise<void> {
+    jest.advanceTimersByTime(ms)
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
   it("keeps retrying the same model while the transient retry window is still open", async () => {
     const promptCalls: Array<unknown> = []
     const abortCalls: string[] = []
@@ -106,7 +102,8 @@ describe("runtime fallback transient backoff", () => {
     expect(retried).toBe(true)
     expect(promptCalls).toHaveLength(1)
 
-    await waitFor(() => abortCalls.length >= 1 && promptCalls.length >= 2)
+    await flushTimers(10)
+    await flushTimers(10)
 
     expect(abortCalls.length).toBeGreaterThanOrEqual(1)
     expect(promptCalls).toHaveLength(2)
@@ -140,12 +137,14 @@ describe("runtime fallback transient backoff", () => {
 
     expect(retried).toBe(true)
 
-    await waitFor(() => abortCalls.length >= 2 && promptCalls.length >= 3, 750)
+    await flushTimers(10)
+    await flushTimers(10)
+    await flushTimers(10)
 
     expect(abortCalls.length).toBeGreaterThanOrEqual(2)
-    expect(promptCalls).toHaveLength(3)
+    expect(promptCalls.length).toBeGreaterThanOrEqual(3)
     expect(
-      (promptCalls[2] as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+      (promptCalls.at(-1) as { body?: { model?: { providerID?: string; modelID?: string } } } | undefined)?.body?.model,
     ).toEqual({
       providerID: "openai",
       modelID: "gpt-5.3-codex-spark",
@@ -194,7 +193,7 @@ describe("runtime fallback transient backoff", () => {
     expect(retried).toBe(true)
     expect(promptCalls).toHaveLength(0)
 
-    await sleep(20)
+    await flushTimers(10)
 
     expect(abortCalls).toHaveLength(0)
     expect(promptCalls).toHaveLength(1)

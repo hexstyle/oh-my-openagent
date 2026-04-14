@@ -15,6 +15,7 @@ import {
   getTaskSessionState,
   resolveBoulderExecutionDirectory,
   upsertTaskSessionState,
+  clearTaskSessionState,
 } from "./storage"
 import type { BoulderState } from "./types"
 import { readCurrentTopLevelTask } from "./top-level-task"
@@ -360,6 +361,29 @@ describe("boulder-state", () => {
 
       // then
       expect(result?.session_id).toBe("ses_new")
+    })
+
+    test("should clear the preferred session for a top-level plan task", () => {
+      const state: BoulderState = {
+        active_plan: "/plan.md",
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: ["session-1"],
+        plan_name: "plan",
+        task_sessions: {
+          "todo:1": {
+            task_key: "todo:1",
+            task_label: "1",
+            task_title: "Implement auth flow",
+            session_id: "ses_old",
+            updated_at: "2026-01-02T10:00:00Z",
+          },
+        },
+      }
+      writeBoulderState(TEST_DIR, state)
+
+      clearTaskSessionState(TEST_DIR, "todo:1")
+
+      expect(getTaskSessionState(TEST_DIR, "todo:1")).toBeNull()
     })
   })
 

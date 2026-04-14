@@ -61,7 +61,25 @@ export const RETRYABLE_ERROR_PATTERNS = [
  */
 export const HOOK_NAME = "runtime-fallback"
 export const WATCHDOG_CONTINUATION_PROMPT = "Continue the current task from where you left off. The previous request appears stalled. Resume from the existing context, do not redo completed work, and continue."
+export const LONG_RUNNING_PROGRESS_TIMEOUT_MULTIPLIER = 4
+export const ACTIVE_STATUS_MESSAGE_UPDATE_GRACE_MS = 5_000
 
 export const MODEL_RECOVERY_INTERVAL_MS = 2 * 60 * 1000
 export const MODEL_RECOVERY_PROBE_MIN_INTERVAL_MS = 60 * 1000
 export const MODEL_RECOVERY_PROBE_TIMEOUT_MS = 30 * 1000
+
+export function isLongRunningAssistantProgress(args: {
+  partType?: string
+  toolStatus?: string
+}): boolean {
+  return (
+    args.partType === "compaction"
+    || args.partType === "tool_use"
+    || args.partType === "tool-call"
+    || (args.partType === "tool" && args.toolStatus === "running")
+  )
+}
+
+export function resolveLongRunningProgressTimeoutMs(baseTimeoutMs: number): number {
+  return baseTimeoutMs * LONG_RUNNING_PROGRESS_TIMEOUT_MULTIPLIER
+}

@@ -1,7 +1,7 @@
 # AGENTS.md
 
-**Updated:** 2026-04-10
-**Commit:** 442de802
+**Updated:** 2026-04-14
+**Commit:** current `dev` HEAD
 **Branch:** dev
 
 ## Overview
@@ -217,6 +217,10 @@ Current policy:
 - `Sisyphus Junior` is not `spark`-primary:
   - keep `gpt-5.4` ahead of `spark`
   - keep `spark` ahead of free models
+- active `session.status` events (`busy`, `running`) must refresh the watchdog with the extended long-running timeout window
+- meaningful `message.part.updated` progress (`tool`, `tool_use`, `tool_result`, `compaction`, visible `text`, visible `reasoning`) must refresh the watchdog instead of clearing it
+- `tool.execute.before` / `tool.execute.after` must also refresh the watchdog for long-running local tools like `read`, `write`, and `apply_patch`, because live runtimes do not always emit reliable `message.part.updated` progress for those waves
+- raw or quoted watchdog continuation prompts are internal control messages and must never be treated as the last real user retry payload
 - when a session is running on `spark` or a free model, background recovery probes may restore a higher-priority model
 - if a stalled session is still awaiting a fallback result when recovery succeeds, the hook may auto-resume the task on the recovered model
 
@@ -232,7 +236,7 @@ When changing this area, inspect together:
 Minimum regression coverage for fallback changes:
 
 ```bash
-bun test src/hooks/runtime-fallback/error-classifier.test.ts src/hooks/runtime-fallback/fallback-policy.test.ts src/hooks/runtime-fallback/fallback-state.test.ts src/hooks/runtime-fallback/auto-retry.recovery-probe.test.ts src/hooks/runtime-fallback/auto-retry.transient-backoff.test.ts src/hooks/runtime-fallback/index.test.ts src/hooks/runtime-fallback/session-status-handler.test.ts --bail
+bun test src/hooks/runtime-fallback/error-classifier.test.ts src/hooks/runtime-fallback/fallback-policy.test.ts src/hooks/runtime-fallback/fallback-state.test.ts src/hooks/runtime-fallback/auto-retry.recovery-probe.test.ts src/hooks/runtime-fallback/auto-retry.transient-backoff.test.ts src/hooks/runtime-fallback/event-handler.test.ts src/hooks/runtime-fallback/initial-hang-watchdog.test.ts src/hooks/runtime-fallback/index.test.ts src/hooks/runtime-fallback/session-status-handler.test.ts --bail
 ```
 
 ## External Plugin Policy

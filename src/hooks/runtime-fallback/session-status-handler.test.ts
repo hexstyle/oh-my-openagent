@@ -59,7 +59,7 @@ function createDeps(): HookDeps {
 function createHelpers(
   abortCalls: string[],
   retryCalls: Array<{ sessionID: string; model: string; source: string }>,
-  scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" }>,
+  scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry"; timeoutMsOverride?: number }>,
 ): AutoRetryHelpers {
   return {
     abortSessionRequest: async (sessionID: string) => {
@@ -68,7 +68,12 @@ function createHelpers(
     clearSessionFallbackTimeout: () => {},
     scheduleSessionFallbackTimeout: (
       sessionID: string,
-      args?: { resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" },
+      args?: {
+        resolvedAgent?: string
+        source?: string
+        mode?: "fallback" | "transient_retry"
+        timeoutMsOverride?: number
+      },
     ) => {
       scheduleCalls.push({ sessionID, ...args })
     },
@@ -181,7 +186,7 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
-    const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string }> = []
+    const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; timeoutMsOverride?: number }> = []
     const state = createFallbackState("openai/gpt-5.4")
     deps.sessionStates.set(sessionID, state)
 
@@ -208,6 +213,7 @@ describe("createSessionStatusHandler", () => {
       {
         sessionID,
         source: "session.status.active",
+        timeoutMsOverride: 120_000,
       },
     ])
     expect(deps.sessionLastAccess.has(sessionID)).toBe(true)

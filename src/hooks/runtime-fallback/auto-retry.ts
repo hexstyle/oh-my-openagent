@@ -378,6 +378,7 @@ fi
     resolvedAgent?: string
     source?: string
     mode?: "fallback" | "transient_retry"
+    timeoutMsOverride?: number
   }) => {
     const source = args?.source ?? "session.timeout"
     const mode = args?.mode ?? "fallback"
@@ -395,7 +396,7 @@ fi
     }
     invalidateExternalWatchdog(sessionID)
 
-    const timeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
+    const timeoutMs = args?.timeoutMsOverride ?? options?.session_timeout_ms ?? config.timeout_seconds * 1000
     if (timeoutMs <= 0) return
     const stateAtSchedule = sessionStates.get(sessionID)
     if (!stateAtSchedule) {
@@ -421,6 +422,7 @@ fi
         source,
         timeoutMs,
         mode,
+        timeoutMsOverride: args?.timeoutMsOverride,
         currentModel: stateAtSchedule.currentModel,
       },
     )
@@ -460,12 +462,12 @@ fi
           log(`[${HOOK_NAME}] Overriding in-flight retry due to session timeout`, { sessionID, source })
         }
 
-        await abortSessionRequest(sessionID, source)
         sessionRetryInFlight.delete(sessionID)
 
         const resolvedAgent = args?.resolvedAgent ?? await resolveAgentForSessionFromContext(sessionID)
 
         if (mode === "transient_retry" && state.pendingTransientRetry) {
+          await abortSessionRequest(sessionID, source)
           state.pendingTransientRetry = false
 
           if (canKeepRetryingTransiently(state, config)) {
@@ -509,7 +511,11 @@ fi
         const result = prepareFallback(sessionID, state, fallbackModels, config)
         if (result.success && result.newModel) {
           await autoRetryWithFallback(sessionID, result.newModel, resolvedAgent, source)
+          await abortSessionRequest(sessionID, source)
+          return
         }
+
+        await abortSessionRequest(sessionID, source)
       } catch (error) {
         log(`[${HOOK_NAME}] Session fallback timeout handler failed`, {
           sessionID,

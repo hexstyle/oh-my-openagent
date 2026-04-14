@@ -1756,6 +1756,63 @@ session_id: ses_untrusted_999
       expect(callArgs.body.parts[0].text).toContain("ses_auth_flow_123")
     })
 
+    test("should drop a stale preferred reuse session before injecting continuation", async () => {
+      const planPath = join(TEST_DIR, "preferred-session-plan.md")
+      writeFileSync(planPath, `# Plan
+
+## TODOs
+- [ ] 1. Implement auth flow
+`)
+
+      writeBoulderState(TEST_DIR, {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: [MAIN_SESSION_ID],
+        plan_name: "preferred-session-plan",
+        task_sessions: {
+          "todo:1": {
+            task_key: "todo:1",
+            task_label: "1",
+            task_title: "Implement auth flow",
+            session_id: "ses_stale_task_123",
+            updated_at: "2026-01-02T10:00:00Z",
+          },
+        },
+      })
+
+      const sessionGetMock = mock(async ({ path }: { path: { id: string } }) => {
+        if (path.id === "ses_stale_task_123") {
+          throw new Error("NotFoundError")
+        }
+        return {
+          data: {
+            id: path.id,
+            parentID: "session-1",
+          },
+        }
+      })
+      const mockBackgroundManager = {
+        getTasksByParentSession: () => [],
+        findBySession: () => undefined,
+      }
+      const mockInput = createMockPluginInput({ sessionGetMock })
+      const hook = createAtlasHook(mockInput, {
+        directory: TEST_DIR,
+        backgroundManager: mockBackgroundManager as any,
+      })
+
+      await hook.handler({
+        event: {
+          type: "session.idle",
+          properties: { sessionID: MAIN_SESSION_ID },
+        },
+      })
+
+      const callArgs = mockInput._promptMock.mock.calls[0][0]
+      expect(callArgs.body.parts[0].text).not.toContain("Preferred reuse session for current top-level plan task")
+      expect(readBoulderState(TEST_DIR)?.task_sessions?.["todo:1"]).toBeUndefined()
+    })
+
     test("should inject when last agent is sisyphus and boulder targets atlas explicitly", async () => {
        // given - boulder explicitly set to atlas, but last agent is sisyphus (initial state after /start-work)
        const planPath = join(TEST_DIR, "test-plan.md")
@@ -2360,7 +2417,7 @@ session_id: ses_untrusted_999
         await flushMicrotasks()
       }
 
-      test("should schedule delayed retry when cooldown blocks idle for incomplete boulder", async () => {
+      test("should not schedule delayed retry while a successful continuation is still awaiting progress", async () => {
         // given - boulder with incomplete plan
         const planPath = join(TEST_DIR, "test-plan.md")
         writeFileSync(planPath, "# Plan\n- [ ] Task 1\n- [x] Task 2")
@@ -2376,7 +2433,7 @@ session_id: ses_untrusted_999
         const mockInput = createMockPluginInput()
         const hook = createAtlasHook(mockInput)
 
-        // when - first idle injects, second idle within cooldown schedules retry timer
+        // when - first idle injects, second idle lands immediately in the cooldown window
         await hook.handler({
           event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } },
         })
@@ -2384,12 +2441,12 @@ session_id: ses_untrusted_999
           event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } },
         })
 
-        // then - fire pending timer and verify retry
+        // then - the follow-up idle should not queue another continuation
         await firePendingTimers()
-        expect(mockInput._promptMock).toHaveBeenCalledTimes(2)
+        expect(mockInput._promptMock).toHaveBeenCalledTimes(1)
       })
 
-      test("should not schedule duplicate retry timers for rapid idle events", async () => {
+      test("should schedule delayed retry when cooldown blocks idle after a failed continuation inject", async () => {
         // given - boulder with incomplete plan
         const planPath = join(TEST_DIR, "test-plan.md")
         writeFileSync(planPath, "# Plan\n- [ ] Task 1\n- [ ] Task 2")
@@ -2402,16 +2459,11 @@ session_id: ses_untrusted_999
         }
         writeBoulderState(TEST_DIR, state)
 
-        const mockInput = createMockPluginInput()
+        const promptMock = mock(() => Promise.reject(new Error("prompt failed")))
+        const mockInput = createMockPluginInput({ promptMock })
         const hook = createAtlasHook(mockInput)
 
-        // when - first idle injects, then 3 rapid idles within cooldown
-        await hook.handler({
-          event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } },
-        })
-        await hook.handler({
-          event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } },
-        })
+        // when - first idle inject fails, second idle lands inside cooldown
         await hook.handler({
           event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } },
         })
@@ -2419,7 +2471,7 @@ session_id: ses_untrusted_999
           event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } },
         })
 
-        // then - only one retry fires despite multiple cooldown-blocked idles
+        // then - the delayed retry still runs because the first inject never got off the ground
         await firePendingTimers()
         expect(mockInput._promptMock).toHaveBeenCalledTimes(2)
       })
@@ -2437,10 +2489,11 @@ session_id: ses_untrusted_999
         }
         writeBoulderState(TEST_DIR, state)
 
-        const mockInput = createMockPluginInput()
+        const promptMock = mock(() => Promise.reject(new Error("prompt failed")))
+        const mockInput = createMockPluginInput({ promptMock })
         const hook = createAtlasHook(mockInput)
 
-        // when - first idle injects, second schedules retry, then plan completes before timer fires
+        // when - first idle inject fails, second schedules retry, then plan completes before timer fires
         await hook.handler({
           event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } },
         })
@@ -2468,7 +2521,8 @@ session_id: ses_untrusted_999
         }
         writeBoulderState(TEST_DIR, state)
 
-        const mockInput = createMockPluginInput()
+        const promptMock = mock(() => Promise.reject(new Error("prompt failed")))
+        const mockInput = createMockPluginInput({ promptMock })
         const hook = createAtlasHook(mockInput)
 
         await hook.handler({
@@ -2501,7 +2555,8 @@ session_id: ses_untrusted_999
         }
         writeBoulderState(TEST_DIR, state)
 
-        const mockInput = createMockPluginInput()
+        const promptMock = mock(() => Promise.reject(new Error("prompt failed")))
+        const mockInput = createMockPluginInput({ promptMock })
         const hook = createAtlasHook(mockInput)
 
         await hook.handler({

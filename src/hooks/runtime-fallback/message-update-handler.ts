@@ -1,6 +1,6 @@
 import type { HookDeps } from "./types"
 import type { AutoRetryHelpers } from "./auto-retry"
-import { HOOK_NAME } from "./constants"
+import { HOOK_NAME, resolveLongRunningProgressTimeoutMs } from "./constants"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, extractAutoRetrySignal, containsErrorContent } from "./error-classifier"
 import { createFallbackState, markFallbackResponseSuccess, markLimitError } from "./fallback-state"
@@ -28,7 +28,7 @@ import {
 export { hasVisibleAssistantResponse } from "./visible-assistant-response"
 
 export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
-  const { ctx, config, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionTransientRetryTimeouts, sessionStatusRetryKeys } = deps
+  const { ctx, config, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionTransientRetryTimeouts, sessionStatusRetryKeys, sessionRecentActiveStatusUntil, sessionSilentAssistantUpdateCounts } = deps
   const checkVisibleResponse = hasVisibleAssistantResponse(extractAutoRetrySignal)
   const timeoutEnabled = config.timeout_seconds > 0
 
@@ -37,6 +37,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
     role: string
     source: string
     info: Record<string, unknown> | undefined
+    timeoutMsOverride?: number
   }): Promise<{ resolvedAgent?: string; model?: string } | null> => {
     if (!timeoutEnabled) return null
 
@@ -85,9 +86,25 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
     helpers.scheduleSessionFallbackTimeout(args.sessionID, {
       resolvedAgent,
       source: args.source,
+      timeoutMsOverride: args.timeoutMsOverride,
     })
 
     return { resolvedAgent, model }
+  }
+
+  const resolveRecentActiveStatusTimeoutOverride = (sessionID: string): number | undefined => {
+    const activeUntil = sessionRecentActiveStatusUntil?.get(sessionID)
+    if (typeof activeUntil !== "number") {
+      return undefined
+    }
+
+    if (activeUntil < Date.now()) {
+      sessionRecentActiveStatusUntil?.delete(sessionID)
+      return undefined
+    }
+
+    const baseTimeoutMs = deps.options?.session_timeout_ms ?? deps.config.timeout_seconds * 1000
+    return resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
   }
 
   return async (props: Record<string, unknown> | undefined) => {
@@ -140,6 +157,8 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       }
 
       recordLastUserMessageID(sessionID, messageID, sessionLastUserMessageIDs)
+      sessionRecentActiveStatusUntil?.delete(sessionID)
+      sessionSilentAssistantUpdateCounts?.delete(sessionID)
       resetInternalContinuationLoopForRealUser(deps, sessionID)
       clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
       sessionAwaitingFallbackResult.delete(sessionID)
@@ -169,6 +188,8 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
 
       if (currentEventHasVisibleResponse) {
         sessionLastAccess.set(sessionID, Date.now())
+        sessionRecentActiveStatusUntil?.delete(sessionID)
+        sessionSilentAssistantUpdateCounts?.delete(sessionID)
         sessionAwaitingFallbackResult.delete(sessionID)
         sessionStatusRetryKeys.delete(sessionID)
         helpers.clearSessionFallbackTimeout(sessionID)
@@ -196,15 +217,28 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       }
 
       clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
+      const silentAssistantUpdateCount = (sessionSilentAssistantUpdateCounts?.get(sessionID) ?? 0) + 1
+      sessionSilentAssistantUpdateCounts?.set(sessionID, silentAssistantUpdateCount)
+      const timeoutMsOverride = resolveRecentActiveStatusTimeoutOverride(sessionID)
+        ?? (
+          silentAssistantUpdateCount >= 2
+            ? resolveLongRunningProgressTimeoutMs(
+              deps.options?.session_timeout_ms ?? deps.config.timeout_seconds * 1000,
+            )
+            : undefined
+        )
       await armActiveSessionWatchdog({
         sessionID,
         role,
         source: "message.updated.assistant",
         info,
+        timeoutMsOverride,
       })
 
       const hasVisible = await checkVisibleResponse(ctx, sessionID, info)
       if (hasVisible) {
+        sessionRecentActiveStatusUntil?.delete(sessionID)
+        sessionSilentAssistantUpdateCounts?.delete(sessionID)
         sessionAwaitingFallbackResult.delete(sessionID)
         sessionStatusRetryKeys.delete(sessionID)
         helpers.clearSessionFallbackTimeout(sessionID)
@@ -229,6 +263,8 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
     }
 
     if (sessionID && role === "assistant" && error) {
+      sessionRecentActiveStatusUntil?.delete(sessionID)
+      sessionSilentAssistantUpdateCounts?.delete(sessionID)
       clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
       sessionAwaitingFallbackResult.delete(sessionID)
       if (sessionRetryInFlight.has(sessionID) && !retrySignal) {

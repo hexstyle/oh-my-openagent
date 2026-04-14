@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test"
 import type { HookDeps, RuntimeFallbackPluginInput } from "./types"
 import type { AutoRetryHelpers } from "./auto-retry"
 import { createFallbackState } from "./fallback-state"
+import { createLoopDetector } from "./internal-continuation-loop-detector"
 
 type MessageUpdateHandlerModule = typeof import("./message-update-handler")
 
@@ -42,6 +43,7 @@ function createDeps(messagesResponse: unknown): HookDeps {
     },
     options: undefined,
     pluginConfig: {},
+    loopDetector: createLoopDetector(),
     sessionStates: new Map(),
     sessionLastAccess: new Map(),
     sessionLastUserMessageIDs: new Map(),
@@ -60,7 +62,7 @@ function createHelpers(clearCalls: string[]): AutoRetryHelpers {
     clearSessionFallbackTimeout: (sessionID: string) => {
       clearCalls.push(sessionID)
     },
-    scheduleSessionFallbackTimeout: () => {},
+    scheduleSessionFallbackTimeout: (_sessionID: string, _args?: { timeoutMsOverride?: number }) => {},
     autoRetryWithFallback: async () => {},
     retryCurrentModel: async () => false,
     resolveAgentForSessionFromContext: async () => undefined,

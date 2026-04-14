@@ -1,5 +1,6 @@
 import type { PluginInput } from "@opencode-ai/plugin"
 import {
+  clearTaskSessionState,
   getPlanProgress,
   getTaskSessionState,
   readBoulderState,
@@ -87,6 +88,25 @@ function hasActiveBackgroundTasks(sessionID: string, options?: AtlasHookOptions)
   return backgroundTasks.hasActiveTasks
 }
 
+async function hasReusablePreferredTaskSession(input: {
+  client: PluginInput["client"]
+  sessionID: string
+  options?: AtlasHookOptions
+}): Promise<boolean> {
+  if (input.options?.backgroundManager) {
+    return Boolean(input.options.backgroundManager.findBySession(input.sessionID))
+  }
+
+  try {
+    await input.client.session.get({
+      path: { id: input.sessionID },
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function injectContinuation(input: {
   ctx: PluginInput
   sessionID: string
@@ -109,6 +129,22 @@ async function injectContinuation(input: {
     const preferredTaskSession = currentTask
       ? getTaskSessionState(input.ctx.directory, currentTask.key)
       : null
+    let preferredTaskSessionId = preferredTaskSession?.session_id
+    let preferredTaskTitle = preferredTaskSession?.task_title
+
+    if (currentTask && preferredTaskSessionId) {
+      const isReusable = await hasReusablePreferredTaskSession({
+        client: input.ctx.client,
+        sessionID: preferredTaskSessionId,
+        options: input.options,
+      })
+
+      if (!isReusable) {
+        clearTaskSessionState(input.ctx.directory, currentTask.key)
+        preferredTaskSessionId = undefined
+        preferredTaskTitle = undefined
+      }
+    }
 
     await injectBoulderContinuation({
       ctx: input.ctx,
@@ -119,8 +155,8 @@ async function injectContinuation(input: {
       total: input.progress.total,
       agent: input.agent,
       worktreePath: input.worktreePath,
-      preferredTaskSessionId: preferredTaskSession?.session_id,
-      preferredTaskTitle: preferredTaskSession?.task_title,
+      preferredTaskSessionId,
+      preferredTaskTitle,
       backgroundManager: input.options?.backgroundManager,
       sessionState: input.sessionState,
     })
@@ -284,17 +320,20 @@ export async function handleAtlasSessionIdle(input: {
     return
   }
 
-  if (shouldStopForStagnation({ sessionID, sessionState, currentPlanDigest })) {
-    return
-  }
-
   if (sessionState.lastContinuationInjectedAt && now - sessionState.lastContinuationInjectedAt < CONTINUATION_COOLDOWN_MS) {
-    scheduleRetry({ ctx, sessionID, sessionState, options })
+    if (!sessionState.awaitingPostInjectionProgressCheck) {
+      scheduleRetry({ ctx, sessionID, sessionState, options })
+    }
     log(`[${HOOK_NAME}] Skipped: continuation cooldown active`, {
       sessionID,
       cooldownRemaining: CONTINUATION_COOLDOWN_MS - (now - sessionState.lastContinuationInjectedAt),
       pendingRetry: !!sessionState.pendingRetryTimer,
+      awaitingPostInjectionProgressCheck: sessionState.awaitingPostInjectionProgressCheck ?? false,
     })
+    return
+  }
+
+  if (shouldStopForStagnation({ sessionID, sessionState, currentPlanDigest })) {
     return
   }
 

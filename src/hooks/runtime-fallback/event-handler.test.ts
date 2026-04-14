@@ -5,7 +5,7 @@ import { createFallbackState } from "./fallback-state"
 import { createEventHandler } from "./event-handler"
 
 type TestHelpers = AutoRetryHelpers & {
-  __scheduleCallsForTest: Array<{ sessionID: string; source?: string; resolvedAgent?: string }>
+  __scheduleCallsForTest: Array<{ sessionID: string; source?: string; resolvedAgent?: string; timeoutMsOverride?: number }>
 }
 
 function createContext(): RuntimeFallbackPluginInput {
@@ -54,7 +54,7 @@ function createDeps(): HookDeps {
 }
 
 function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[]): TestHelpers {
-  const scheduleCalls: Array<{ sessionID: string; source?: string; resolvedAgent?: string }> = []
+  const scheduleCalls: Array<{ sessionID: string; source?: string; resolvedAgent?: string; timeoutMsOverride?: number }> = []
 
   return {
     abortSessionRequest: async (sessionID: string) => {
@@ -64,8 +64,16 @@ function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[
       clearCalls.push(sessionID)
       deps.sessionFallbackTimeouts.delete(sessionID)
     },
-    scheduleSessionFallbackTimeout: (sessionID: string, options?: { source?: string; resolvedAgent?: string }) => {
-      scheduleCalls.push({ sessionID, source: options?.source, resolvedAgent: options?.resolvedAgent })
+    scheduleSessionFallbackTimeout: (
+      sessionID: string,
+      options?: { source?: string; resolvedAgent?: string; timeoutMsOverride?: number },
+    ) => {
+      scheduleCalls.push({
+        sessionID,
+        source: options?.source,
+        resolvedAgent: options?.resolvedAgent,
+        ...(options?.timeoutMsOverride !== undefined ? { timeoutMsOverride: options.timeoutMsOverride } : {}),
+      })
       deps.sessionFallbackTimeouts.set(sessionID, 1)
     },
     autoRetryWithFallback: async () => {},
@@ -234,6 +242,15 @@ describe("createEventHandler", () => {
           },
         },
       },
+      {
+        name: "compaction parts",
+        properties: {
+          part: {
+            sessionID: "session-progress-compaction",
+            type: "compaction",
+          },
+        },
+      },
     ]
 
     for (const progressCase of progressCases) {
@@ -264,6 +281,19 @@ describe("createEventHandler", () => {
             sessionID,
             source: "message.part.updated.progress",
             resolvedAgent: undefined,
+            ...((() => {
+              const part = progressCase.properties.part as Record<string, unknown> | undefined
+              const type = part?.type
+              const status = (part?.state as { status?: string } | undefined)?.status
+              const isLongRunning =
+                type === "compaction"
+                || type === "tool_use"
+                || type === "tool-call"
+                || (type === "tool" && status === "running")
+              return isLongRunning
+              ? { timeoutMsOverride: 120_000 }
+              : {}
+            })()),
           },
         ])
       })

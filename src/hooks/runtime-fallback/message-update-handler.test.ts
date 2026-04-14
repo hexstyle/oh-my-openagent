@@ -71,6 +71,7 @@ function createDeps(messagesResponse: unknown): HookDeps {
     sessionLastAccess: new Map(),
     sessionLastUserMessageIDs: new Map(),
     sessionRecentCompletionUntil: new Map(),
+    sessionRecentActiveStatusUntil: new Map(),
     sessionRetryInFlight: new Set(),
     sessionAwaitingFallbackResult: new Set(),
     sessionFallbackTimeouts: new Map(),
@@ -79,12 +80,20 @@ function createDeps(messagesResponse: unknown): HookDeps {
   }
 }
 
-function createHelpers(scheduleCalls: string[]): AutoRetryHelpers {
+function createHelpers(
+  scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }>,
+): AutoRetryHelpers {
   return {
     abortSessionRequest: async () => {},
     clearSessionFallbackTimeout: () => {},
-    scheduleSessionFallbackTimeout: (sessionID: string) => {
-      scheduleCalls.push(sessionID)
+    scheduleSessionFallbackTimeout: (
+      sessionID: string,
+      args?: { timeoutMsOverride?: number },
+    ) => {
+      scheduleCalls.push({
+        sessionID,
+        ...(args?.timeoutMsOverride !== undefined ? { timeoutMsOverride: args.timeoutMsOverride } : {}),
+      })
     },
     autoRetryWithFallback: async () => {},
     retryCurrentModel: async () => false,
@@ -177,7 +186,7 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
   it("#given a user internal initiator message #when message.updated is handled #then watchdog state is not re-armed or reset", async () => {
     const { createMessageUpdateHandler } = await import(`./message-update-handler?internal-initiator-${Date.now()}-${Math.random()}`)
     const sessionID = "session-internal-initiator"
-    const scheduleCalls: string[] = []
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
     const deps = createDeps({ data: [] })
     const state = createFallbackState("openai/gpt-5.4")
     deps.sessionLastAccess.set(sessionID, 4242)
@@ -210,7 +219,7 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
   it("#given a raw watchdog continuation user message #when message.updated is handled #then watchdog state is not re-armed or reset", async () => {
     const { createMessageUpdateHandler } = await import(`./message-update-handler?watchdog-initiator-${Date.now()}-${Math.random()}`)
     const sessionID = "session-watchdog-initiator"
-    const scheduleCalls: string[] = []
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
     const deps = createDeps({ data: [] })
     const state = createFallbackState("openai/gpt-5.4")
     deps.sessionLastAccess.set(sessionID, 4242)
@@ -243,7 +252,7 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
   it("#given a visible assistant update #when message.updated is handled #then only visible assistant reset is recorded", async () => {
     const { createMessageUpdateHandler } = await import(`./message-update-handler?visible-reset-${Date.now()}-${Math.random()}`)
     const sessionID = "session-visible-assistant-reset"
-    const scheduleCalls: string[] = []
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
     const deps = createDeps({ data: [] })
     const loopDetector = createLoopDetectorSpy()
     deps.loopDetector = loopDetector
@@ -268,7 +277,7 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
   it("#given a fresh real user turn #when message.updated is handled #then only real user reset is recorded", async () => {
     const { createMessageUpdateHandler } = await import(`./message-update-handler?real-user-reset-${Date.now()}-${Math.random()}`)
     const sessionID = "session-real-user-reset"
-    const scheduleCalls: string[] = []
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
     const deps = createDeps({ data: [] })
     const loopDetector = createLoopDetectorSpy()
     deps.loopDetector = loopDetector
@@ -288,5 +297,79 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     expect(loopDetector.resetCalls).toEqual([sessionID])
     expect(loopDetector.visibleResponseCalls).toEqual([])
     expect(loopDetector.internalContinuationCalls).toEqual([])
+  })
+
+  it("#given a recent active session.status marker #when an empty assistant update arrives #then watchdog keeps the extended quiet window", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?recent-active-status-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-recent-active-status"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const deps = createDeps({
+      data: [
+        { info: { role: "user" }, parts: [{ type: "text", text: "Reply with OK only." }] },
+      ],
+    })
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
+    deps.sessionRecentActiveStatusUntil?.set(sessionID, Date.now() + 5_000)
+    const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls))
+
+    await handler({
+      info: {
+        id: "msg-empty-assistant",
+        sessionID,
+        role: "assistant",
+        agent: "Prometheus (Plan Builder)",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+        },
+      },
+    })
+
+    expect(scheduleCalls).toEqual([{ sessionID, timeoutMsOverride: 120_000 }])
+  })
+
+  it("#given a second empty assistant update #when no first token has arrived yet #then watchdog upgrades to the extended quiet window", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?second-empty-assistant-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-second-empty-assistant"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const deps = createDeps({
+      data: [
+        { info: { role: "user" }, parts: [{ type: "text", text: "Reply with OK only." }] },
+      ],
+    })
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
+    deps.sessionSilentAssistantUpdateCounts = new Map()
+    const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls))
+
+    await handler({
+      info: {
+        id: "msg-empty-assistant-1",
+        sessionID,
+        role: "assistant",
+        agent: "Prometheus (Plan Builder)",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+        },
+      },
+    })
+
+    await handler({
+      info: {
+        id: "msg-empty-assistant-2",
+        sessionID,
+        role: "assistant",
+        agent: "Prometheus (Plan Builder)",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+        },
+      },
+    })
+
+    expect(scheduleCalls).toEqual([
+      { sessionID },
+      { sessionID, timeoutMsOverride: 120_000 },
+    ])
   })
 })

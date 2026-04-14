@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import {
   assertSmokeSucceededOrSkippable,
+  interpretSmokeMessages,
   isSkippableProviderQuotaSmokeFailure,
 } from "./verify-local-opencode-install"
 
@@ -41,5 +42,31 @@ describe("verify-local-opencode-install smoke handling", () => {
         },
       }),
     ).not.toThrow()
+  })
+
+  test("treats timeout-driven fallback handoff as pending until the fallback assistant responds", () => {
+    expect(
+      interpretSmokeMessages([
+        {
+          role: "user",
+          parts: [{ type: "text", text: "Reply with OK only." }],
+        },
+        {
+          role: "assistant",
+          error: { name: "MessageAbortedError", message: "" },
+        },
+        {
+          role: "user",
+          parts: [{ type: "text", text: "Reply with OK only." }],
+        },
+        {
+          role: "assistant",
+          parts: [],
+        },
+      ]),
+    ).toEqual({
+      output: "",
+      state: "pending",
+    })
   })
 })

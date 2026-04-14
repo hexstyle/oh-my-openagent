@@ -181,6 +181,23 @@ export function upsertTaskSessionState(
   return null
 }
 
+export function clearTaskSessionState(directory: string, taskKey: string): BoulderState | null {
+  const state = readBoulderState(directory)
+  if (!state?.task_sessions || RESERVED_KEYS.has(taskKey) || !(taskKey in state.task_sessions)) {
+    return state
+  }
+
+  const taskSessions = { ...state.task_sessions }
+  delete taskSessions[taskKey]
+  state.task_sessions = taskSessions
+
+  if (writeBoulderState(directory, state)) {
+    return state
+  }
+
+  return null
+}
+
 export function getBoulderWorktreePath(directory: string | undefined): string | undefined {
   return normalizeWorktreePath(readBoulderState(directory)?.worktree_path)
 }

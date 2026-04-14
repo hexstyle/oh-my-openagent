@@ -58,6 +58,8 @@ export function createRuntimeFallbackHook(
     sessionLastAccess: new Map(),
     sessionLastUserMessageIDs: new Map(),
     sessionRecentCompletionUntil: new Map(),
+    sessionRecentActiveStatusUntil: new Map(),
+    sessionSilentAssistantUpdateCounts: new Map(),
     sessionRetryInFlight: new Set(),
     sessionAwaitingFallbackResult: new Set(),
     sessionFallbackTimeouts: new Map(),
@@ -109,6 +111,8 @@ export function createRuntimeFallbackHook(
     deps.sessionLastAccess.clear()
     deps.sessionLastUserMessageIDs.clear()
     deps.sessionRecentCompletionUntil.clear()
+    deps.sessionRecentActiveStatusUntil?.clear()
+    deps.sessionSilentAssistantUpdateCounts?.clear()
     deps.sessionRetryInFlight.clear()
     deps.sessionAwaitingFallbackResult.clear()
     deps.sessionFallbackTimeouts.clear()
