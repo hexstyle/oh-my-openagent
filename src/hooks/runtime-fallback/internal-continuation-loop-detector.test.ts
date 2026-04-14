@@ -23,6 +23,12 @@ describe("isInternalInitiatorMessage", () => {
     expect(isInternalInitiatorMessage(parts)).toBe(true)
   })
 
+  it("#given the quoted watchdog continuation prompt captured from opencode run #then returns true", () => {
+    const parts = [{ type: "text", text: `"${WATCHDOG_CONTINUATION_PROMPT}"\n` }]
+
+    expect(isInternalInitiatorMessage(parts)).toBe(true)
+  })
+
   it("#given parts without the marker #then returns false", () => {
     const parts = [{ type: "text", text: "Hello, please help me" }]
 

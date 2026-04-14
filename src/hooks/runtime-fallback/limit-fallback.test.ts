@@ -23,9 +23,18 @@ import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 function createPluginInput(opts?: {
   promptCalls?: Array<unknown>
   abortCalls?: string[]
+  messagesResponse?: unknown
 }) {
   const promptCalls = opts?.promptCalls ?? []
   const abortCalls = opts?.abortCalls ?? []
+  const messagesResponse = opts?.messagesResponse ?? {
+    data: [
+      {
+        info: { role: "user" },
+        parts: [{ type: "text", text: "Build the feature." }],
+      },
+    ],
+  }
   return {
     ctx: {
       client: {
@@ -34,14 +43,7 @@ function createPluginInput(opts?: {
             abortCalls.push(path.id)
             return {}
           },
-          messages: async () => ({
-            data: [
-              {
-                info: { role: "user" },
-                parts: [{ type: "text", text: "Build the feature." }],
-              },
-            ],
-          }),
+          messages: async () => messagesResponse,
           promptAsync: async (input: unknown) => {
             promptCalls.push(input)
             return {}
@@ -119,6 +121,88 @@ describe("Bug 1 – MessageAbortedError after quota signal routes to spark", () 
     const body = (promptCalls[0] as { body: { model: { providerID: string; modelID: string } } }).body
     expect(body.model.providerID).toBe("openai")
     expect(body.model.modelID).toBe("gpt-5.3-codex-spark")
+
+    hook.dispose?.()
+    SessionCategoryRegistry.clear()
+  })
+
+  it("quoted watchdog continuation prompts are not replayed as user payload after quota fallback", async () => {
+    SessionCategoryRegistry.clear()
+    const { ctx, promptCalls } = createPluginInput({
+      messagesResponse: {
+        data: [
+          {
+            info: { role: "user" },
+            parts: [{ type: "text", text: "Continue implementing the actual plan." }],
+          },
+          {
+            info: { role: "assistant" },
+            parts: [{ type: "text", text: "Working on it." }],
+          },
+          {
+            info: { role: "user" },
+            parts: [{
+              type: "text",
+              text: "\"Continue the current task from where you left off. The previous request appears stalled. Resume from the existing context, do not redo completed work, and continue.\"\n",
+            }],
+          },
+        ],
+      },
+    })
+    const sessionID = "test-quota-quoted-watchdog"
+    SessionCategoryRegistry.register(sessionID, "test")
+
+    const hook = createRuntimeFallbackHook(ctx, {
+      config: {
+        enabled: true,
+        retry_on_errors: [400, 402, 429, 500, 503],
+        max_fallback_attempts: 10,
+        cooldown_seconds: 60,
+        notify_on_fallback: false,
+      },
+      pluginConfig: makeCategoryConfig([
+        "openai/gpt-5.4",
+        "openai/gpt-5.3-codex-spark",
+      ]),
+    })
+
+    await hook.event({
+      event: {
+        type: "session.created",
+        properties: {
+          info: { id: sessionID, providerID: "anthropic", modelID: "claude-opus-4-6" },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID,
+          error: {
+            name: "AI_APICallError",
+            data: {
+              statusCode: 400,
+              message: "You're out of extra usage. Add more at claude.ai/settings/usage and keep going.",
+            },
+          },
+        },
+      },
+    })
+
+    expect(promptCalls).toHaveLength(1)
+    const body = (promptCalls[0] as {
+      body: {
+        model: { providerID: string; modelID: string }
+        parts: Array<{ type?: string; text?: string }>
+      }
+    }).body
+    expect(body.model.providerID).toBe("openai")
+    expect(body.model.modelID).toBe("gpt-5.3-codex-spark")
+    expect(body.parts).toEqual([
+      { type: "text", text: "Continue implementing the actual plan." },
+    ])
 
     hook.dispose?.()
     SessionCategoryRegistry.clear()

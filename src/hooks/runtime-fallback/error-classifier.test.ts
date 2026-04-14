@@ -326,6 +326,22 @@ describe("quota error detection (fixes #2747)", () => {
     expect(errorType).toBe("quota_exceeded")
   })
 
+  test("classifies Anthropic out-of-extra-usage wording as quota_exceeded", () => {
+    //#given
+    const error = {
+      name: "AI_APICallError",
+      message: "You're out of extra usage. Add more at claude.ai/settings/usage and keep going.",
+    }
+
+    //#when
+    const errorType = classifyErrorType(error)
+    const retryable = isRetryableError(error, [400, 402, 429, 500, 502, 503, 504])
+
+    //#then
+    expect(errorType).toBe("quota_exceeded")
+    expect(retryable).toBe(true)
+  })
+
   test("treats HTTP 402 Payment Required as retryable", () => {
     //#given
     const error = { statusCode: 402, message: "Payment Required" }

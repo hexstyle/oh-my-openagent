@@ -15,7 +15,23 @@ export interface LoopDetector {
 }
 
 function normalizeInternalPromptText(text: string): string {
-  return text.replace(/\s+/g, " ").trim()
+  let normalized = text.trim()
+
+  while (normalized.length >= 2) {
+    const firstChar = normalized[0]
+    const lastChar = normalized[normalized.length - 1]
+    const hasWrappingQuotes =
+      firstChar === lastChar &&
+      (firstChar === "\"" || firstChar === "'" || firstChar === "`")
+
+    if (!hasWrappingQuotes) {
+      break
+    }
+
+    normalized = normalized.slice(1, -1).trim()
+  }
+
+  return normalized.replace(/\s+/g, " ").trim()
 }
 
 const NORMALIZED_WATCHDOG_CONTINUATION_PROMPT = normalizeInternalPromptText(

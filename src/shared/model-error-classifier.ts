@@ -186,6 +186,7 @@ const QUOTA_ERROR_PATTERNS = [
   "free usage",
   "free period",
   "usage exceeded",
+  "out of extra usage",
   "out of credits",
   "payment required",
   "billing",

@@ -65,6 +65,23 @@ describe("getLastUserRetryParts", () => {
     expect(result).toEqual([{ type: "text", text: "implement the feature" }])
   })
 
+  it("#given the last user message is the quoted watchdog continuation prompt from the external watchdog #when extracting retry parts #then skips it and returns the previous real user message", () => {
+    const messagesResponse = {
+      data: [
+        { info: { role: "user" }, parts: [{ type: "text", text: "implement the feature" }] },
+        { info: { role: "assistant" }, parts: [{ type: "text", text: "working on it..." }] },
+        {
+          info: { role: "user" },
+          parts: [{ type: "text", text: `"${WATCHDOG_CONTINUATION_PROMPT}"\n` }],
+        },
+      ],
+    }
+
+    const result = getLastUserRetryParts(messagesResponse)
+
+    expect(result).toEqual([{ type: "text", text: "implement the feature" }])
+  })
+
   it("#given multiple consecutive internal initiator messages #when extracting retry parts #then skips all internal messages and returns the last real user message", () => {
     const messagesResponse = {
       data: [

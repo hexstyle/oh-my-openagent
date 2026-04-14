@@ -129,6 +129,19 @@ describe("model-error-classifier", () => {
     expect(fallback).toBe(true)
   })
 
+  test("treats Anthropic out-of-extra-usage messages as fallback-switchable, not retryable", () => {
+    //#given
+    const error = { message: "You're out of extra usage. Add more at claude.ai/settings/usage and keep going." }
+
+    //#when
+    const retry = shouldRetryError(error)
+    const fallback = shouldSwitchFallback(error)
+
+    //#then
+    expect(retry).toBe(false)
+    expect(fallback).toBe(true)
+  })
+
   test("treats 'bad request' message as retryable (GitHub Copilot rolling update)", () => {
     //#given
     const error = { message: "400 Bad Request" }
