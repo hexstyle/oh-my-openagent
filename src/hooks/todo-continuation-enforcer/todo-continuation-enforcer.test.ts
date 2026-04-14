@@ -343,6 +343,25 @@ describe("todo-continuation-enforcer", () => {
     expect(promptCalls).toHaveLength(0)
   })
 
+  test("should not inject when background tasks are pending", async () => {
+    const sessionID = "main-pending-background-task"
+    setMainSession(sessionID)
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {
+      backgroundManager: {
+        getTasksByParentSession: () => [{ status: "pending" }],
+      } as any,
+    })
+
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await fakeTimers.advanceBy(3000)
+
+    expect(promptCalls).toHaveLength(0)
+  })
+
   test("should skip idle handling when background task inspection fails", async () => {
     const sessionID = "main-background-manager-error"
     setMainSession(sessionID)

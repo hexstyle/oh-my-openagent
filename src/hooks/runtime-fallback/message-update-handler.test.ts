@@ -7,6 +7,8 @@ import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-m
 import { hasVisibleAssistantResponse } from "./visible-assistant-response"
 import { extractAutoRetrySignal } from "./error-classifier"
 
+const WATCHDOG_CONTINUATION_PROMPT = "Continue the current task from where you left off. The previous request appears stalled. Resume from the existing context, do not redo completed work, and continue."
+
 function createLoopDetectorSpy() {
   return {
     internalContinuationCalls: [] as string[],
@@ -202,6 +204,39 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     expect(deps.sessionRecentCompletionUntil.get(sessionID)).toBe(999999)
     expect(deps.sessionAwaitingFallbackResult.has(sessionID)).toBe(true)
     expect(deps.sessionStatusRetryKeys.get(sessionID)).toBe("retry:internal")
+    expect(deps.sessionLastUserMessageIDs.get(sessionID)).toBe("existing-user-message")
+  })
+
+  it("#given a raw watchdog continuation user message #when message.updated is handled #then watchdog state is not re-armed or reset", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?watchdog-initiator-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-watchdog-initiator"
+    const scheduleCalls: string[] = []
+    const deps = createDeps({ data: [] })
+    const state = createFallbackState("openai/gpt-5.4")
+    deps.sessionLastAccess.set(sessionID, 4242)
+    deps.sessionRecentCompletionUntil.set(sessionID, 999999)
+    state.stoppedAt = 123456789
+    deps.sessionStates.set(sessionID, state)
+    deps.sessionAwaitingFallbackResult.add(sessionID)
+    deps.sessionStatusRetryKeys.set(sessionID, "retry:watchdog")
+    deps.sessionLastUserMessageIDs.set(sessionID, "existing-user-message")
+    const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls))
+
+    await handler({
+      info: {
+        id: "msg-watchdog-initiator",
+        sessionID,
+        role: "user",
+      },
+      parts: [{ type: "text", text: WATCHDOG_CONTINUATION_PROMPT }],
+    })
+
+    expect(state.stoppedAt).toBe(123456789)
+    expect(scheduleCalls).toEqual([])
+    expect(deps.sessionLastAccess.get(sessionID)).toBe(4242)
+    expect(deps.sessionRecentCompletionUntil.get(sessionID)).toBe(999999)
+    expect(deps.sessionAwaitingFallbackResult.has(sessionID)).toBe(true)
+    expect(deps.sessionStatusRetryKeys.get(sessionID)).toBe("retry:watchdog")
     expect(deps.sessionLastUserMessageIDs.get(sessionID)).toBe("existing-user-message")
   })
 

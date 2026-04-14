@@ -91,6 +91,29 @@ async function sendInternalContinuation(
   })
 }
 
+async function sendRawContinuation(
+  hook: RuntimeFallbackHook,
+  sessionID: string,
+  id: string,
+  text: string,
+): Promise<void> {
+  await hook.event({
+    event: {
+      type: "message.updated",
+      properties: {
+        info: {
+          id,
+          sessionID,
+          role: "user",
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+        parts: [{ type: "text", text }],
+      },
+    },
+  })
+}
+
 async function sendVisibleAssistantOutput(hook: RuntimeFallbackHook, sessionID: string, id: string): Promise<void> {
   await hook.event({
     event: {
@@ -149,11 +172,11 @@ describe("runtime-fallback internal continuation loop integration", () => {
       const state = getState(hook, sessionID)
 
       for (let index = 1; index < DEFAULT_INTERNAL_CONTINUATION_LOOP_THRESHOLD; index += 1) {
-        await sendInternalContinuation(hook, sessionID, `watchdog-${index}`, WATCHDOG_CONTINUATION_PROMPT)
+        await sendRawContinuation(hook, sessionID, `watchdog-${index}`, WATCHDOG_CONTINUATION_PROMPT)
       }
 
       expect(state?.stoppedAt).toBeUndefined()
-      await sendInternalContinuation(hook, sessionID, `watchdog-${DEFAULT_INTERNAL_CONTINUATION_LOOP_THRESHOLD}`, WATCHDOG_CONTINUATION_PROMPT)
+      await sendRawContinuation(hook, sessionID, `watchdog-${DEFAULT_INTERNAL_CONTINUATION_LOOP_THRESHOLD}`, WATCHDOG_CONTINUATION_PROMPT)
       expect(state?.stoppedAt).toBeDefined()
     } finally {
       hook.dispose?.()

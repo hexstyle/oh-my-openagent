@@ -6,6 +6,7 @@ export interface ParentSessionTaskInspection {
   available: boolean
   tasks: BackgroundTask[]
   hasRunningTasks: boolean
+  hasActiveTasks: boolean
 }
 
 export function inspectParentSessionTasks(args: {
@@ -20,6 +21,7 @@ export function inspectParentSessionTasks(args: {
       available: true,
       tasks: [],
       hasRunningTasks: false,
+      hasActiveTasks: false,
     }
   }
 
@@ -31,6 +33,7 @@ export function inspectParentSessionTasks(args: {
       available: true,
       tasks: normalizedTasks,
       hasRunningTasks: normalizedTasks.some((task) => task.status === "running"),
+      hasActiveTasks: normalizedTasks.some((task) => task.status === "running" || task.status === "pending"),
     }
   } catch (error) {
     log(`[${logScope}] Failed to inspect background tasks`, {
@@ -42,6 +45,7 @@ export function inspectParentSessionTasks(args: {
       available: false,
       tasks: [],
       hasRunningTasks: false,
+      hasActiveTasks: false,
     }
   }
 }

@@ -119,4 +119,41 @@ describe("injectContinuation", () => {
     // then
     expect(capturedAgent).toBe("explore")
   })
+
+  test("skips injection when parent session already has a pending background task", async () => {
+    // given
+    let injected = false
+    const ctx = {
+      directory: "/tmp/test",
+      client: {
+        session: {
+          todo: async () => ({ data: [{ id: "1", content: "todo", status: "pending", priority: "high" }] }),
+          promptAsync: async () => {
+            injected = true
+            return {}
+          },
+        },
+      },
+    }
+    const sessionStateStore = {
+      getExistingState: () => ({ inFlight: false, lastInjectedAt: 0, consecutiveFailures: 0 }),
+    }
+
+    // when
+    await injectContinuation({
+      ctx: ctx as never,
+      sessionID: "ses_pending_background_task",
+      backgroundManager: {
+        getTasksByParentSession: () => [{ id: "bg-1", status: "pending" }],
+      } as never,
+      resolvedInfo: {
+        agent: "Hephaestus",
+        model: { providerID: "openai", modelID: "gpt-5.4" },
+      },
+      sessionStateStore: sessionStateStore as never,
+    })
+
+    // then
+    expect(injected).toBe(false)
+  })
 })

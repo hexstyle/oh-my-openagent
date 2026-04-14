@@ -7,6 +7,7 @@ import {
   HOOK_NAME,
   MODEL_RECOVERY_PROBE_MIN_INTERVAL_MS,
   MODEL_RECOVERY_PROBE_TIMEOUT_MS,
+  WATCHDOG_CONTINUATION_PROMPT,
 } from "./constants"
 import { log } from "../../shared/logger"
 import { normalizeAgentName, resolveAgentForSession } from "./agent-resolver"
@@ -184,6 +185,7 @@ export function createAutoRetryHelpers(deps: HookDeps) {
 
     const cliAgent = resolveExternalWatchdogAgent(args.resolvedAgent)
     const cliModel = splitWatchdogCliModel(nextModel)
+    const escapedWatchdogPrompt = JSON.stringify(WATCHDOG_CONTINUATION_PROMPT)
     const shellScript = `
 sleep "$1"
 TOKEN_FILE="$2"
@@ -206,9 +208,9 @@ if [ -n "$MODEL_VARIANT" ]; then
   VARIANT_ARGS=(--variant "$MODEL_VARIANT")
 fi
 if [ -n "$AGENT_NAME" ]; then
-  exec opencode run -s "$SESSION_ID" --dir "$SESSION_DIR" --model "$NEXT_MODEL" "\${VARIANT_ARGS[@]}" --agent "$AGENT_NAME" "Continue the current task from where you left off. The previous request appears stalled. Resume from the existing context, do not redo completed work, and continue." >> "$WATCHDOG_LOG" 2>&1
+  exec opencode run -s "$SESSION_ID" --dir "$SESSION_DIR" --model "$NEXT_MODEL" "\${VARIANT_ARGS[@]}" --agent "$AGENT_NAME" ${escapedWatchdogPrompt} >> "$WATCHDOG_LOG" 2>&1
 else
-  exec opencode run -s "$SESSION_ID" --dir "$SESSION_DIR" --model "$NEXT_MODEL" "\${VARIANT_ARGS[@]}" "Continue the current task from where you left off. The previous request appears stalled. Resume from the existing context, do not redo completed work, and continue." >> "$WATCHDOG_LOG" 2>&1
+  exec opencode run -s "$SESSION_ID" --dir "$SESSION_DIR" --model "$NEXT_MODEL" "\${VARIANT_ARGS[@]}" ${escapedWatchdogPrompt} >> "$WATCHDOG_LOG" 2>&1
 fi
 `
 

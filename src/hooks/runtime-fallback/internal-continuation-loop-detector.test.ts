@@ -8,9 +8,17 @@ import {
   isInternalInitiatorMessage,
 } from "./internal-continuation-loop-detector"
 
+const WATCHDOG_CONTINUATION_PROMPT = "Continue the current task from where you left off. The previous request appears stalled. Resume from the existing context, do not redo completed work, and continue."
+
 describe("isInternalInitiatorMessage", () => {
   it("#given parts containing the internal initiator marker #then returns true", () => {
     const parts = [{ type: "text", text: `Continue.\n${OMO_INTERNAL_INITIATOR_MARKER}` }]
+
+    expect(isInternalInitiatorMessage(parts)).toBe(true)
+  })
+
+  it("#given the raw watchdog continuation prompt without marker #then returns true", () => {
+    const parts = [{ type: "text", text: WATCHDOG_CONTINUATION_PROMPT }]
 
     expect(isInternalInitiatorMessage(parts)).toBe(true)
   })

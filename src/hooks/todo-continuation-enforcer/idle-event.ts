@@ -76,8 +76,8 @@ export async function handleSessionIdle(args: {
     return
   }
 
-  if (backgroundTasks.hasRunningTasks) {
-    log(`[${HOOK_NAME}] Skipped: background tasks running`, { sessionID })
+  if (backgroundTasks.hasActiveTasks) {
+    log(`[${HOOK_NAME}] Skipped: background tasks active`, { sessionID })
     return
   }
 

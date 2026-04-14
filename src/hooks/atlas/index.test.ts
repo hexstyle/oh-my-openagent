@@ -1538,6 +1538,38 @@ session_id: ses_untrusted_999
        expect(mockInput._promptMock).not.toHaveBeenCalled()
      })
 
+     test("should skip when background tasks are pending", async () => {
+       const planPath = join(TEST_DIR, "test-plan.md")
+       writeFileSync(planPath, "# Plan\n- [ ] Task 1")
+
+       const state: BoulderState = {
+         active_plan: planPath,
+         started_at: "2026-01-02T10:00:00Z",
+         session_ids: [MAIN_SESSION_ID],
+         plan_name: "test-plan",
+       }
+       writeBoulderState(TEST_DIR, state)
+
+       const mockBackgroundManager = {
+         getTasksByParentSession: () => [{ status: "pending" }],
+       }
+
+       const mockInput = createMockPluginInput()
+       const hook = createAtlasHook(mockInput, {
+         directory: TEST_DIR,
+         backgroundManager: mockBackgroundManager as any,
+       })
+
+       await hook.handler({
+         event: {
+           type: "session.idle",
+           properties: { sessionID: MAIN_SESSION_ID },
+         },
+       })
+
+       expect(mockInput._promptMock).not.toHaveBeenCalled()
+     })
+
      test("should skip when continuation is stopped via isContinuationStopped", async () => {
        // given - boulder state with incomplete plan
        const planPath = join(TEST_DIR, "test-plan.md")

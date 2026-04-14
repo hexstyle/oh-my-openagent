@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test"
 import { getLastUserRetryParts } from "./last-user-retry-parts"
 import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
 
+const WATCHDOG_CONTINUATION_PROMPT = "Continue the current task from where you left off. The previous request appears stalled. Resume from the existing context, do not redo completed work, and continue."
+
 describe("getLastUserRetryParts", () => {
   it("#given a normal user message #when extracting retry parts #then returns the text parts", () => {
     const messagesResponse = {
@@ -37,6 +39,23 @@ describe("getLastUserRetryParts", () => {
         {
           info: { role: "user" },
           parts: [{ type: "text", text: `Continue from where you left off.\n${OMO_INTERNAL_INITIATOR_MARKER}` }],
+        },
+      ],
+    }
+
+    const result = getLastUserRetryParts(messagesResponse)
+
+    expect(result).toEqual([{ type: "text", text: "implement the feature" }])
+  })
+
+  it("#given the last user message is the raw watchdog continuation prompt #when extracting retry parts #then skips it and returns the previous real user message", () => {
+    const messagesResponse = {
+      data: [
+        { info: { role: "user" }, parts: [{ type: "text", text: "implement the feature" }] },
+        { info: { role: "assistant" }, parts: [{ type: "text", text: "working on it..." }] },
+        {
+          info: { role: "user" },
+          parts: [{ type: "text", text: WATCHDOG_CONTINUATION_PROMPT }],
         },
       ],
     }

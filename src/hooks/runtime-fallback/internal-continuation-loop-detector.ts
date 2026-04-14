@@ -1,4 +1,5 @@
 import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
+import { WATCHDOG_CONTINUATION_PROMPT } from "./constants"
 
 export type LoopDetectionResult = {
   isTerminal: boolean
@@ -13,14 +14,26 @@ export interface LoopDetector {
   reset(sessionID: string): void
 }
 
+function normalizeInternalPromptText(text: string): string {
+  return text.replace(/\s+/g, " ").trim()
+}
+
+const NORMALIZED_WATCHDOG_CONTINUATION_PROMPT = normalizeInternalPromptText(
+  WATCHDOG_CONTINUATION_PROMPT,
+)
+
 export function isInternalInitiatorMessage(
   parts: Array<{ type?: string; text?: string }> | undefined,
 ): boolean {
   return (parts ?? []).some(
-    (part) =>
-      part.type === "text"
-      && typeof part.text === "string"
-      && part.text.includes(OMO_INTERNAL_INITIATOR_MARKER),
+    (part) => {
+      if (part.type !== "text" || typeof part.text !== "string") {
+        return false
+      }
+
+      return part.text.includes(OMO_INTERNAL_INITIATOR_MARKER)
+        || normalizeInternalPromptText(part.text) === NORMALIZED_WATCHDOG_CONTINUATION_PROMPT
+    },
   )
 }
 

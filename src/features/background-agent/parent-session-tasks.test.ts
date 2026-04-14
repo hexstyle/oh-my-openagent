@@ -19,6 +19,25 @@ describe("inspectParentSessionTasks", () => {
 
     expect(result.available).toBe(true)
     expect(result.hasRunningTasks).toBe(true)
+    expect(result.hasActiveTasks).toBe(true)
+    expect(result.tasks).toHaveLength(2)
+  })
+
+  it("treats pending tasks as active parent-session work", () => {
+    const result = inspectParentSessionTasks({
+      backgroundManager: {
+        getTasksByParentSession: () => [
+          { id: "task-1", status: "pending" },
+          { id: "task-2", status: "completed" },
+        ],
+      } as never,
+      sessionID: "session-pending",
+      logScope: "test-scope",
+    })
+
+    expect(result.available).toBe(true)
+    expect(result.hasRunningTasks).toBe(false)
+    expect(result.hasActiveTasks).toBe(true)
     expect(result.tasks).toHaveLength(2)
   })
 
@@ -42,6 +61,7 @@ describe("inspectParentSessionTasks", () => {
       available: false,
       tasks: [],
       hasRunningTasks: false,
+      hasActiveTasks: false,
     })
     expect(logCalls).toContainEqual({
       message: "[test-scope] Failed to inspect background tasks",

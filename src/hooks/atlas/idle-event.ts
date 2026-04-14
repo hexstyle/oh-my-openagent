@@ -74,7 +74,7 @@ function shouldStopForStagnation(input: {
   return true
 }
 
-function hasRunningBackgroundTasks(sessionID: string, options?: AtlasHookOptions): boolean {
+function hasActiveBackgroundTasks(sessionID: string, options?: AtlasHookOptions): boolean {
   const backgroundTasks = inspectParentSessionTasks({
     backgroundManager: options?.backgroundManager,
     sessionID,
@@ -84,7 +84,7 @@ function hasRunningBackgroundTasks(sessionID: string, options?: AtlasHookOptions
     return true
   }
 
-  return backgroundTasks.hasRunningTasks
+  return backgroundTasks.hasActiveTasks
 }
 
 async function injectContinuation(input: {
@@ -154,7 +154,7 @@ function scheduleRetry(input: {
     const currentProgress = getPlanProgress(currentBoulder.active_plan)
     if (currentProgress.isComplete) return
     if (options?.isContinuationStopped?.(sessionID)) return
-    if (hasRunningBackgroundTasks(sessionID, options)) return
+    if (hasActiveBackgroundTasks(sessionID, options)) return
     if ((sessionState.stagnationCount ?? 0) >= MAX_STAGNATION_COUNT) return
 
     const currentPlanDigest = buildPlanExecutionDigest(currentBoulder.active_plan, currentProgress)
@@ -274,8 +274,8 @@ export async function handleAtlasSessionIdle(input: {
     sessionState.lastFailureAt = undefined
   }
 
-  if (hasRunningBackgroundTasks(sessionID, options)) {
-    log(`[${HOOK_NAME}] Skipped: background tasks running`, { sessionID })
+  if (hasActiveBackgroundTasks(sessionID, options)) {
+    log(`[${HOOK_NAME}] Skipped: background tasks active`, { sessionID })
     return
   }
 

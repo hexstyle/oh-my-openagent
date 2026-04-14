@@ -49,8 +49,8 @@ export async function injectBoulderContinuation(input: {
     return
   }
 
-  if (backgroundTasks.hasRunningTasks) {
-    log(`[${HOOK_NAME}] Skipped injection: background tasks running`, { sessionID })
+  if (backgroundTasks.hasActiveTasks) {
+    log(`[${HOOK_NAME}] Skipped injection: background tasks active`, { sessionID })
     return
   }
 
