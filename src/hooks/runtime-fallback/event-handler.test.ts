@@ -177,4 +177,96 @@ describe("createEventHandler", () => {
     expect(deps.sessionTransientRetryTimeouts.has(sessionID)).toBe(true)
     expect(deps.sessionStatusRetryKeys.get(sessionID)).toBe("retry:1")
   })
+
+  describe("#given an armed active-session watchdog", () => {
+    const progressCases: Array<{
+      name: string
+      properties: Record<string, unknown>
+    }> = [
+      {
+        name: "tool parts",
+        properties: {
+          part: {
+            sessionID: "session-progress-tool",
+            type: "tool",
+            tool: "data_catalog",
+            state: { status: "running" },
+          },
+        },
+      },
+      {
+        name: "tool_use parts",
+        properties: {
+          part: {
+            sessionID: "session-progress-tool-use",
+            type: "tool_use",
+          },
+        },
+      },
+      {
+        name: "tool_result parts",
+        properties: {
+          part: {
+            sessionID: "session-progress-tool-result",
+            type: "tool_result",
+          },
+        },
+      },
+      {
+        name: "text deltas",
+        properties: {
+          sessionID: "session-progress-text",
+          field: "text",
+          delta: "next token",
+          part: {
+            sessionID: "session-progress-text",
+            type: "text",
+          },
+        },
+      },
+      {
+        name: "reasoning text parts",
+        properties: {
+          part: {
+            sessionID: "session-progress-reasoning",
+            type: "reasoning",
+            text: "thinking...",
+          },
+        },
+      },
+    ]
+
+    for (const progressCase of progressCases) {
+      it(`#when ${progressCase.name} arrive #then the watchdog is refreshed instead of cleared`, async () => {
+        const sessionID = String(
+          ((progressCase.properties.part as Record<string, unknown> | undefined)?.sessionID)
+          ?? progressCase.properties.sessionID,
+        )
+        const deps = createDeps()
+        const abortCalls: string[] = []
+        const clearCalls: string[] = []
+        deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
+        deps.sessionFallbackTimeouts.set(sessionID, 1)
+        const helpers = createHelpers(deps, abortCalls, clearCalls)
+        const handler = createEventHandler(deps, helpers)
+
+        await handler({
+          event: {
+            type: "message.part.updated",
+            properties: progressCase.properties,
+          },
+        })
+
+        expect(clearCalls).toEqual([])
+        expect(abortCalls).toEqual([])
+        expect(helpers.__scheduleCallsForTest).toEqual([
+          {
+            sessionID,
+            source: "message.part.updated.progress",
+            resolvedAgent: undefined,
+          },
+        ])
+      })
+    }
+  })
 })

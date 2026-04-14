@@ -55,7 +55,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     return true
   }
 
-  const handleAssistantProgressEvent = (props: Record<string, unknown> | undefined, source: string) => {
+  const handleAssistantProgressEvent = async (props: Record<string, unknown> | undefined, source: string) => {
     if (!timeoutEnabled) return
 
     const info = props?.info as Record<string, unknown> | undefined
@@ -103,7 +103,21 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       return
     }
 
-    helpers.clearSessionFallbackTimeout(sessionID)
+    const state = sessionStates.get(sessionID)
+    const resolvedAgent = await helpers.resolveAgentForSessionFromContext(
+      sessionID,
+      eventAgent,
+    ) ?? state?.resolvedAgent
+
+    if (state && resolvedAgent) {
+      state.resolvedAgent = resolvedAgent
+    }
+
+    helpers.scheduleSessionFallbackTimeout(sessionID, {
+      resolvedAgent,
+      source: `${source}.progress`,
+    })
+
     if (sessionAwaitingFallbackResult.has(sessionID)) {
       sessionAwaitingFallbackResult.delete(sessionID)
       sessionStatusRetryKeys.delete(sessionID)
@@ -113,11 +127,12 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       }
     }
 
-    log(`[${HOOK_NAME}] Cleared fallback timeout after assistant progress`, {
+    log(`[${HOOK_NAME}] Refreshed fallback timeout after assistant progress`, {
       sessionID,
       source,
       partType,
       field,
+      resolvedAgent,
     })
   }
 
@@ -339,6 +354,10 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       sessionLastAccess.set(sessionID, Date.now())
     }
 
+    if (resolvedAgent) {
+      state.resolvedAgent = resolvedAgent
+    }
+
     const action = getRuntimeFallbackAction(effectiveError, config.retry_on_errors)
 
     if (action === "limit_fallback") {
@@ -382,8 +401,8 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     if (event.type === "session.deleted") { handleSessionDeleted(props); return }
     if (event.type === "session.stop") { await handleSessionStop(props); return }
     if (event.type === "session.idle") { await handleSessionIdle(props); return }
-    if (event.type === "message.part.updated") { handleAssistantProgressEvent(props, "message.part.updated"); return }
-    if (event.type === "message.part.delta") { handleAssistantProgressEvent(props, "message.part.delta"); return }
+    if (event.type === "message.part.updated") { await handleAssistantProgressEvent(props, "message.part.updated"); return }
+    if (event.type === "message.part.delta") { await handleAssistantProgressEvent(props, "message.part.delta"); return }
     if (event.type === "session.status") { await sessionStatusHandler(props); return }
     if (event.type === "session.error") { await handleSessionError(props); return }
   }

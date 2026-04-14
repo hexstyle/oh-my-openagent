@@ -39,6 +39,7 @@ export interface RuntimeFallbackPluginInput {
 export interface FallbackState {
   originalModel: string
   currentModel: string
+  resolvedAgent?: string
   fallbackIndex: number
   fallbackModels: string[]
   failedModels: Map<string, number>

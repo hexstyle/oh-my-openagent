@@ -138,7 +138,7 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(logCalls.some((call) => call.msg.includes("Session fallback timeout reached"))).toBe(true)
   })
 
-  test("refreshes the watchdog on assistant part progress and delays timeout", async () => {
+  test("re-arms the watchdog when data_catalog makes mid-stream progress and then stalls", async () => {
     const retriedModels: string[] = []
     const abortCalls: string[] = []
     const sessionID = "ses-progress-refresh"
@@ -221,6 +221,7 @@ describe("runtime-fallback initial hang watchdog", () => {
           part: {
             sessionID,
             type: "tool",
+            tool: "data_catalog",
             state: {
               status: "running",
             },
@@ -229,11 +230,17 @@ describe("runtime-fallback initial hang watchdog", () => {
       },
     })
 
-    jest.advanceTimersByTime(25)
+    jest.advanceTimersByTime(15)
     await Promise.resolve()
 
     expect(abortCalls).toHaveLength(0)
     expect(retriedModels).toHaveLength(0)
-    expect(logCalls.some((call) => call.msg.includes("Cleared fallback timeout after assistant progress"))).toBe(true)
+
+    jest.advanceTimersByTime(10)
+    await Promise.resolve()
+
+    expect(abortCalls).toContain(sessionID)
+    expect(retriedModels).toContain("openai/gpt-5.4")
+    expect(logCalls.some((call) => call.msg.includes("Refreshed session fallback timeout"))).toBe(true)
   })
 })

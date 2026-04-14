@@ -76,6 +76,11 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       })
     }
 
+    const state = sessionStates.get(args.sessionID)
+    if (state && resolvedAgent) {
+      state.resolvedAgent = resolvedAgent
+    }
+
     sessionLastAccess.set(args.sessionID, Date.now())
     helpers.scheduleSessionFallbackTimeout(args.sessionID, {
       resolvedAgent,
@@ -328,6 +333,10 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
           return
           }
         }
+      }
+
+      if (resolvedAgent) {
+        state.resolvedAgent = resolvedAgent
       }
 
       if (action === "limit_fallback") {

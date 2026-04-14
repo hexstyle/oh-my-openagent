@@ -71,6 +71,9 @@ export function createSessionStatusHandler(
       }
 
       if (state) {
+        if (resolvedAgent) {
+          state.resolvedAgent = resolvedAgent
+        }
         sessionLastAccess.set(sessionID, Date.now())
         helpers.scheduleSessionFallbackTimeout(sessionID, {
           resolvedAgent,
@@ -149,6 +152,9 @@ export function createSessionStatusHandler(
       sessionStates.set(sessionID, state)
     }
 
+    if (resolvedAgent) {
+      state.resolvedAgent = resolvedAgent
+    }
     sessionLastAccess.set(sessionID, Date.now())
 
     if (state.pendingFallbackModel) {
