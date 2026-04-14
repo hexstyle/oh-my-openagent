@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 
-import { createAutoRetryHelpers } from "./auto-retry"
+import { createAutoRetryHelpers, didRecoveryProbeSucceed } from "./auto-retry"
 import { createFallbackState } from "./fallback-state"
 import type { HookDeps } from "./types"
 
@@ -61,6 +61,20 @@ function createDeps(args: {
 }
 
 describe("runtime fallback recovery probe", () => {
+  it("does not treat flare-style quota probe output as recovered when a later fallback prints OK", () => {
+    const flareQuotaOutput = `
+ERROR 2026-04-14T13:57:25 service=llm error={"error":{"name":"AI_APICallError","data":{"message":"You're out of extra usage. Add more at claude.ai/settings/usage and keep going."}}}
+[session.error] You're out of extra usage. Add more at claude.ai/settings/usage and keep going.
+OK
+`
+
+    expect(didRecoveryProbeSucceed(0, flareQuotaOutput)).toBe(false)
+  })
+
+  it("accepts a clean OK-only recovery probe result", () => {
+    expect(didRecoveryProbeSucceed(0, "OK\n")).toBe(true)
+  })
+
   it("restores spark from a free-model stall when the background probe succeeds", async () => {
     const promptCalls: Array<unknown> = []
     const deps = createDeps({

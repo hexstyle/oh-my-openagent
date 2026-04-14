@@ -1787,6 +1787,34 @@ describe("runtime-fallback", () => {
       const sessionErrorLog = logCalls.find((c) => c.msg.includes("session.error received"))
       expect(sessionErrorLog).toBeUndefined()
     })
+
+    test("should not process events when runtime fallback is disabled via env for recovery probes", async () => {
+      const previousValue = process.env.OH_MY_OPENCODE_DISABLE_RUNTIME_FALLBACK
+      process.env.OH_MY_OPENCODE_DISABLE_RUNTIME_FALLBACK = "1"
+
+      try {
+        const hook = createRuntimeFallbackHook(createMockPluginInput(), {
+          config: createMockConfig({ enabled: true }),
+        })
+        const sessionID = "test-session-env-disabled"
+
+        await hook.event({
+          event: {
+            type: "session.error",
+            properties: { sessionID, error: { statusCode: 429, message: "Rate limit exceeded" } },
+          },
+        })
+
+        const sessionErrorLog = logCalls.find((c) => c.msg.includes("session.error received"))
+        expect(sessionErrorLog).toBeUndefined()
+      } finally {
+        if (previousValue === undefined) {
+          delete process.env.OH_MY_OPENCODE_DISABLE_RUNTIME_FALLBACK
+        } else {
+          process.env.OH_MY_OPENCODE_DISABLE_RUNTIME_FALLBACK = previousValue
+        }
+      }
+    })
   })
 
   describe("session lifecycle", () => {

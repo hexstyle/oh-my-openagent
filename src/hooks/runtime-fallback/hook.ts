@@ -16,8 +16,11 @@ export function createRuntimeFallbackHook(
   ctx: RuntimeFallbackPluginInput,
   options?: RuntimeFallbackOptions
 ): RuntimeFallbackHook {
+  const envDisabled =
+    process.env.OH_MY_OPENCODE_DISABLE_RUNTIME_FALLBACK === "1"
+    || process.env.OH_MY_OPENCODE_DISABLE_RUNTIME_FALLBACK === "true"
   const config = {
-    enabled: options?.config?.enabled ?? DEFAULT_CONFIG.enabled,
+    enabled: envDisabled ? false : (options?.config?.enabled ?? DEFAULT_CONFIG.enabled),
     retry_on_errors: options?.config?.retry_on_errors ?? DEFAULT_CONFIG.retry_on_errors,
     max_fallback_attempts: options?.config?.max_fallback_attempts ?? DEFAULT_CONFIG.max_fallback_attempts,
     max_full_chain_cycles: options?.config?.max_full_chain_cycles ?? DEFAULT_CONFIG.max_full_chain_cycles,
@@ -30,6 +33,10 @@ export function createRuntimeFallbackHook(
     transient_retry_max_delay_seconds:
       options?.config?.transient_retry_max_delay_seconds ?? DEFAULT_CONFIG.transient_retry_max_delay_seconds,
     notify_on_fallback: options?.config?.notify_on_fallback ?? DEFAULT_CONFIG.notify_on_fallback,
+  }
+
+  if (envDisabled) {
+    log(`[${HOOK_NAME}] Disabled via OH_MY_OPENCODE_DISABLE_RUNTIME_FALLBACK env var`)
   }
 
   let pluginConfig = options?.pluginConfig

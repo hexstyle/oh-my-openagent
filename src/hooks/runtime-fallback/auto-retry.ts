@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { HookDeps, RuntimeFallbackTimeout } from "./types"
@@ -41,6 +41,21 @@ const EXTERNAL_WATCHDOG_RESPAWN_MS = 10_000
 const EXTERNAL_WATCHDOG_MIN_TIMEOUT_MS = 1_000
 const EXTERNAL_WATCHDOG_DIR = join(tmpdir(), "oh-my-opencode-watchdogs")
 const EXTERNAL_WATCHDOG_LOG = join(tmpdir(), "oh-my-opencode-watchdog.log")
+const RECOVERY_PROBE_DIR_PREFIX = "oh-my-opencode-recovery-probe-"
+const RECOVERY_PROBE_PROMPT = "Reply with OK only."
+const RECOVERY_PROBE_RUNTIME_FALLBACK_DISABLE_ENV = "OH_MY_OPENCODE_DISABLE_RUNTIME_FALLBACK"
+const RECOVERY_PROBE_FAILURE_PATTERNS = [
+  /\[session\.error\]/i,
+  /\bsession ended with error\b/i,
+  /\bai_?apicallerror\b/i,
+  /\bout of extra usage\b/i,
+  /\bextra usage is required for long context requests\b/i,
+  /\bquota\b/i,
+  /\busage limit\b/i,
+  /\bout of credits?\b/i,
+  /\bpayment required\b/i,
+  /continue the current task from where you left off/i,
+]
 
 declare function setTimeout(callback: () => void | Promise<void>, delay?: number): RuntimeFallbackTimeout
 declare function clearTimeout(timeout: RuntimeFallbackTimeout): void
@@ -63,6 +78,21 @@ export function resolveExternalWatchdogAgent(resolvedAgent: string | undefined):
   }
 
   return normalizeAgentForPrompt(executionAgent) ?? executionAgent
+}
+
+export function didRecoveryProbeSucceed(
+  exitCode: number | null | undefined,
+  output: string,
+): boolean {
+  if (exitCode !== 0) {
+    return false
+  }
+
+  if (!/\bok\b/i.test(output)) {
+    return false
+  }
+
+  return !RECOVERY_PROBE_FAILURE_PATTERNS.some((pattern) => pattern.test(output))
 }
 
 export function createAutoRetryHelpers(deps: HookDeps) {
@@ -731,6 +761,7 @@ fi
     }
 
     const cliModel = splitWatchdogCliModel(model)
+    const probeDir = mkdtempSync(join(tmpdir(), RECOVERY_PROBE_DIR_PREFIX))
 
     return await new Promise<boolean>((resolve) => {
       const variantArgs = cliModel.variant ? ["--variant", cliModel.variant] : []
@@ -739,14 +770,18 @@ fi
         [
           "run",
           "--dir",
-          ctx.directory,
+          probeDir,
           "--model",
           cliModel.model,
           ...variantArgs,
-          "Reply with OK only.",
+          RECOVERY_PROBE_PROMPT,
         ],
         {
           stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            [RECOVERY_PROBE_RUNTIME_FALLBACK_DISABLE_ENV]: "1",
+          },
         },
       )
 
@@ -757,6 +792,10 @@ fi
       const finalize = (result: boolean) => {
         if (settled) return
         settled = true
+        try {
+          rmSync(probeDir, { recursive: true, force: true })
+        } catch {
+        }
         resolve(result)
       }
 
@@ -784,7 +823,7 @@ fi
       child.on("close", (code) => {
         clearTimeout(timeout)
         const output = `${stdout}\n${stderr}`
-        finalize(code === 0 && /\bOK\b/i.test(output))
+        finalize(didRecoveryProbeSucceed(code, output))
       })
     })
   }
