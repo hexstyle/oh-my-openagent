@@ -78,6 +78,7 @@ function createManagerWithClient(clientOverrides: Record<string, unknown> = {}):
   const client = {
     session: {
       status: async () => ({ data: {} }),
+      get: async () => ({ data: { id: "existing-session" } }),
       prompt: async () => ({}),
       promptAsync: async () => ({}),
       abort: async () => ({}),
@@ -112,6 +113,31 @@ describe("BackgroundManager pollRunningTasks", () => {
 
       //#then
       expect(task.status).toBe("completed")
+      expect(task.completedAt).toBeDefined()
+    })
+
+    test("#when the missing session has no valid output and no longer exists #then fails it through the crashed-session path", async () => {
+      //#given
+      const manager = createManagerWithClient({
+        get: async () => ({ data: undefined }),
+        messages: async () => ({
+          data: [{
+            info: { role: "user", id: "msg-1" },
+            parts: [{ type: "text", text: "go" }],
+          }],
+        }),
+      })
+      const task = createRunningTask("ses-crashed")
+      injectTask(manager, task)
+
+      //#when
+      const poll = (manager as unknown as { pollRunningTasks: () => Promise<void> }).pollRunningTasks
+      await poll.call(manager)
+      manager.shutdown()
+
+      //#then
+      expect(task.status).toBe("error")
+      expect(task.error).toBe("Subagent session no longer exists (process likely crashed). The session disappeared without producing any output.")
       expect(task.completedAt).toBeDefined()
     })
   })
@@ -191,6 +217,26 @@ describe("BackgroundManager pollRunningTasks", () => {
 
       //#then
       expect(task.status).toBe("completed")
+      expect(task.completedAt).toBeDefined()
+    })
+
+    test('#when session status is "interrupted" after a loop-terminal error #then fails the task instead of completing it', async () => {
+      //#given
+      const manager = createManagerWithClient({
+        status: async () => ({ data: { "ses-loop-interrupted": { type: "interrupted" } } }),
+      })
+      const task = createRunningTask("ses-loop-interrupted")
+      task.error = "Terminal internal continuation loop detected by runtime-fallback"
+      injectTask(manager, task)
+
+      //#when
+      const poll = (manager as unknown as { pollRunningTasks: () => Promise<void> }).pollRunningTasks
+      await poll.call(manager)
+      manager.shutdown()
+
+      //#then
+      expect(task.status).toBe("error")
+      expect(task.error).toContain("Terminal internal continuation loop")
       expect(task.completedAt).toBeDefined()
     })
 

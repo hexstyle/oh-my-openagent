@@ -1,13 +1,21 @@
 import { extractSessionMessages } from "./session-messages"
+import { isInternalInitiatorMessage } from "./internal-continuation-loop-detector"
 
 export function getLastUserRetryParts(
   messagesResponse: unknown,
 ): Array<{ type: "text"; text: string }> {
   const messages = extractSessionMessages(messagesResponse)
-  const lastUserMessage = messages?.filter((message) => message.info?.role === "user").pop()
+  const userMessages = messages?.filter((message) => message.info?.role === "user") ?? []
+  const lastRealUserMessage = userMessages
+    .filter((message) => {
+      const parts = message.parts
+        ?? (message.info?.parts as Array<{ type?: string; text?: string }> | undefined)
+      return !isInternalInitiatorMessage(parts)
+    })
+    .pop()
   const lastUserParts =
-    lastUserMessage?.parts
-    ?? (lastUserMessage?.info?.parts as Array<{ type?: string; text?: string }> | undefined)
+    lastRealUserMessage?.parts
+    ?? (lastRealUserMessage?.info?.parts as Array<{ type?: string; text?: string }> | undefined)
 
   return (lastUserParts ?? [])
     .filter(

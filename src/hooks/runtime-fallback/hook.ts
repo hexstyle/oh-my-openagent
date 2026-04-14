@@ -6,6 +6,7 @@ import { createAutoRetryHelpers } from "./auto-retry"
 import { createEventHandler } from "./event-handler"
 import { createMessageUpdateHandler } from "./message-update-handler"
 import { createChatMessageHandler } from "./chat-message-handler"
+import { createLoopDetector } from "./internal-continuation-loop-detector"
 
 declare function setInterval(callback: () => void, delay?: number): RuntimeFallbackInterval
 declare function clearInterval(interval: RuntimeFallbackInterval): void
@@ -45,6 +46,7 @@ export function createRuntimeFallbackHook(
     config,
     options,
     pluginConfig,
+    loopDetector: createLoopDetector(),
     sessionStates: new Map(),
     sessionLastAccess: new Map(),
     sessionLastUserMessageIDs: new Map(),

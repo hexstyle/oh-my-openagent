@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test"
 
 import { createAutoRetryHelpers } from "./auto-retry"
 import { createFallbackState } from "./fallback-state"
+import { createLoopDetector } from "./internal-continuation-loop-detector"
 import type { HookDeps } from "./types"
 
 function sleep(ms: number): Promise<void> {
@@ -74,6 +75,7 @@ function createDeps(args: {
     pluginConfig: {
       fallback_models: ["openai/gpt-5.3-codex-spark"],
     } as HookDeps["pluginConfig"],
+    loopDetector: createLoopDetector(),
     sessionStates: new Map(),
     sessionLastAccess: new Map(),
     sessionLastUserMessageIDs: new Map(),
@@ -138,7 +140,7 @@ describe("runtime fallback transient backoff", () => {
 
     expect(retried).toBe(true)
 
-    await waitFor(() => abortCalls.length >= 2 && promptCalls.length >= 3)
+    await waitFor(() => abortCalls.length >= 2 && promptCalls.length >= 3, 750)
 
     expect(abortCalls.length).toBeGreaterThanOrEqual(2)
     expect(promptCalls).toHaveLength(3)

@@ -58,6 +58,10 @@ import { join } from "node:path"
 import { pruneStaleTasksAndNotifications } from "./task-poller"
 import { checkAndInterruptStaleTasks } from "./task-poller"
 import { removeTaskToastTracking } from "./remove-task-toast-tracking"
+import {
+  INTERNAL_CONTINUATION_LOOP_TERMINAL_ERROR,
+  isInternalContinuationLoopTerminalError,
+} from "./internal-continuation-loop-terminal-error"
 import { isActiveSessionStatus, isTerminalSessionStatus } from "./session-status-classifier"
 import {
   detectRepetitiveToolUse,
@@ -1195,7 +1199,11 @@ export class BackgroundManager {
 
         task.progress.toolCalls += 1
         task.progress.lastTool = partInfo.tool
-        const circuitBreaker = this.cachedCircuitBreakerSettings ?? (this.cachedCircuitBreakerSettings = resolveCircuitBreakerSettings(this.config))
+        let circuitBreaker = this.cachedCircuitBreakerSettings
+        if (!circuitBreaker) {
+          circuitBreaker = resolveCircuitBreakerSettings(this.config)
+          this.cachedCircuitBreakerSettings = circuitBreaker
+        }
         if (partInfo.tool) {
          task.progress.toolCallWindow = recordToolCall(
              task.progress.toolCallWindow,
@@ -2183,8 +2191,18 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
 
         // Explicit terminal non-idle status (e.g., "interrupted") — complete immediately,
         // skipping output validation (session will never produce more output).
+        // Loop-terminal sessions are an exception: they must surface as task failures.
         // Unknown statuses fall through to the idle/gone path with output validation.
         if (sessionStatus && isTerminalSessionStatus(sessionStatus.type)) {
+          if (isInternalContinuationLoopTerminalError(task.error)) {
+            const loopTerminalError = task.error ?? INTERNAL_CONTINUATION_LOOP_TERMINAL_ERROR
+            await this.failTask(
+              task,
+              loopTerminalError,
+              `polling (terminal loop session status: ${sessionStatus.type})`,
+            )
+            continue
+          }
           await this.tryCompleteTask(task, `polling (terminal session status: ${sessionStatus.type})`)
           continue
         }

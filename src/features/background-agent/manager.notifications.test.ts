@@ -138,4 +138,33 @@ describe("BackgroundManager failure notifications", () => {
 
     await manager.shutdown()
   })
+
+  it("includes loop-terminal failure context in the parent handoff for interrupted sessions", async () => {
+    const { manager, promptAsync } = createManagerWithPromptSpy()
+    const failedTask = createTask({
+      id: "task-loop-terminal",
+      sessionID: "ses-loop-terminal",
+      error: "Terminal internal continuation loop detected by runtime-fallback",
+    })
+
+    const taskMap = (manager as unknown as { tasks: Map<string, BackgroundTask> }).tasks
+    taskMap.set(failedTask.id, failedTask)
+
+    const pendingByParent = (manager as unknown as { pendingByParent: Map<string, Set<string>> }).pendingByParent
+    pendingByParent.set(failedTask.parentSessionID, new Set([failedTask.id]))
+
+    await (manager as unknown as { notifyParentSession: (task: BackgroundTask) => Promise<void> }).notifyParentSession(failedTask)
+
+    expect(promptAsync).toHaveBeenCalledTimes(1)
+
+    const firstCall = (promptAsync.mock.calls as Array<Array<{ body: { noReply: boolean; parts: Array<{ text: string }> } }>>)[0]
+    expect(firstCall).toBeDefined()
+    const promptBody = firstCall![0].body
+    expect(promptBody.noReply).toBe(false)
+    expect(promptBody.parts[0].text).toContain("AUTONOMOUS FAILURE HANDOFF")
+    expect(promptBody.parts[0].text).toContain("task-loop-terminal")
+    expect(promptBody.parts[0].text).toContain("Terminal internal continuation loop detected by runtime-fallback")
+
+    await manager.shutdown()
+  })
 })

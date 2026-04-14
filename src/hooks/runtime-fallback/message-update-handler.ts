@@ -18,6 +18,12 @@ import {
   recordLastUserMessageID,
   shouldSuppressRecentCompletionReplay,
 } from "./recent-completion-guard"
+import { isInternalInitiatorMessage } from "./internal-continuation-loop-detector"
+import {
+  handleInternalContinuationUserMessage,
+  resetInternalContinuationLoopForRealUser,
+  resetInternalContinuationLoopForVisibleAssistant,
+} from "./internal-continuation-loop-state"
 
 export { hasVisibleAssistantResponse } from "./visible-assistant-response"
 
@@ -107,6 +113,14 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
     })
 
     if (sessionID && role === "user") {
+      // Internal initiator prompts (from atlas/todo-continuation) must NOT
+      // clear stoppedAt or re-arm the fallback watchdog — treating them as
+      // fresh user intent causes infinite retry loops.
+      if (isInternalInitiatorMessage(parts)) {
+        handleInternalContinuationUserMessage(deps, helpers, sessionID)
+        return
+      }
+
       const messageID = typeof info?.id === "string" ? info.id : undefined
       if (await shouldSuppressRecentCompletionReplay({
         ctx,
@@ -121,6 +135,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       }
 
       recordLastUserMessageID(sessionID, messageID, sessionLastUserMessageIDs)
+      resetInternalContinuationLoopForRealUser(deps, sessionID)
       clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
       sessionAwaitingFallbackResult.delete(sessionID)
       sessionStatusRetryKeys.delete(sessionID)
@@ -152,6 +167,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         sessionAwaitingFallbackResult.delete(sessionID)
         sessionStatusRetryKeys.delete(sessionID)
         helpers.clearSessionFallbackTimeout(sessionID)
+        resetInternalContinuationLoopForVisibleAssistant(deps, sessionID)
         const state = sessionStates.get(sessionID)
         if (state) {
           markFallbackResponseSuccess(state)
@@ -187,6 +203,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         sessionAwaitingFallbackResult.delete(sessionID)
         sessionStatusRetryKeys.delete(sessionID)
         helpers.clearSessionFallbackTimeout(sessionID)
+        resetInternalContinuationLoopForVisibleAssistant(deps, sessionID)
         const state = sessionStates.get(sessionID)
         if (state) {
           markFallbackResponseSuccess(state)

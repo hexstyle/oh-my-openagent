@@ -1,4 +1,5 @@
 import type { RuntimeFallbackConfig, OhMyOpenCodeConfig } from "../../config"
+import type { LoopDetector } from "./internal-continuation-loop-detector"
 
 export interface RuntimeFallbackInterval {
   unref: () => void
@@ -87,6 +88,7 @@ export interface HookDeps {
   config: Required<RuntimeFallbackConfig>
   options: RuntimeFallbackOptions | undefined
   pluginConfig: OhMyOpenCodeConfig | undefined
+  loopDetector: LoopDetector
   sessionStates: Map<string, FallbackState>
   sessionLastAccess: Map<string, number>
   sessionLastUserMessageIDs: Map<string, string>
