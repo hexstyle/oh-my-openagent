@@ -31,6 +31,7 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     fallbackModels: dedupeModels(fallbackModels),
     failedModels: new Map<string, number>(),
     attemptCount: 0,
+    fullChainCyclesCompleted: 0,
     transientRetryCount: 0,
     transientRetryStartedAt: undefined,
     transientRetryDelayMs: undefined,
@@ -88,6 +89,7 @@ export function pruneExpiredFailedModels(state: FallbackState, cooldownSeconds: 
 export function markFallbackResponseSuccess(state: FallbackState): void {
   state.pendingFallbackModel = undefined
   state.attemptCount = 0
+  state.fullChainCyclesCompleted = 0
   resetTransientRetryState(state)
 }
 
@@ -150,7 +152,11 @@ export function markTransientRetryDispatched(
   }
 }
 
-export function recoverPreferredModel(state: FallbackState, cooldownSeconds: number, now = Date.now()): string | undefined {
+export function getPreferredRecoveryCandidate(
+  state: FallbackState,
+  cooldownSeconds: number,
+  now = Date.now(),
+): string | undefined {
   pruneExpiredFailedModels(state, cooldownSeconds, now)
 
   const recoveryChain = getRecoveryChain(state)
@@ -169,23 +175,49 @@ export function recoverPreferredModel(state: FallbackState, cooldownSeconds: num
       continue
     }
 
-    state.currentModel = candidate
-    state.pendingFallbackModel = undefined
-    state.attemptCount = 0
-    resetTransientRetryState(state)
-    state.fallbackIndex = candidate === state.originalModel
-      ? -1
-      : state.fallbackModels.indexOf(candidate)
-
-    log(`[${HOOK_NAME}] Restored preferred model after cooldown`, {
-      from: recoveryChain[currentIndex],
-      to: candidate,
-    })
-
     return candidate
   }
 
   return undefined
+}
+
+export function recoverPreferredModel(
+  state: FallbackState,
+  cooldownSeconds: number,
+  now = Date.now(),
+): string | undefined {
+  const recoveryChain = getRecoveryChain(state)
+  const currentIndex = recoveryChain.indexOf(state.currentModel)
+  const candidate = getPreferredRecoveryCandidate(state, cooldownSeconds, now)
+  if (!candidate) {
+    return undefined
+  }
+
+  state.currentModel = candidate
+  state.pendingFallbackModel = undefined
+  state.attemptCount = 0
+  resetTransientRetryState(state)
+  state.fallbackIndex = candidate === state.originalModel
+    ? -1
+    : state.fallbackModels.indexOf(candidate)
+
+  log(`[${HOOK_NAME}] Restored preferred model after cooldown`, {
+    from: recoveryChain[currentIndex],
+    to: candidate,
+  })
+
+  return candidate
+}
+
+export function canAutoResumeRecoveredModel(
+  state: FallbackState,
+  maxFullChainCycles: number,
+): boolean {
+  return (state.fullChainCyclesCompleted ?? 0) < maxFullChainCycles
+}
+
+export function markRecoveredModelAutoResume(state: FallbackState): void {
+  state.fullChainCyclesCompleted = (state.fullChainCyclesCompleted ?? 0) + 1
 }
 
 export function isModelInCooldown(model: string, state: FallbackState, cooldownSeconds: number): boolean {

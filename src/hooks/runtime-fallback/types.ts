@@ -44,6 +44,11 @@ export interface FallbackState {
   fallbackModels: string[]
   failedModels: Map<string, number>
   attemptCount: number
+  /**
+   * Counts recovery-driven auto-resume loops within the current unresolved turn.
+   * This is reset after a visible successful response.
+   */
+  fullChainCyclesCompleted?: number
   transientRetryCount: number
   transientRetryStartedAt?: number
   transientRetryDelayMs?: number

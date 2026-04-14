@@ -61,6 +61,7 @@ export const RETRYABLE_ERROR_PATTERNS = [
  */
 export const HOOK_NAME = "runtime-fallback"
 export const WATCHDOG_CONTINUATION_PROMPT = "Continue the current task from where you left off. The previous request appears stalled. Resume from the existing context, do not redo completed work, and continue."
+export const FALLBACK_CONTINUATION_PROMPT = "[runtime-fallback] Continue the current task from the existing session context on the new model. Do not restate the user request or redo completed work."
 export const LONG_RUNNING_PROGRESS_TIMEOUT_MULTIPLIER = 4
 export const ACTIVE_STATUS_MESSAGE_UPDATE_GRACE_MS = 5_000
 

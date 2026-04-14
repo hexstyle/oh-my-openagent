@@ -15,6 +15,7 @@ import { describe, expect, it } from "bun:test"
 import { createRuntimeFallbackHook } from "./index"
 import type { OhMyOpenCodeConfig } from "../../config"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
+import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -126,7 +127,7 @@ describe("Bug 1 – MessageAbortedError after quota signal routes to spark", () 
     SessionCategoryRegistry.clear()
   })
 
-  it("quoted watchdog continuation prompts are not replayed as user payload after quota fallback", async () => {
+  it("quota fallback uses an internal continuation payload instead of replaying visible user text", async () => {
     SessionCategoryRegistry.clear()
     const { ctx, promptCalls } = createPluginInput({
       messagesResponse: {
@@ -200,9 +201,11 @@ describe("Bug 1 – MessageAbortedError after quota signal routes to spark", () 
     }).body
     expect(body.model.providerID).toBe("openai")
     expect(body.model.modelID).toBe("gpt-5.3-codex-spark")
-    expect(body.parts).toEqual([
-      { type: "text", text: "Continue implementing the actual plan." },
-    ])
+    expect(body.parts).toHaveLength(1)
+    expect(body.parts[0]?.type).toBe("text")
+    expect(body.parts[0]?.text).toContain(OMO_INTERNAL_INITIATOR_MARKER)
+    expect(body.parts[0]?.text).not.toContain("Continue implementing the actual plan.")
+    expect(body.parts[0]?.text).not.toContain("Continue the current task from where you left off.")
 
     hook.dispose?.()
     SessionCategoryRegistry.clear()

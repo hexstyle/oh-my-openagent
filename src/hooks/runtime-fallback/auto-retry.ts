@@ -4,9 +4,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { HookDeps, RuntimeFallbackTimeout } from "./types"
 import {
+  FALLBACK_CONTINUATION_PROMPT,
   HOOK_NAME,
   MODEL_RECOVERY_PROBE_MIN_INTERVAL_MS,
   MODEL_RECOVERY_PROBE_TIMEOUT_MS,
+  resolveLongRunningProgressTimeoutMs,
   WATCHDOG_CONTINUATION_PROMPT,
 } from "./constants"
 import { log } from "../../shared/logger"
@@ -15,11 +17,14 @@ import { getSessionAgent } from "../../features/claude-code-session-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import {
   beginTransientRetryWindow,
+  canAutoResumeRecoveredModel,
   canKeepRetryingTransiently,
   getNextTransientRetryDelayMs,
+  getPreferredRecoveryCandidate,
   isRecentLimitError,
   markTransientRetryDispatched,
   prepareFallback,
+  markRecoveredModelAutoResume,
   recoverPreferredModel,
   resetTransientRetryState,
   wasRecentlyStopped,
@@ -28,6 +33,9 @@ import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { buildRetryModelPayload } from "./retry-model-payload"
 import { getLastUserRetryParts } from "./last-user-retry-parts"
 import { extractSessionMessages } from "./session-messages"
+import {
+  createInternalAgentTextPart,
+} from "../../shared"
 import {
   isPrimaryRuntimeAgent,
   normalizeAgentForPrompt,
@@ -374,6 +382,35 @@ fi
     invalidateExternalWatchdog(sessionID)
   }
 
+  const isRecoveredAutoResumeEligible = (sessionID: string): boolean => {
+    if (!sessionAwaitingFallbackResult.has(sessionID)) {
+      return true
+    }
+
+    const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
+    if (baseTimeoutMs <= 0) {
+      return true
+    }
+
+    const lastAccess = sessionLastAccess.get(sessionID)
+    if (typeof lastAccess !== "number") {
+      return true
+    }
+
+    const quietWindowMs = resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
+    const lastAccessAgeMs = Math.max(0, Date.now() - lastAccess)
+    if (lastAccessAgeMs >= quietWindowMs) {
+      return true
+    }
+
+    log(`[${HOOK_NAME}] Skipping preferred-model auto-resume while fallback session still has recent progress`, {
+      sessionID,
+      quietWindowMs,
+      lastAccessAgeMs,
+    })
+    return false
+  }
+
   const scheduleSessionFallbackTimeout = (sessionID: string, args?: {
     resolvedAgent?: string
     source?: string
@@ -603,10 +640,10 @@ fi
     args?: {
       transientRetry?: boolean
     },
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     if (sessionRetryInFlight.has(sessionID)) {
       log(`[${HOOK_NAME}] Retry already in flight, skipping (${source})`, { sessionID })
-      return
+      return false
     }
 
     const retryModelPayload = buildRetryModelPayload(newModel)
@@ -619,7 +656,7 @@ fi
       if (state?.pendingTransientRetry) {
         state.pendingTransientRetry = false
       }
-      return
+      return false
     }
 
     sessionRetryInFlight.add(sessionID)
@@ -629,8 +666,8 @@ fi
         path: { id: sessionID },
         query: { directory: ctx.directory },
       })
-      const retryParts = getLastUserRetryParts(messagesResp)
-      if (retryParts.length > 0) {
+      const lastUserRetryParts = getLastUserRetryParts(messagesResp)
+      if (lastUserRetryParts.length > 0) {
         log(`[${HOOK_NAME}] Auto-retrying session (${source})`, {
           sessionID,
           model: newModel,
@@ -650,7 +687,7 @@ fi
           body: {
             ...(retryPromptAgent ? { agent: retryPromptAgent } : {}),
             ...retryModelPayload,
-            parts: retryParts,
+            parts: [createInternalAgentTextPart(FALLBACK_CONTINUATION_PROMPT)],
           },
           query: { directory: ctx.directory },
         })
@@ -674,6 +711,7 @@ fi
         }
       }
     }
+    return retryDispatched
   }
 
   const retryCurrentModel = async (
@@ -848,6 +886,23 @@ fi
       return undefined
     }
 
+    const shouldAutoResumeCurrentTurn = sessionAwaitingFallbackResult.has(sessionID)
+    if (shouldAutoResumeCurrentTurn && !isRecoveredAutoResumeEligible(sessionID)) {
+      return undefined
+    }
+    if (
+      shouldAutoResumeCurrentTurn
+      && !canAutoResumeRecoveredModel(state, config.max_full_chain_cycles)
+    ) {
+      log(`[${HOOK_NAME}] Skipping recovered-model auto-resume after max full-chain cycles`, {
+        sessionID,
+        fullChainCyclesCompleted: state.fullChainCyclesCompleted ?? 0,
+        maxFullChainCycles: config.max_full_chain_cycles,
+        currentModel: state.currentModel,
+      })
+      return undefined
+    }
+
     for (const candidate of candidates) {
       const probeKey = `${sessionID}:${candidate}`
       const lastAttemptAt = recoveryProbeLastAttemptAt.get(probeKey) ?? 0
@@ -868,6 +923,11 @@ fi
       }
 
       state.failedModels.delete(candidate)
+      const recoveryCandidate = getPreferredRecoveryCandidate(state, config.cooldown_seconds)
+      if (!recoveryCandidate) {
+        continue
+      }
+
       const recoveredModel = recoverPreferredModel(state, config.cooldown_seconds)
       if (!recoveredModel) {
         continue
@@ -878,8 +938,16 @@ fi
         recoveredModel,
       })
 
-      if (sessionAwaitingFallbackResult.has(sessionID)) {
-        await autoRetryWithFallback(sessionID, recoveredModel, resolvedAgent, "model.recovery.probe")
+      if (shouldAutoResumeCurrentTurn) {
+        const retryDispatched = await autoRetryWithFallback(
+          sessionID,
+          recoveredModel,
+          resolvedAgent,
+          "model.recovery.probe",
+        )
+        if (retryDispatched) {
+          markRecoveredModelAutoResume(state)
+        }
       }
 
       return recoveredModel
@@ -917,6 +985,23 @@ fi
 
   const recoverPreferredModels = async () => {
     for (const [sessionID, state] of sessionStates.entries()) {
+      const shouldAutoResumeCurrentTurn = sessionAwaitingFallbackResult.has(sessionID)
+      if (shouldAutoResumeCurrentTurn && !isRecoveredAutoResumeEligible(sessionID)) {
+        continue
+      }
+      if (
+        shouldAutoResumeCurrentTurn
+        && !canAutoResumeRecoveredModel(state, config.max_full_chain_cycles)
+      ) {
+        log(`[${HOOK_NAME}] Skipping background preferred-model auto-resume after max full-chain cycles`, {
+          sessionID,
+          fullChainCyclesCompleted: state.fullChainCyclesCompleted ?? 0,
+          maxFullChainCycles: config.max_full_chain_cycles,
+          currentModel: state.currentModel,
+        })
+        continue
+      }
+
       const recoveredModel = recoverPreferredModel(state, config.cooldown_seconds)
       if (!recoveredModel) {
         const resolvedAgent = await resolveAgentForSessionFromContext(sessionID)
@@ -930,9 +1015,17 @@ fi
         recoveredModel,
       })
 
-      if (sessionAwaitingFallbackResult.has(sessionID)) {
+      if (shouldAutoResumeCurrentTurn) {
         const resolvedAgent = await resolveAgentForSessionFromContext(sessionID)
-        await autoRetryWithFallback(sessionID, recoveredModel, resolvedAgent, "model.recovery.cooldown")
+        const retryDispatched = await autoRetryWithFallback(
+          sessionID,
+          recoveredModel,
+          resolvedAgent,
+          "model.recovery.cooldown",
+        )
+        if (retryDispatched) {
+          markRecoveredModelAutoResume(state)
+        }
       }
     }
   }
