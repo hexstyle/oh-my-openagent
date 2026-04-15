@@ -1170,8 +1170,9 @@ describe("runtime-fallback", () => {
       } | undefined
       expect(body?.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" })
 
-      // Agent must be normalised to the config key so opencode can resolve it.
-      expect(body?.agent).toBe("explore")
+      // When we force a distinct fallback model, agent defaults must not pull the turn back
+      // onto the agent's configured primary model.
+      expect(body?.agent).toBeUndefined()
     })
 
     test("agent-not-found error without UnknownError name still routes to fallback_chain", async () => {

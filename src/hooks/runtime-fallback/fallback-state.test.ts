@@ -37,6 +37,38 @@ describe("runtime fallback state recovery", () => {
     ])
   })
 
+  it("skips variant-only aliases of the current model when preparing fallback", () => {
+    const state = createFallbackState("anthropic/claude-opus-4-6(max)")
+
+    const result = prepareFallback(
+      "session-skip-variant-alias",
+      state,
+      [
+        "anthropic/claude-opus-4-6",
+        "openai/gpt-5.4(xhigh)",
+        "anthropic/claude-sonnet-4-6",
+      ],
+      {
+        enabled: true,
+        retry_on_errors: [429, 503, 529],
+        max_fallback_attempts: 5,
+        max_full_chain_cycles: 5,
+        cooldown_seconds: 600,
+        timeout_seconds: 30,
+        transient_retry_window_seconds: 900,
+        transient_retry_initial_delay_seconds: 10,
+        transient_retry_max_delay_seconds: 300,
+        notify_on_fallback: true,
+      },
+    )
+
+    expect(result).toEqual({
+      success: true,
+      newModel: "openai/gpt-5.4(xhigh)",
+    })
+    expect(state.currentModel).toBe("openai/gpt-5.4(xhigh)")
+  })
+
   it("resets pending state and attempt count after a successful fallback response", () => {
     const state = createFallbackState("anthropic/claude-opus-4-6", ["anthropic/claude-sonnet-4-6"])
     state.currentModel = "anthropic/claude-sonnet-4-6"
@@ -77,6 +109,26 @@ describe("runtime fallback state recovery", () => {
     expect(state.currentModel).toBe("anthropic/claude-opus-4-6")
     expect(state.fallbackIndex).toBe(-1)
     expect(state.attemptCount).toBe(0)
+  })
+
+  it("does not recover to a variant-only alias while the original identity is still cooling down", () => {
+    const now = Date.now()
+    const state = createFallbackState("anthropic/claude-opus-4-6(max)", [
+      "anthropic/claude-opus-4-6",
+      "openai/gpt-5.4(xhigh)",
+    ])
+
+    state.currentModel = "openai/gpt-5.4(xhigh)"
+    state.fallbackIndex = 1
+    state.attemptCount = 1
+    state.failedModels.set("anthropic/claude-opus-4-6(max)", now - 100_000)
+
+    const recoveredModel = recoverPreferredModel(state, 600, now)
+
+    expect(recoveredModel).toBeUndefined()
+    expect(state.currentModel).toBe("openai/gpt-5.4(xhigh)")
+    expect(state.fallbackIndex).toBe(1)
+    expect(state.attemptCount).toBe(1)
   })
 
   it("recovers to the highest available fallback when the original model is still cooling down", () => {

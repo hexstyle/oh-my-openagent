@@ -3,6 +3,18 @@ import { HOOK_NAME } from "./constants"
 import { log } from "../../shared/logger"
 import type { RuntimeFallbackConfig } from "../../config"
 
+function getModelIdentity(model: string): string {
+  return model.replace(/\([^)]*\)\s*$/, "").trim()
+}
+
+function hasSameModelIdentity(left: string, right: string): boolean {
+  return getModelIdentity(left) === getModelIdentity(right)
+}
+
+function findModelIndexByIdentity(models: string[], target: string): number {
+  return models.findIndex((candidate) => hasSameModelIdentity(candidate, target))
+}
+
 function dedupeModels(models: string[]): string[] {
   const seen = new Set<string>()
   const result: string[] = []
@@ -75,7 +87,7 @@ export function wasRecentlyStopped(
 
 export function updateFallbackModels(state: FallbackState, fallbackModels: string[]): void {
   state.fallbackModels = dedupeModels(fallbackModels)
-  state.fallbackIndex = state.fallbackModels.indexOf(state.currentModel)
+  state.fallbackIndex = findModelIndexByIdentity(state.fallbackModels, state.currentModel)
 }
 
 export function pruneExpiredFailedModels(state: FallbackState, cooldownSeconds: number, now = Date.now()): void {
@@ -180,7 +192,7 @@ export function getPreferredRecoveryCandidate(
   pruneExpiredFailedModels(state, cooldownSeconds, now)
 
   const recoveryChain = getRecoveryChain(state)
-  const currentIndex = recoveryChain.indexOf(state.currentModel)
+  const currentIndex = findModelIndexByIdentity(recoveryChain, state.currentModel)
   if (currentIndex <= 0) {
     return undefined
   }
@@ -207,7 +219,7 @@ export function recoverPreferredModel(
   now = Date.now(),
 ): string | undefined {
   const recoveryChain = getRecoveryChain(state)
-  const currentIndex = recoveryChain.indexOf(state.currentModel)
+  const currentIndex = findModelIndexByIdentity(recoveryChain, state.currentModel)
   const candidate = getPreferredRecoveryCandidate(state, cooldownSeconds, now)
   if (!candidate) {
     return undefined
@@ -217,9 +229,9 @@ export function recoverPreferredModel(
   state.pendingFallbackModel = undefined
   state.attemptCount = 0
   resetTransientRetryState(state)
-  state.fallbackIndex = candidate === state.originalModel
+  state.fallbackIndex = hasSameModelIdentity(candidate, state.originalModel)
     ? -1
-    : state.fallbackModels.indexOf(candidate)
+    : findModelIndexByIdentity(state.fallbackModels, candidate)
 
   log(`[${HOOK_NAME}] Restored preferred model after cooldown`, {
     from: recoveryChain[currentIndex],
@@ -241,7 +253,16 @@ export function markRecoveredModelAutoResume(state: FallbackState): void {
 }
 
 export function isModelInCooldown(model: string, state: FallbackState, cooldownSeconds: number): boolean {
-  const failedAt = state.failedModels.get(model)
+  let failedAt: number | undefined
+
+  for (const [failedModel, candidateFailedAt] of state.failedModels.entries()) {
+    if (!hasSameModelIdentity(failedModel, model)) {
+      continue
+    }
+
+    failedAt = failedAt === undefined ? candidateFailedAt : Math.max(failedAt, candidateFailedAt)
+  }
+
   if (failedAt === undefined) return false
   const cooldownMs = cooldownSeconds * 1000
   return Date.now() - failedAt < cooldownMs
@@ -254,7 +275,7 @@ export function findNextAvailableFallback(
 ): string | undefined {
   for (let i = state.fallbackIndex + 1; i < fallbackModels.length; i++) {
     const candidate = fallbackModels[i]
-    if (candidate === state.currentModel) {
+    if (hasSameModelIdentity(candidate, state.currentModel)) {
       continue
     }
     if (!isModelInCooldown(candidate, state, cooldownSeconds)) {
@@ -296,7 +317,7 @@ export function prepareFallback(
   const failedModel = state.currentModel
   const now = Date.now()
 
-  state.fallbackIndex = fallbackModels.indexOf(nextModel)
+  state.fallbackIndex = findModelIndexByIdentity(fallbackModels, nextModel)
   state.failedModels.set(failedModel, now)
   state.attemptCount++
   resetTransientRetryState(state)

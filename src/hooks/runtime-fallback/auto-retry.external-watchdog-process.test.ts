@@ -21,6 +21,9 @@ function createDeps(): HookDeps {
     ctx: {
       directory: "/Users/redff00xx/proj/runtime-fallback-watchdog-repro",
       client: {
+        _client: {
+          getConfig: () => ({ baseUrl: "http://127.0.0.1:44682" }),
+        },
         session: {
           abort: async () => undefined,
           messages: async () => ({
@@ -214,11 +217,48 @@ describe("runtime fallback external watchdog process lifecycle", () => {
 
     expect(spawnCalls).toHaveLength(1)
 
-    const shellArgs = spawnCalls[0]?.args[1] as string[] | undefined
-    const shellScript = shellArgs?.[1] ?? ""
+    const command = spawnCalls[0]?.args[0]
+    const childArgs = spawnCalls[0]?.args[1] as string[] | undefined
+    const promptArg = childArgs?.[10] ?? ""
 
-    expect(shellScript).toContain(FALLBACK_CONTINUATION_PROMPT)
-    expect(shellScript).toContain(OMO_INTERNAL_INITIATOR_MARKER)
-    expect(shellScript).not.toContain("Continue the current task from where you left off.")
+    expect(command).toBe("bun")
+    expect(childArgs?.[0]).toContain("script/runtime-fallback-external-watchdog.ts")
+    expect(childArgs?.[6]).toBe("http://127.0.0.1:44682")
+    expect(promptArg).toContain(FALLBACK_CONTINUATION_PROMPT)
+    expect(promptArg).toContain(OMO_INTERNAL_INITIATOR_MARKER)
+    expect(promptArg).not.toContain("Continue the current task from where you left off.")
+  })
+
+  it("spawns the external watchdog on the next distinct fallback model for a stalled primary Anthropic turn", async () => {
+    const { createAutoRetryHelpers } = await import(`./auto-retry?external-watchdog-next-fallback-${Date.now()}-${Math.random()}`)
+    const sessionID = "ses_external_watchdog_next_fallback"
+
+    const deps = createDeps()
+    deps.pluginConfig = {
+      agents: {
+        prometheus: {
+          model: "anthropic/claude-opus-4-6",
+          fallback_models: [
+            "anthropic/claude-opus-4-6",
+            "openai/gpt-5.4",
+            "openai/gpt-5.3-codex-spark",
+          ],
+        },
+      },
+    } as HookDeps["pluginConfig"]
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
+
+    createAutoRetryHelpers(deps).scheduleSessionFallbackTimeout(sessionID, {
+      resolvedAgent: "prometheus",
+      source: "message.updated.user",
+    })
+
+    expect(spawnCalls).toHaveLength(1)
+
+    const command = spawnCalls[0]?.args[0]
+    const childArgs = spawnCalls[0]?.args[1] as string[] | undefined
+    expect(command).toBe("bun")
+    expect(childArgs?.[7]).toBe("openai/gpt-5.4")
+    expect(childArgs?.[9]).toBe("")
   })
 })

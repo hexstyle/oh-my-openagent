@@ -2,6 +2,7 @@ import { spawn } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import type { HookDeps, RuntimeFallbackTimeout } from "./types"
 import {
   FALLBACK_CONTINUATION_PROMPT,
@@ -33,6 +34,7 @@ import { buildRetryModelPayload } from "./retry-model-payload"
 import { getLastUserRetryParts } from "./last-user-retry-parts"
 import { extractSessionMessages } from "./session-messages"
 import { createInternalAgentTextPart } from "../../shared/internal-initiator-marker"
+import { getServerBaseUrl } from "../../shared/opencode-http-api"
 import {
   isPrimaryRuntimeAgent,
   normalizeAgentForPrompt,
@@ -47,6 +49,9 @@ const EXTERNAL_WATCHDOG_RESPAWN_MS = 10_000
 const EXTERNAL_WATCHDOG_MIN_TIMEOUT_MS = 1_000
 const EXTERNAL_WATCHDOG_DIR = join(tmpdir(), "oh-my-opencode-watchdogs")
 const EXTERNAL_WATCHDOG_LOG = join(tmpdir(), "oh-my-opencode-watchdog.log")
+const EXTERNAL_WATCHDOG_RUNNER = fileURLToPath(
+  new URL("../../../script/runtime-fallback-external-watchdog.ts", import.meta.url),
+)
 const RECOVERY_PROBE_DIR_PREFIX = "oh-my-opencode-recovery-probe-"
 const RECOVERY_PROBE_PROMPT = "Reply with OK only."
 const RECOVERY_PROBE_RUNTIME_FALLBACK_DISABLE_ENV = "OH_MY_OPENCODE_DISABLE_RUNTIME_FALLBACK"
@@ -66,11 +71,42 @@ const RECOVERY_PROBE_FAILURE_PATTERNS = [
 declare function setTimeout(callback: () => void | Promise<void>, delay?: number): RuntimeFallbackTimeout
 declare function clearTimeout(timeout: RuntimeFallbackTimeout): void
 
+function getWatchdogModelIdentity(model: string): string {
+  return model.replace(/\([^()]+\)$/, "").trim()
+}
+
+function shouldOmitRetryAgent(targetModel: string, originalModel?: string): boolean {
+  if (!originalModel) {
+    return false
+  }
+
+  return getWatchdogModelIdentity(targetModel) !== getWatchdogModelIdentity(originalModel)
+}
+
 export function selectExternalWatchdogModel(
   currentModel: string,
   fallbackModels: string[],
+  options?: {
+    originalModel?: string
+  },
 ): string | undefined {
-  return currentModel || fallbackModels.find((candidate) => candidate)
+  const configuredModels = fallbackModels.filter((candidate) => Boolean(candidate))
+  if (!currentModel) {
+    return configuredModels[0]
+  }
+
+  const currentIdentity = getWatchdogModelIdentity(currentModel)
+  const originalIdentity = options?.originalModel
+    ? getWatchdogModelIdentity(options.originalModel)
+    : undefined
+
+  if (originalIdentity && currentIdentity === originalIdentity) {
+    return configuredModels.find((candidate) => getWatchdogModelIdentity(candidate) !== currentIdentity)
+      ?? configuredModels[0]
+      ?? currentModel
+  }
+
+  return currentModel
 }
 
 export function resolveExternalWatchdogAgent(resolvedAgent: string | undefined): string {
@@ -223,6 +259,7 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     source: string
     resolvedAgent?: string
     currentModel: string
+    originalModel?: string
   }): void => {
     if (args.timeoutMs < EXTERNAL_WATCHDOG_MIN_TIMEOUT_MS) {
       return
@@ -245,7 +282,9 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     }
 
     const fallbackModels = getFallbackModelsForSession(args.sessionID, args.resolvedAgent, pluginConfig)
-    const nextModel = selectExternalWatchdogModel(args.currentModel, fallbackModels)
+    const nextModel = selectExternalWatchdogModel(args.currentModel, fallbackModels, {
+      originalModel: args.originalModel,
+    })
     if (!nextModel) {
       log(`[${HOOK_NAME}] Skipping external watchdog arm without fallback model`, {
         sessionID: args.sessionID,
@@ -283,9 +322,29 @@ export function createAutoRetryHelpers(deps: HookDeps) {
       return
     }
 
-    const cliAgent = resolveExternalWatchdogAgent(args.resolvedAgent)
     const cliModel = splitWatchdogCliModel(nextModel)
+    const cliAgent = shouldOmitRetryAgent(nextModel, args.originalModel ?? args.currentModel)
+      ? ""
+      : resolveExternalWatchdogAgent(args.resolvedAgent)
     const internalWatchdogPrompt = createInternalAgentTextPart(FALLBACK_CONTINUATION_PROMPT).text
+    const serverBaseUrl = getServerBaseUrl(ctx.client)
+    const command = serverBaseUrl ? "bun" : "/bin/zsh"
+    const commandArgs = serverBaseUrl
+      ? [
+          EXTERNAL_WATCHDOG_RUNNER,
+          String(Math.max(1, Math.ceil(args.timeoutMs / 1000))),
+          tokenPath,
+          token,
+          args.sessionID,
+          ctx.directory,
+          serverBaseUrl,
+          cliModel.model,
+          cliModel.variant ?? "",
+          cliAgent,
+          internalWatchdogPrompt,
+          EXTERNAL_WATCHDOG_LOG,
+        ]
+      : undefined
     const shellScript = `
 sleep "$1"
 TOKEN_FILE="$2"
@@ -320,8 +379,8 @@ fi
 
     try {
       const child = spawn(
-        "/bin/zsh",
-        [
+        command,
+        commandArgs ?? [
           "-lc",
           shellScript,
           "runtime-fallback-watchdog",
@@ -373,6 +432,7 @@ fi
         nextModel: cliModel.model,
         variant: cliModel.variant,
         agentDisplayName: cliAgent || undefined,
+        transport: serverBaseUrl ? "sdk" : "cli",
         logFile: EXTERNAL_WATCHDOG_LOG,
       })
     } catch (error) {
@@ -515,6 +575,7 @@ fi
         source,
         resolvedAgent: args?.resolvedAgent,
         currentModel: stateAtSchedule.currentModel,
+        originalModel: stateAtSchedule.originalModel,
       })
     } else if (mode === "fallback" && backgroundTasksAtArm.hasActiveTasks) {
       log(`[${HOOK_NAME}] Skipped external watchdog while background tasks are active`, {
@@ -736,6 +797,7 @@ fi
     sessionRetryInFlight.add(sessionID)
     let retryDispatched = false
     try {
+      const state = sessionStates.get(sessionID)
       const messagesResp = await ctx.client.session.messages({
         path: { id: sessionID },
         query: { directory: ctx.directory },
@@ -748,7 +810,9 @@ fi
         })
 
         const retryAgent = resolvedAgent ?? getSessionAgent(sessionID)
-        const retryPromptAgent = normalizeAgentForSessionPrompt(retryAgent)
+        const retryPromptAgent = shouldOmitRetryAgent(newModel, state?.originalModel ?? newModel)
+          ? undefined
+          : normalizeAgentForSessionPrompt(retryAgent)
         sessionAwaitingFallbackResult.add(sessionID)
         const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
         scheduleSessionFallbackTimeout(sessionID, {

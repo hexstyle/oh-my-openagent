@@ -1273,6 +1273,92 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(retryModels).toContain("openai/gpt-5.4")
   })
 
+  test("omits the agent when timeout fallback switches Prometheus off its primary model", async () => {
+    const retryCalls: Array<{ model?: string; agent?: string }> = []
+    const sessionID = "ses-timeout-omit-agent-on-distinct-fallback"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "Reply with OK only." }] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: {
+                agent?: string
+                model?: { providerID?: string; modelID?: string }
+              }
+            }) => {
+              const model = args.body?.model
+              retryCalls.push({
+                model: model?.providerID && model?.modelID
+                  ? `${model.providerID}/${model.modelID}`
+                  : undefined,
+                agent: args.body?.agent,
+              })
+              return {}
+            },
+            abort: async () => ({}),
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(25)
+    await Promise.resolve()
+
+    expect(retryCalls).toContainEqual({
+      model: "openai/gpt-5.4",
+      agent: undefined,
+    })
+  })
+
   test("gives a fallback-resumed session a long pre-first-token window before timing out again", async () => {
     const retryModels: string[] = []
     const abortCalls: string[] = []
