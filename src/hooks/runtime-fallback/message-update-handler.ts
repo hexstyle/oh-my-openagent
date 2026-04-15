@@ -203,6 +203,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         }
         stateForUser.lastActiveStatusRefreshAt = undefined
         stateForUser.lastMeaningfulProgressAt = undefined
+        stateForUser.lastTerminalIdleAt = undefined
       }
       await armActiveSessionWatchdog({
         sessionID,
@@ -233,6 +234,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         resetInternalContinuationLoopForVisibleAssistant(deps, sessionID)
         const state = sessionStates.get(sessionID)
         if (state) {
+          state.lastTerminalIdleAt = undefined
           markMeaningfulProgress(state)
           markFallbackResponseSuccess(state)
         }

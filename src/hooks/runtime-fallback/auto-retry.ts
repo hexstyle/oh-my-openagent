@@ -3,12 +3,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import type { HookDeps, RuntimeFallbackTimeout } from "./types"
+import type { FallbackState, HookDeps, RuntimeFallbackTimeout } from "./types"
 import {
   FALLBACK_CONTINUATION_PROMPT,
   HOOK_NAME,
   MODEL_RECOVERY_PROBE_MIN_INTERVAL_MS,
   MODEL_RECOVERY_PROBE_TIMEOUT_MS,
+  STALLED_SESSION_NUDGE_MS,
+  WATCHDOG_CONTINUATION_PROMPT,
   resolveLongRunningProgressTimeoutMs,
 } from "./constants"
 import { log } from "../../shared/logger"
@@ -474,6 +476,10 @@ fi
     invalidateExternalWatchdog(sessionID)
   }
 
+  const hasTerminalIdleMarker = (state: FallbackState): boolean =>
+    typeof state.lastTerminalIdleAt === "number"
+      && state.lastTerminalIdleAt >= (state.lastMeaningfulProgressAt ?? 0)
+
   const getBackgroundTaskInspection = (sessionID: string) => inspectParentSessionTasks({
     backgroundManager: options?.backgroundManager,
     sessionID,
@@ -774,6 +780,7 @@ fi
     source: string,
     args?: {
       transientRetry?: boolean
+      continuationPrompt?: string
     },
   ): Promise<boolean> => {
     if (sessionRetryInFlight.has(sessionID)) {
@@ -827,7 +834,11 @@ fi
           body: {
             ...(retryPromptAgent ? { agent: retryPromptAgent } : {}),
             ...retryModelPayload,
-            parts: [createInternalAgentTextPart(FALLBACK_CONTINUATION_PROMPT)],
+            parts: [
+              createInternalAgentTextPart(
+                args?.continuationPrompt ?? FALLBACK_CONTINUATION_PROMPT,
+              ),
+            ],
           },
           query: { directory: ctx.directory },
         })
@@ -1108,6 +1119,50 @@ fi
     return undefined
   }
 
+  const maybeNudgeStalledSession = async (
+    sessionID: string,
+    state: FallbackState,
+  ): Promise<boolean> => {
+    if (sessionRetryInFlight.has(sessionID) || sessionAwaitingFallbackResult.has(sessionID)) {
+      return false
+    }
+
+    if (sessionFallbackTimeouts.has(sessionID) || sessionTransientRetryTimeouts.has(sessionID)) {
+      return false
+    }
+
+    if (wasRecentlyStopped(state) || hasTerminalIdleMarker(state)) {
+      return false
+    }
+
+    const lastAccess = sessionLastAccess.get(sessionID)
+    if (typeof lastAccess !== "number") {
+      return false
+    }
+
+    const lastAccessAgeMs = Math.max(0, Date.now() - lastAccess)
+    if (lastAccessAgeMs < STALLED_SESSION_NUDGE_MS) {
+      return false
+    }
+
+    const resolvedAgent = state.resolvedAgent ?? await resolveAgentForSessionFromContext(sessionID)
+    log(`[${HOOK_NAME}] Nudging stalled session after prolonged inactivity`, {
+      sessionID,
+      currentModel: state.currentModel,
+      resolvedAgent,
+      lastAccessAgeMs,
+      inactivityThresholdMs: STALLED_SESSION_NUDGE_MS,
+    })
+
+    return await autoRetryWithFallback(
+      sessionID,
+      state.currentModel,
+      resolvedAgent,
+      "session.stalled.nudge",
+      { continuationPrompt: WATCHDOG_CONTINUATION_PROMPT },
+    )
+  }
+
   const cleanupStaleSessions = () => {
     const now = Date.now()
     let cleanedCount = 0
@@ -1158,10 +1213,10 @@ fi
       if (!recoveredModel) {
         const resolvedAgent = await resolveAgentForSessionFromContext(sessionID)
         await maybeProbePreferredRecovery(sessionID, resolvedAgent)
+        await maybeNudgeStalledSession(sessionID, state)
         continue
       }
 
-      sessionLastAccess.set(sessionID, Date.now())
       log(`[${HOOK_NAME}] Background recovery promoted session back to a higher-priority model`, {
         sessionID,
         recoveredModel,
@@ -1179,6 +1234,8 @@ fi
           markRecoveredModelAutoResume(state)
         }
       }
+
+      await maybeNudgeStalledSession(sessionID, state)
     }
   }
 

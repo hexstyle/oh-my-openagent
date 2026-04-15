@@ -69,6 +69,9 @@ export interface FallbackState {
   /** Timestamp of the last time an active session.status pulse extended the
    *  watchdog without any newer assistant/tool progress. */
   lastActiveStatusRefreshAt?: number
+  /** Timestamp of the last terminal idle/stop signal. Used to avoid nudging
+   *  sessions that already settled cleanly and no longer need recovery. */
+  lastTerminalIdleAt?: number
   /** Timestamp set by `session.stop`. Prevents the watchdog timer from
    *  dispatching a new retry if the user explicitly stopped the session. */
   stoppedAt?: number

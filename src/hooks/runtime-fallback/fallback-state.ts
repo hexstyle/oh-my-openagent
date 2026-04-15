@@ -52,6 +52,7 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     lastLimitErrorAt: undefined,
     lastMeaningfulProgressAt: undefined,
     lastActiveStatusRefreshAt: undefined,
+    lastTerminalIdleAt: undefined,
     stoppedAt: undefined,
   }
 }

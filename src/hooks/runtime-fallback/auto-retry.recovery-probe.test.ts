@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test"
 
 import { createAutoRetryHelpers, didRecoveryProbeSucceed } from "./auto-retry"
+import { WATCHDOG_CONTINUATION_PROMPT } from "./constants"
 import { createFallbackState } from "./fallback-state"
 import type { HookDeps } from "./types"
 import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
@@ -168,5 +169,93 @@ OK
 
     expect(state.currentModel).toBe("openai/gpt-5.4")
     expect(promptCalls).toHaveLength(0)
+  })
+
+  it("nudges a flare-style stalled session with an internal continuation after 15 minutes of inactivity", async () => {
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({
+      promptCalls,
+      probeModelAvailability: async () => false,
+      timeoutSeconds: 30,
+    })
+    const sessionID = "ses_flare_stalled"
+    const state = createFallbackState("openai/gpt-5.4", [
+      "opencode/big-pickle",
+    ])
+
+    state.resolvedAgent = "Prometheus (Plan Builder)"
+    deps.sessionStates.set(sessionID, state)
+    deps.sessionLastAccess.set(sessionID, Date.now() - (15 * 60_000) - 1_000)
+
+    const helpers = createAutoRetryHelpers(deps)
+    await helpers.recoverPreferredModels()
+
+    expect(promptCalls).toHaveLength(1)
+    expect(
+      (promptCalls[0] as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+    ).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.4",
+    })
+    const retryText = (
+      promptCalls[0] as { body?: { parts?: Array<{ type?: string; text?: string }> } }
+    ).body?.parts?.[0]?.text
+    expect(retryText).toContain(OMO_INTERNAL_INITIATOR_MARKER)
+    expect(retryText).toContain(WATCHDOG_CONTINUATION_PROMPT)
+  })
+
+  it("does not nudge a data_catalog session that already settled with session.idle", async () => {
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({
+      promptCalls,
+      probeModelAvailability: async () => false,
+      timeoutSeconds: 30,
+    })
+    const sessionID = "ses_data_catalog_idle"
+    const state = createFallbackState("openai/gpt-5.4", [
+      "opencode/big-pickle",
+    ])
+    const settledAt = Date.now() - 60_000
+
+    state.lastMeaningfulProgressAt = settledAt - 1_000
+    state.lastTerminalIdleAt = settledAt
+    deps.sessionStates.set(sessionID, state)
+    deps.sessionLastAccess.set(sessionID, Date.now() - (16 * 60_000))
+
+    const helpers = createAutoRetryHelpers(deps)
+    await helpers.recoverPreferredModels()
+
+    expect(promptCalls).toHaveLength(0)
+  })
+
+  it("nudges a stale fallback session even after passive preferred-model recovery changes the target model", async () => {
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({
+      promptCalls,
+      probeModelAvailability: async () => false,
+      timeoutSeconds: 30,
+    })
+    const sessionID = "ses_stale_recovered_model"
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.4",
+    ])
+
+    state.currentModel = "openai/gpt-5.4"
+    state.fallbackIndex = 0
+    state.resolvedAgent = "Prometheus (Plan Builder)"
+    deps.sessionStates.set(sessionID, state)
+    deps.sessionLastAccess.set(sessionID, Date.now() - (16 * 60_000))
+
+    const helpers = createAutoRetryHelpers(deps)
+    await helpers.recoverPreferredModels()
+
+    expect(state.currentModel).toBe("anthropic/claude-opus-4-6")
+    expect(promptCalls).toHaveLength(1)
+    expect(
+      (promptCalls[0] as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+    ).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-opus-4-6",
+    })
   })
 })

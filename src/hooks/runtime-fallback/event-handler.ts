@@ -132,6 +132,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       if (resolvedAgent) {
         state.resolvedAgent = resolvedAgent
       }
+      state.lastTerminalIdleAt = undefined
       markMeaningfulProgress(state)
     }
 
@@ -201,6 +202,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       if (resolvedAgent) {
         state.resolvedAgent = resolvedAgent
       }
+      state.lastTerminalIdleAt = undefined
       markMeaningfulProgress(state)
     }
 
@@ -285,6 +287,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
 
     const state = sessionStates.get(sessionID)
     if (state) {
+      state.lastTerminalIdleAt = Date.now()
       markSessionStopped(state)
       state.pendingFallbackModel = undefined
       resetTransientRetryState(state)
@@ -355,6 +358,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     sessionStatusRetryKeys.delete(sessionID)
 
     if (state) {
+      state.lastTerminalIdleAt = Date.now()
       state.pendingFallbackModel = undefined
       resetTransientRetryState(state)
     }
