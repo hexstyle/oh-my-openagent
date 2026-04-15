@@ -1,9 +1,22 @@
 import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
+import { createSystemDirective, SystemDirectiveTypes } from "../../shared/system-directive"
 import { WATCHDOG_CONTINUATION_PROMPT } from "./constants"
 
 export type LoopDetectionResult = {
   isTerminal: boolean
   count: number
+}
+
+type MessagePart = {
+  type?: string
+  text?: string
+}
+
+type MessageLike = {
+  info?: {
+    role?: string
+  }
+  parts?: MessagePart[]
 }
 
 export const DEFAULT_INTERNAL_CONTINUATION_LOOP_THRESHOLD = 3
@@ -37,9 +50,15 @@ function normalizeInternalPromptText(text: string): string {
 const NORMALIZED_WATCHDOG_CONTINUATION_PROMPT = normalizeInternalPromptText(
   WATCHDOG_CONTINUATION_PROMPT,
 )
+const BOULDER_CONTINUATION_DIRECTIVE = createSystemDirective(SystemDirectiveTypes.BOULDER_CONTINUATION)
+const TODO_CONTINUATION_DIRECTIVE = createSystemDirective(SystemDirectiveTypes.TODO_CONTINUATION)
+
+function stripInternalInitiatorMarker(text: string): string {
+  return text.replaceAll(OMO_INTERNAL_INITIATOR_MARKER, "").trim()
+}
 
 export function isInternalInitiatorMessage(
-  parts: Array<{ type?: string; text?: string }> | undefined,
+  parts: MessagePart[] | undefined,
 ): boolean {
   return (parts ?? []).some(
     (part) => {
@@ -51,6 +70,48 @@ export function isInternalInitiatorMessage(
         || normalizeInternalPromptText(part.text) === NORMALIZED_WATCHDOG_CONTINUATION_PROMPT
     },
   )
+}
+
+export function isInternalContinuationMessage(
+  parts: MessagePart[] | undefined,
+): boolean {
+  return (parts ?? []).some(
+    (part) => {
+      if (part.type !== "text" || typeof part.text !== "string") {
+        return false
+      }
+
+      const textWithoutMarker = stripInternalInitiatorMarker(part.text)
+      const normalizedText = normalizeInternalPromptText(textWithoutMarker)
+      const isSystemReminder = textWithoutMarker.trimStart().startsWith("<system-reminder>")
+
+      return normalizedText === NORMALIZED_WATCHDOG_CONTINUATION_PROMPT
+        || (part.text.includes(OMO_INTERNAL_INITIATOR_MARKER) && !isSystemReminder)
+        || textWithoutMarker.includes(BOULDER_CONTINUATION_DIRECTIVE)
+        || textWithoutMarker.includes(TODO_CONTINUATION_DIRECTIVE)
+    },
+  )
+}
+
+export function isLatestStoredInternalContinuation(
+  messages: MessageLike[] | undefined,
+): boolean {
+  for (let index = (messages?.length ?? 0) - 1; index >= 0; index -= 1) {
+    const message = messages?.[index]
+    if (!message) {
+      continue
+    }
+
+    const hasTextPart = (message.parts ?? []).some(
+      (part) => part.type === "text" && typeof part.text === "string" && part.text.trim().length > 0,
+    )
+    if (!hasTextPart) {
+      continue
+    }
+
+    return message.info?.role === "user" && isInternalContinuationMessage(message.parts)
+  }
+  return false
 }
 
 export function createLoopDetector(

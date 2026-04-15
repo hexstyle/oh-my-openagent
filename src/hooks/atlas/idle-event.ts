@@ -10,6 +10,8 @@ import { getSessionAgent, isAgentRegistered, subagentSessions } from "../../feat
 import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
 import { getAgentConfigKey } from "../../shared/agent-display-names"
 import { log } from "../../shared/logger"
+import { normalizeSDKResponse } from "../../shared"
+import { isLatestStoredInternalContinuation } from "../runtime-fallback/internal-continuation-loop-detector"
 import { injectBoulderContinuation } from "./boulder-continuation-injector"
 import { HOOK_NAME } from "./hook-name"
 import { resolveActiveBoulderSession } from "./resolve-active-boulder-session"
@@ -107,6 +109,27 @@ async function hasReusablePreferredTaskSession(input: {
   }
 }
 
+async function hasLatestStoredInternalContinuation(input: {
+  ctx: PluginInput
+  sessionID: string
+}): Promise<boolean> {
+  try {
+    const response = await input.ctx.client.session.messages({
+      path: { id: input.sessionID },
+      query: { directory: input.ctx.directory },
+    })
+
+    const messages = normalizeSDKResponse(response, [] as Array<{
+      info?: { role?: string }
+      parts?: Array<{ type?: string; text?: string }>
+    }>, { preferResponseOnMissingData: true })
+
+    return isLatestStoredInternalContinuation(messages)
+  } catch {
+    return false
+  }
+}
+
 async function injectContinuation(input: {
   ctx: PluginInput
   sessionID: string
@@ -118,6 +141,16 @@ async function injectContinuation(input: {
   agent?: string
   worktreePath?: string
 }): Promise<void> {
+  if (await hasLatestStoredInternalContinuation({
+    ctx: input.ctx,
+    sessionID: input.sessionID,
+  })) {
+    log(`[${HOOK_NAME}] Skipped: latest stored user message is already an internal continuation`, {
+      sessionID: input.sessionID,
+    })
+    return
+  }
+
   const remaining = input.progress.total - input.progress.completed
   input.sessionState.lastContinuationInjectedAt = Date.now()
 
@@ -218,134 +251,148 @@ export async function handleAtlasSessionIdle(input: {
 
   log(`[${HOOK_NAME}] session.idle`, { sessionID })
 
-  const activeBoulderSession = await resolveActiveBoulderSession({
-    client: ctx.client,
-    directory: ctx.directory,
-    sessionID,
-  })
-  if (!activeBoulderSession) {
-    log(`[${HOOK_NAME}] Skipped: session not registered in active boulder`, { sessionID })
+  const sessionState = getState(sessionID)
+  if (sessionState.idleEvaluationInFlight) {
+    log(`[${HOOK_NAME}] Skipped: concurrent session.idle evaluation already in flight`, { sessionID })
     return
   }
 
-  const { boulderState, progress, appendedSession } = activeBoulderSession
-  if (progress.isComplete) {
-    log(`[${HOOK_NAME}] Boulder complete`, { sessionID, plan: boulderState.plan_name })
-    return
-  }
+  sessionState.idleEvaluationInFlight = true
 
-  if (appendedSession) {
-    log(`[${HOOK_NAME}] Appended subagent session to boulder during idle`, {
+  try {
+    const activeBoulderSession = await resolveActiveBoulderSession({
+      client: ctx.client,
+      directory: ctx.directory,
       sessionID,
-      plan: boulderState.plan_name,
     })
-  }
-
-  if (subagentSessions.has(sessionID)) {
-    const sessionAgent = getSessionAgent(sessionID)
-    const agentKey = getAgentConfigKey(sessionAgent ?? "")
-    const requiredAgentName = boulderState.agent ?? (isAgentRegistered("atlas") ? "atlas" : undefined)
-    if (!requiredAgentName || !isAgentRegistered(requiredAgentName)) {
-      log(`[${HOOK_NAME}] Skipped: boulder agent is unavailable for continuation`, {
-        sessionID,
-        requiredAgent: boulderState.agent ?? "unknown",
-      })
+    if (!activeBoulderSession) {
+      log(`[${HOOK_NAME}] Skipped: session not registered in active boulder`, { sessionID })
       return
     }
-    const requiredAgentKey = getAgentConfigKey(requiredAgentName)
-    const agentMatches =
-      agentKey === requiredAgentKey ||
-      (requiredAgentKey === getAgentConfigKey("atlas") && agentKey === getAgentConfigKey("sisyphus"))
-    if (!agentMatches) {
-      log(`[${HOOK_NAME}] Skipped: subagent agent does not match boulder agent`, {
+
+    const { boulderState, progress, appendedSession } = activeBoulderSession
+    if (progress.isComplete) {
+      log(`[${HOOK_NAME}] Boulder complete`, { sessionID, plan: boulderState.plan_name })
+      return
+    }
+
+    if (appendedSession) {
+      log(`[${HOOK_NAME}] Appended subagent session to boulder during idle`, {
         sessionID,
-        agent: sessionAgent ?? "unknown",
+        plan: boulderState.plan_name,
+      })
+    }
+
+    if (subagentSessions.has(sessionID)) {
+      const sessionAgent = getSessionAgent(sessionID)
+      const agentKey = getAgentConfigKey(sessionAgent ?? "")
+      const requiredAgentName = boulderState.agent ?? (isAgentRegistered("atlas") ? "atlas" : undefined)
+      if (!requiredAgentName || !isAgentRegistered(requiredAgentName)) {
+        log(`[${HOOK_NAME}] Skipped: boulder agent is unavailable for continuation`, {
+          sessionID,
+          requiredAgent: boulderState.agent ?? "unknown",
+        })
+        return
+      }
+      const requiredAgentKey = getAgentConfigKey(requiredAgentName)
+      const agentMatches =
+        agentKey === requiredAgentKey ||
+        (requiredAgentKey === getAgentConfigKey("atlas") && agentKey === getAgentConfigKey("sisyphus"))
+      if (!agentMatches) {
+        log(`[${HOOK_NAME}] Skipped: subagent agent does not match boulder agent`, {
+          sessionID,
+          agent: sessionAgent ?? "unknown",
           requiredAgent: requiredAgentName,
         })
         return
       }
-  }
+    }
 
-  const sessionState = getState(sessionID)
-  const now = Date.now()
-  const currentPlanDigest = buildPlanExecutionDigest(boulderState.active_plan, progress)
+    const now = Date.now()
+    const currentPlanDigest = buildPlanExecutionDigest(boulderState.active_plan, progress)
 
-  if (sessionState.waitingForFinalWaveApproval) {
-    log(`[${HOOK_NAME}] Skipped: waiting for explicit final-wave approval`, { sessionID })
-    return
-  }
+    if (sessionState.waitingForFinalWaveApproval) {
+      log(`[${HOOK_NAME}] Skipped: waiting for explicit final-wave approval`, { sessionID })
+      return
+    }
 
-  if (sessionState.lastEventWasAbortError) {
-    sessionState.lastEventWasAbortError = false
-    log(`[${HOOK_NAME}] Skipped: abort error immediately before idle`, { sessionID })
-    return
-  }
+    if (sessionState.lastEventWasAbortError) {
+      sessionState.lastEventWasAbortError = false
+      log(`[${HOOK_NAME}] Skipped: abort error immediately before idle`, { sessionID })
+      return
+    }
 
-  if (sessionState.lastNonAbortSessionErrorAt) {
-    const timeSinceLastSessionError = now - sessionState.lastNonAbortSessionErrorAt
-    if (timeSinceLastSessionError < SESSION_ERROR_BACKOFF_MS) {
-      log(`[${HOOK_NAME}] Skipped: recent session.error before idle`, {
+    if (sessionState.lastNonAbortSessionErrorAt) {
+      const timeSinceLastSessionError = now - sessionState.lastNonAbortSessionErrorAt
+      if (timeSinceLastSessionError < SESSION_ERROR_BACKOFF_MS) {
+        log(`[${HOOK_NAME}] Skipped: recent session.error before idle`, {
+          sessionID,
+          backoffRemaining: SESSION_ERROR_BACKOFF_MS - timeSinceLastSessionError,
+        })
+        return
+      }
+
+      sessionState.lastNonAbortSessionErrorAt = undefined
+    }
+
+    if (sessionState.promptFailureCount >= MAX_CONSECUTIVE_PROMPT_FAILURES) {
+      const timeSinceLastFailure =
+        sessionState.lastFailureAt !== undefined ? now - sessionState.lastFailureAt : Number.POSITIVE_INFINITY
+      if (timeSinceLastFailure < FAILURE_BACKOFF_MS) {
+        log(`[${HOOK_NAME}] Skipped: continuation in backoff after repeated failures`, {
+          sessionID,
+          promptFailureCount: sessionState.promptFailureCount,
+          backoffRemaining: FAILURE_BACKOFF_MS - timeSinceLastFailure,
+        })
+        return
+      }
+
+      sessionState.promptFailureCount = 0
+      sessionState.lastFailureAt = undefined
+    }
+
+    if (hasActiveBackgroundTasks(sessionID, options)) {
+      log(`[${HOOK_NAME}] Skipped: background tasks active`, { sessionID })
+      return
+    }
+
+    if (options?.isContinuationStopped?.(sessionID)) {
+      log(`[${HOOK_NAME}] Skipped: continuation stopped for session`, { sessionID })
+      return
+    }
+
+    if (
+      sessionState.lastContinuationInjectedAt !== undefined
+      && now - sessionState.lastContinuationInjectedAt < CONTINUATION_COOLDOWN_MS
+    ) {
+      if (!sessionState.awaitingPostInjectionProgressCheck) {
+        scheduleRetry({ ctx, sessionID, sessionState, options })
+      }
+      log(`[${HOOK_NAME}] Skipped: continuation cooldown active`, {
         sessionID,
-        backoffRemaining: SESSION_ERROR_BACKOFF_MS - timeSinceLastSessionError,
+        cooldownRemaining: CONTINUATION_COOLDOWN_MS - (now - sessionState.lastContinuationInjectedAt),
+        pendingRetry: !!sessionState.pendingRetryTimer,
+        awaitingPostInjectionProgressCheck: sessionState.awaitingPostInjectionProgressCheck ?? false,
       })
       return
     }
 
-    sessionState.lastNonAbortSessionErrorAt = undefined
-  }
-
-  if (sessionState.promptFailureCount >= MAX_CONSECUTIVE_PROMPT_FAILURES) {
-    const timeSinceLastFailure =
-      sessionState.lastFailureAt !== undefined ? now - sessionState.lastFailureAt : Number.POSITIVE_INFINITY
-    if (timeSinceLastFailure < FAILURE_BACKOFF_MS) {
-      log(`[${HOOK_NAME}] Skipped: continuation in backoff after repeated failures`, {
-        sessionID,
-        promptFailureCount: sessionState.promptFailureCount,
-        backoffRemaining: FAILURE_BACKOFF_MS - timeSinceLastFailure,
-      })
+    if (shouldStopForStagnation({ sessionID, sessionState, currentPlanDigest })) {
       return
     }
 
-    sessionState.promptFailureCount = 0
-    sessionState.lastFailureAt = undefined
-  }
-
-  if (hasActiveBackgroundTasks(sessionID, options)) {
-    log(`[${HOOK_NAME}] Skipped: background tasks active`, { sessionID })
-    return
-  }
-
-  if (options?.isContinuationStopped?.(sessionID)) {
-    log(`[${HOOK_NAME}] Skipped: continuation stopped for session`, { sessionID })
-    return
-  }
-
-  if (sessionState.lastContinuationInjectedAt && now - sessionState.lastContinuationInjectedAt < CONTINUATION_COOLDOWN_MS) {
-    if (!sessionState.awaitingPostInjectionProgressCheck) {
-      scheduleRetry({ ctx, sessionID, sessionState, options })
-    }
-    log(`[${HOOK_NAME}] Skipped: continuation cooldown active`, {
+    await injectContinuation({
+      ctx,
       sessionID,
-      cooldownRemaining: CONTINUATION_COOLDOWN_MS - (now - sessionState.lastContinuationInjectedAt),
-      pendingRetry: !!sessionState.pendingRetryTimer,
-      awaitingPostInjectionProgressCheck: sessionState.awaitingPostInjectionProgressCheck ?? false,
+      sessionState,
+      options,
+      planName: boulderState.plan_name,
+      planDigest: currentPlanDigest,
+      progress,
+      agent: boulderState.agent,
+      worktreePath: boulderState.worktree_path,
     })
-    return
+  } finally {
+    sessionState.idleEvaluationInFlight = false
   }
-
-  if (shouldStopForStagnation({ sessionID, sessionState, currentPlanDigest })) {
-    return
-  }
-
-  await injectContinuation({
-    ctx,
-    sessionID,
-    sessionState,
-    options,
-    planName: boulderState.plan_name,
-    planDigest: currentPlanDigest,
-    progress,
-    agent: boulderState.agent,
-    worktreePath: boulderState.worktree_path,
-  })
 }

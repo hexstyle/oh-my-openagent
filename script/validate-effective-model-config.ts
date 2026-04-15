@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { existsSync, readFileSync } from "node:fs"
+import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 
 import { OhMyOpenCodeConfigSchema } from "../src/config"
@@ -18,24 +19,57 @@ type HostConfig = {
 }
 
 type ModelsCache = Record<string, { models?: Record<string, { status?: string; limit?: { context?: number } }> }>
-type RefreshResult = { refreshed: true } | { refreshed: false; warning: string }
+export type RefreshResult = { refreshed: true } | { refreshed: false; warning: string }
 
 function fail(message: string): never {
   throw new Error(message)
 }
 
-function refreshModelCatalog(): RefreshResult {
+type SpawnSyncResultLike = {
+  exitCode: number | null | undefined
+  stdout: { toString: (encoding?: string) => string }
+  stderr: { toString: (encoding?: string) => string }
+}
+
+type SpawnSyncLike = (
+  command: string[],
+  options: {
+    cwd: string
+    stdout: "pipe"
+    stderr: "pipe"
+    env: NodeJS.ProcessEnv
+  },
+) => SpawnSyncResultLike
+
+export function resolveModelCatalogRefreshCwd(
+  configDir: string | undefined,
+  fallbackHomeDir: string = homedir(),
+): string {
+  if (typeof configDir === "string" && configDir.trim().length > 0) {
+    return configDir
+  }
+
+  return fallbackHomeDir
+}
+
+export function refreshModelCatalog(options?: {
+  cwd?: string
+  env?: NodeJS.ProcessEnv
+  spawnSync?: SpawnSyncLike
+}): RefreshResult {
   const commands = [
     ["opencode", "models", "--refresh"],
     ["opencode", "models", "opencode", "--refresh"],
   ]
+  const cwd = options?.cwd ?? resolveModelCatalogRefreshCwd(getOpenCodeConfigDir({ binary: "opencode" }))
+  const spawnSync = options?.spawnSync ?? ((command, spawnOptions) => Bun.spawnSync(command, spawnOptions))
 
   for (const command of commands) {
-    const result = Bun.spawnSync(command, {
-      cwd: resolve(import.meta.dir, ".."),
+    const result = spawnSync(command, {
+      cwd,
       stdout: "pipe",
       stderr: "pipe",
-      env: process.env,
+      env: options?.env ?? process.env,
     })
     if (result.exitCode !== 0) {
       const stderr = result.stderr.toString("utf-8").trim()
@@ -232,4 +266,6 @@ function main(): void {
   )
 }
 
-main()
+if (import.meta.main) {
+  main()
+}

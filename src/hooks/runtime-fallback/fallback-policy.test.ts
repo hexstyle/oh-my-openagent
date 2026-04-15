@@ -106,6 +106,35 @@ describe("runtime fallback policy", () => {
     ).toBe("retry_same_model_delayed")
   })
 
+  it("routes gateway/proxy-blocked 403 forbidden errors directly to fallback_chain", () => {
+    expect(
+      getRuntimeFallbackAction(
+        {
+          name: "AI_APICallError",
+          statusCode: 403,
+          message: "Forbidden: request was blocked by a gateway or proxy. You may not have permission to access this resource.",
+        },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("fallback_chain")
+
+    expect(
+      getRuntimeFallbackAction(
+        {
+          name: "APIError",
+          data: {
+            statusCode: 403,
+            message:
+              "Forbidden: request was blocked by a gateway or proxy. You may not have permission to access this resource.",
+            responseBody:
+              "<html><body><p>Unable to load site</p><span>Please try again later.</span></body></html>",
+          },
+        },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("fallback_chain")
+  })
+
   it("treats embedded forbidden json wrapper messages as delayed same-model retries", () => {
     expect(
       getRuntimeFallbackAction(

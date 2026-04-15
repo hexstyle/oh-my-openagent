@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 
 import type { BackgroundManager } from "../../features/background-agent"
 import { setMainSession, subagentSessions, _resetForTesting } from "../../features/claude-code-session-state"
+import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
 import { createTodoContinuationEnforcer } from "."
+import { WATCHDOG_CONTINUATION_PROMPT } from "../runtime-fallback/constants"
 import {
   CONTINUATION_COOLDOWN_MS,
   FAILURE_RESET_WINDOW_MS,
@@ -173,6 +175,7 @@ describe("todo-continuation-enforcer", () => {
       role: "user" | "assistant"
       error?: { name: string; data?: { message: string } }
     }
+    parts?: Array<{ type?: string; text?: string }>
   }
 
   interface PromptRequestOptions {
@@ -475,6 +478,172 @@ describe("todo-continuation-enforcer", () => {
     await wait(2500)
     expect(promptCalls).toHaveLength(1)
   }, { timeout: 15000 })
+
+  test("should ignore internal user message outside grace period", async () => {
+    fakeTimers.restore()
+    const sessionID = "main-internal-user"
+    setMainSession(sessionID)
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await wait(600)
+    await hook.handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: { sessionID, role: "user" },
+          parts: [{ type: "text", text: `[runtime-fallback] Continue.\n${OMO_INTERNAL_INITIATOR_MARKER}` }],
+        },
+      },
+    })
+
+    await wait(2500)
+    expect(promptCalls).toHaveLength(1)
+  }, { timeout: 15000 })
+
+  test("should ignore raw watchdog user message outside grace period", async () => {
+    fakeTimers.restore()
+    const sessionID = "main-raw-watchdog-user"
+    setMainSession(sessionID)
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await wait(600)
+    await hook.handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: { sessionID, role: "user" },
+          parts: [{ type: "text", text: WATCHDOG_CONTINUATION_PROMPT }],
+        },
+      },
+    })
+
+    await wait(2500)
+    expect(promptCalls).toHaveLength(1)
+  }, { timeout: 15000 })
+
+  test("should ignore quoted watchdog user message outside grace period", async () => {
+    fakeTimers.restore()
+    const sessionID = "main-quoted-watchdog-user"
+    setMainSession(sessionID)
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await wait(600)
+    await hook.handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: { sessionID, role: "user" },
+          parts: [{ type: "text", text: `"${WATCHDOG_CONTINUATION_PROMPT}"\n` }],
+        },
+      },
+    })
+
+    await wait(2500)
+    expect(promptCalls).toHaveLength(1)
+  }, { timeout: 15000 })
+
+  test("should not start a todo continuation countdown when the latest stored user message is an internal continuation", async () => {
+    const sessionID = "main-latest-internal-user"
+    setMainSession(sessionID)
+    mockMessages = [
+      {
+        info: { id: "msg-1", role: "assistant" },
+        parts: [{ type: "text", text: "Earlier visible progress" }],
+      },
+      {
+        info: { id: "msg-2", role: "user" },
+        parts: [{
+          type: "text",
+          text: `[SYSTEM DIRECTIVE: OH-MY-OPENCODE - BOULDER CONTINUATION]\nContinue working.\n${OMO_INTERNAL_INITIATOR_MARKER}`,
+        }],
+      },
+    ]
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await fakeTimers.advanceBy(2500)
+
+    expect(promptCalls).toHaveLength(0)
+  })
+
+  test("should not start a todo continuation countdown when the latest text-bearing message is an internal continuation", async () => {
+    const sessionID = "main-latest-text-bearing-internal-user"
+    setMainSession(sessionID)
+    mockMessages = [
+      {
+        info: { id: "msg-1", role: "assistant" },
+        parts: [{ type: "text", text: "Earlier visible progress" }],
+      },
+      {
+        info: { id: "msg-2", role: "user" },
+        parts: [{
+          type: "text",
+          text: `[SYSTEM DIRECTIVE: OH-MY-OPENCODE - BOULDER CONTINUATION]\nContinue working.\n${OMO_INTERNAL_INITIATOR_MARKER}`,
+        }],
+      },
+      {
+        info: { id: "msg-3", role: "assistant" },
+        parts: [],
+      },
+    ]
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await fakeTimers.advanceBy(2500)
+
+    expect(promptCalls).toHaveLength(0)
+  })
+
+  test("should still start a todo continuation countdown when the latest text-bearing user message is only a background task reminder", async () => {
+    const sessionID = "main-latest-background-reminder-user"
+    setMainSession(sessionID)
+    mockMessages = [
+      {
+        info: { id: "msg-1", role: "assistant" },
+        parts: [{ type: "text", text: "Earlier visible progress" }],
+      },
+      {
+        info: { id: "msg-2", role: "user" },
+        parts: [{
+          type: "text",
+          text: `<system-reminder>\n[BACKGROUND TASK STATUS]\n**Active background tasks:** 1\n</system-reminder>\n${OMO_INTERNAL_INITIATOR_MARKER}`,
+        }],
+      },
+    ]
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await fakeTimers.advanceBy(2500)
+
+    expect(promptCalls).toHaveLength(1)
+  })
 
   test("should cancel countdown on assistant activity", async () => {
     // given - session starting countdown

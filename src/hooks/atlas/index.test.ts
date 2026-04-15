@@ -11,6 +11,8 @@ import {
 import type { BoulderState } from "../../features/boulder-state"
 import { _resetForTesting, registerAgentName, subagentSessions, updateSessionAgent } from "../../features/claude-code-session-state"
 import type { PendingTaskRef } from "./types"
+import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
+import { WATCHDOG_CONTINUATION_PROMPT } from "../runtime-fallback/constants"
 
 const TEST_STORAGE_ROOT = join(tmpdir(), `atlas-message-storage-${randomUUID()}`)
 const TEST_MESSAGE_STORAGE = join(TEST_STORAGE_ROOT, "message")
@@ -45,6 +47,7 @@ describe("atlas hook", () => {
   function createMockPluginInput(overrides?: {
     promptMock?: ReturnType<typeof mock>
     sessionGetMock?: ReturnType<typeof mock>
+    sessionMessagesMock?: ReturnType<typeof mock>
   }) {
     const promptMock = overrides?.promptMock ?? mock(() => Promise.resolve())
     const sessionGetMock = overrides?.sessionGetMock ?? mock(async ({ path }: { path: { id: string } }) => ({
@@ -53,20 +56,24 @@ describe("atlas hook", () => {
         parentID: path.id.startsWith("ses_") ? "session-1" : "main-session-123",
       },
     }))
+    const sessionMessagesMock = overrides?.sessionMessagesMock ?? mock(async () => ({ data: [] }))
     return {
       directory: TEST_DIR,
       client: {
         session: {
           get: sessionGetMock,
+          messages: sessionMessagesMock,
           prompt: promptMock,
           promptAsync: promptMock,
         },
       },
       _promptMock: promptMock,
       _sessionGetMock: sessionGetMock,
+      _sessionMessagesMock: sessionMessagesMock,
     } as unknown as Parameters<typeof createAtlasHook>[0] & {
       _promptMock: ReturnType<typeof mock>
       _sessionGetMock: ReturnType<typeof mock>
+      _sessionMessagesMock: ReturnType<typeof mock>
     }
   }
 
@@ -1644,6 +1651,310 @@ session_id: ses_untrusted_999
       expect(mockInput._promptMock).toHaveBeenCalled()
     })
 
+    test("should not stack boulder continuation immediately after foreign internal continuation", async () => {
+      const originalDateNow = Date.now
+
+      try {
+        let now = 0
+        Date.now = () => now
+
+        const planPath = join(TEST_DIR, "foreign-continuation-plan.md")
+        writeFileSync(planPath, "# Plan\n- [ ] Task 1")
+
+        writeBoulderState(TEST_DIR, {
+          active_plan: planPath,
+          started_at: "2026-01-02T10:00:00Z",
+          session_ids: [MAIN_SESSION_ID],
+          plan_name: "foreign-continuation-plan",
+        })
+
+        const mockInput = createMockPluginInput()
+        const hook = createAtlasHook(mockInput)
+
+        await hook.handler({
+          event: {
+            type: "message.updated",
+            properties: {
+              info: { sessionID: MAIN_SESSION_ID, role: "user" },
+              parts: [{ type: "text", text: `[runtime-fallback] Continue.\n${OMO_INTERNAL_INITIATOR_MARKER}` }],
+            },
+          },
+        })
+
+        await hook.handler({
+          event: {
+            type: "session.idle",
+            properties: { sessionID: MAIN_SESSION_ID },
+          },
+        })
+
+        expect(mockInput._promptMock).not.toHaveBeenCalled()
+
+        now += 6000
+        await hook.handler({
+          event: {
+            type: "session.idle",
+            properties: { sessionID: MAIN_SESSION_ID },
+          },
+        })
+
+        expect(mockInput._promptMock).toHaveBeenCalledTimes(1)
+      } finally {
+        Date.now = originalDateNow
+      }
+    })
+
+    test("should not stack boulder continuation immediately after raw watchdog continuation", async () => {
+      const originalDateNow = Date.now
+
+      try {
+        let now = 0
+        Date.now = () => now
+
+        const planPath = join(TEST_DIR, "raw-watchdog-plan.md")
+        writeFileSync(planPath, "# Plan\n- [ ] Task 1")
+
+        writeBoulderState(TEST_DIR, {
+          active_plan: planPath,
+          started_at: "2026-01-02T10:00:00Z",
+          session_ids: [MAIN_SESSION_ID],
+          plan_name: "raw-watchdog-plan",
+        })
+
+        const mockInput = createMockPluginInput()
+        const hook = createAtlasHook(mockInput)
+
+        await hook.handler({
+          event: {
+            type: "message.updated",
+            properties: {
+              info: { sessionID: MAIN_SESSION_ID, role: "user" },
+              parts: [{ type: "text", text: WATCHDOG_CONTINUATION_PROMPT }],
+            },
+          },
+        })
+
+        await hook.handler({
+          event: {
+            type: "session.idle",
+            properties: { sessionID: MAIN_SESSION_ID },
+          },
+        })
+
+        expect(mockInput._promptMock).not.toHaveBeenCalled()
+
+        now += 6000
+        await hook.handler({
+          event: {
+            type: "session.idle",
+            properties: { sessionID: MAIN_SESSION_ID },
+          },
+        })
+
+        expect(mockInput._promptMock).toHaveBeenCalledTimes(1)
+      } finally {
+        Date.now = originalDateNow
+      }
+    })
+
+    test("should not inject boulder continuation when the latest stored user message is a foreign internal continuation", async () => {
+      const planPath = join(TEST_DIR, "stored-foreign-continuation-plan.md")
+      writeFileSync(planPath, "# Plan\n- [ ] Task 1")
+
+      writeBoulderState(TEST_DIR, {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: [MAIN_SESSION_ID],
+        plan_name: "stored-foreign-continuation-plan",
+      })
+
+      const sessionMessagesMock = mock(async () => ({
+        data: [
+          {
+            info: { role: "assistant" },
+            parts: [{ type: "text", text: "Earlier visible progress" }],
+          },
+          {
+            info: { role: "user" },
+            parts: [{ type: "text", text: `[runtime-fallback] Continue.\n${OMO_INTERNAL_INITIATOR_MARKER}` }],
+          },
+        ],
+      }))
+
+      const mockInput = createMockPluginInput({ sessionMessagesMock })
+      const hook = createAtlasHook(mockInput)
+
+      await hook.handler({
+        event: {
+          type: "session.idle",
+          properties: { sessionID: MAIN_SESSION_ID },
+        },
+      })
+
+      expect(mockInput._promptMock).not.toHaveBeenCalled()
+    })
+
+    test("should not inject boulder continuation when the latest stored user message is the quoted raw watchdog continuation", async () => {
+      const planPath = join(TEST_DIR, "stored-quoted-watchdog-plan.md")
+      writeFileSync(planPath, "# Plan\n- [ ] Task 1")
+
+      writeBoulderState(TEST_DIR, {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: [MAIN_SESSION_ID],
+        plan_name: "stored-quoted-watchdog-plan",
+      })
+
+      const sessionMessagesMock = mock(async () => ({
+        data: [
+          {
+            info: { role: "assistant" },
+            parts: [{ type: "text", text: "Earlier visible progress" }],
+          },
+          {
+            info: { role: "user" },
+            parts: [{ type: "text", text: `"${WATCHDOG_CONTINUATION_PROMPT}"\n` }],
+          },
+        ],
+      }))
+
+      const mockInput = createMockPluginInput({ sessionMessagesMock })
+      const hook = createAtlasHook(mockInput)
+
+      await hook.handler({
+        event: {
+          type: "session.idle",
+          properties: { sessionID: MAIN_SESSION_ID },
+        },
+      })
+
+      expect(mockInput._promptMock).not.toHaveBeenCalled()
+    })
+
+    test("should not inject boulder continuation when the latest stored user message is the previous boulder continuation", async () => {
+      const planPath = join(TEST_DIR, "stored-boulder-continuation-plan.md")
+      writeFileSync(planPath, "# Plan\n- [ ] Task 1")
+
+      writeBoulderState(TEST_DIR, {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: [MAIN_SESSION_ID],
+        plan_name: "stored-boulder-continuation-plan",
+      })
+
+      const sessionMessagesMock = mock(async () => ({
+        data: [
+          {
+            info: { role: "assistant" },
+            parts: [{ type: "text", text: "Earlier visible progress" }],
+          },
+          {
+            info: { role: "user" },
+            parts: [{
+              type: "text",
+              text: `[SYSTEM DIRECTIVE: OH-MY-OPENCODE - BOULDER CONTINUATION]\nContinue working.\n${OMO_INTERNAL_INITIATOR_MARKER}`,
+            }],
+          },
+        ],
+      }))
+
+      const mockInput = createMockPluginInput({ sessionMessagesMock })
+      const hook = createAtlasHook(mockInput)
+
+      await hook.handler({
+        event: {
+          type: "session.idle",
+          properties: { sessionID: MAIN_SESSION_ID },
+        },
+      })
+
+      expect(mockInput._promptMock).not.toHaveBeenCalled()
+    })
+
+    test("should not inject boulder continuation when the latest text-bearing message is the previous boulder continuation", async () => {
+      const planPath = join(TEST_DIR, "stored-boulder-text-bearing-plan.md")
+      writeFileSync(planPath, "# Plan\n- [ ] Task 1")
+
+      writeBoulderState(TEST_DIR, {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: [MAIN_SESSION_ID],
+        plan_name: "stored-boulder-text-bearing-plan",
+      })
+
+      const sessionMessagesMock = mock(async () => ({
+        data: [
+          {
+            info: { role: "assistant" },
+            parts: [{ type: "text", text: "Earlier visible progress" }],
+          },
+          {
+            info: { role: "user" },
+            parts: [{
+              type: "text",
+              text: `[SYSTEM DIRECTIVE: OH-MY-OPENCODE - BOULDER CONTINUATION]\nContinue working.\n${OMO_INTERNAL_INITIATOR_MARKER}`,
+            }],
+          },
+          {
+            info: { role: "assistant" },
+            parts: [],
+          },
+        ],
+      }))
+
+      const mockInput = createMockPluginInput({ sessionMessagesMock })
+      const hook = createAtlasHook(mockInput)
+
+      await hook.handler({
+        event: {
+          type: "session.idle",
+          properties: { sessionID: MAIN_SESSION_ID },
+        },
+      })
+
+      expect(mockInput._promptMock).not.toHaveBeenCalled()
+    })
+
+    test("should still inject boulder continuation when the latest text-bearing user message is only a background task reminder", async () => {
+      const planPath = join(TEST_DIR, "stored-background-reminder-plan.md")
+      writeFileSync(planPath, "# Plan\n- [ ] Task 1")
+
+      writeBoulderState(TEST_DIR, {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: [MAIN_SESSION_ID],
+        plan_name: "stored-background-reminder-plan",
+      })
+
+      const sessionMessagesMock = mock(async () => ({
+        data: [
+          {
+            info: { role: "assistant" },
+            parts: [{ type: "text", text: "Earlier visible progress" }],
+          },
+          {
+            info: { role: "user" },
+            parts: [{
+              type: "text",
+              text: `<system-reminder>\n[BACKGROUND TASK STATUS]\n**Active background tasks:** 1\n</system-reminder>\n${OMO_INTERNAL_INITIATOR_MARKER}`,
+            }],
+          },
+        ],
+      }))
+
+      const mockInput = createMockPluginInput({ sessionMessagesMock })
+      const hook = createAtlasHook(mockInput)
+
+      await hook.handler({
+        event: {
+          type: "session.idle",
+          properties: { sessionID: MAIN_SESSION_ID },
+        },
+      })
+
+      expect(mockInput._promptMock).toHaveBeenCalledTimes(1)
+    })
+
     test("should clear non-abort session error state on assistant progress", async () => {
       const planPath = join(TEST_DIR, "test-plan.md")
       writeFileSync(planPath, "# Plan\n- [ ] Task 1")
@@ -1982,6 +2293,51 @@ session_id: ses_untrusted_999
       expect(mockInput._promptMock).toHaveBeenCalledTimes(1)
     })
 
+    test("should coalesce concurrent session.idle injections before the first continuation prompt resolves", async () => {
+      const planPath = join(TEST_DIR, "concurrent-idle-plan.md")
+      writeFileSync(planPath, `# Plan
+
+## TODOs
+- [ ] 1. Execute the only task
+`)
+
+      const state: BoulderState = {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: [MAIN_SESSION_ID],
+        plan_name: "concurrent-idle-plan",
+      }
+      writeBoulderState(TEST_DIR, state)
+
+      let resolvePrompt: (() => void) | undefined
+      const promptMock = mock(() => new Promise<void>((resolve) => {
+        resolvePrompt = resolve
+      }))
+      const mockInput = createMockPluginInput({ promptMock })
+      const hook = createAtlasHook(mockInput)
+
+      const firstIdle = hook.handler({
+        event: {
+          type: "session.idle",
+          properties: { sessionID: MAIN_SESSION_ID },
+        },
+      })
+      const secondIdle = hook.handler({
+        event: {
+          type: "session.idle",
+          properties: { sessionID: MAIN_SESSION_ID },
+        },
+      })
+
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(mockInput._promptMock).toHaveBeenCalledTimes(1)
+
+      resolvePrompt?.()
+      await Promise.all([firstIdle, secondIdle])
+
+      expect(mockInput._promptMock).toHaveBeenCalledTimes(1)
+    })
+
     test("should stop continuation after repeated no-progress cycles and resume after user input", async () => {
       const originalDateNow = Date.now
 
@@ -2026,6 +2382,58 @@ session_id: ses_untrusted_999
         await hook.handler({ event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } } })
 
         expect(mockInput._promptMock).toHaveBeenCalledTimes(4)
+      } finally {
+        Date.now = originalDateNow
+      }
+    })
+
+    test("should not resume stagnated continuation on internal user message", async () => {
+      const originalDateNow = Date.now
+
+      try {
+        let now = 0
+        Date.now = () => now
+
+        const planPath = join(TEST_DIR, "stagnation-internal-plan.md")
+        writeFileSync(planPath, `# Plan
+
+## TODOs
+- [ ] 1. Execute the only task
+`)
+
+        writeBoulderState(TEST_DIR, {
+          active_plan: planPath,
+          started_at: "2026-01-02T10:00:00Z",
+          session_ids: [MAIN_SESSION_ID],
+          plan_name: "stagnation-internal-plan",
+        })
+
+        const mockInput = createMockPluginInput()
+        const hook = createAtlasHook(mockInput)
+
+        await hook.handler({ event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } } })
+        now += 6000
+        await hook.handler({ event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } } })
+        now += 6000
+        await hook.handler({ event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } } })
+        now += 6000
+        await hook.handler({ event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } } })
+
+        expect(mockInput._promptMock).toHaveBeenCalledTimes(3)
+
+        await hook.handler({
+          event: {
+            type: "message.updated",
+            properties: {
+              info: { sessionID: MAIN_SESSION_ID, role: "user" },
+              parts: [{ type: "text", text: `[runtime-fallback] Continue.\n${OMO_INTERNAL_INITIATOR_MARKER}` }],
+            },
+          },
+        })
+        now += 6000
+        await hook.handler({ event: { type: "session.idle", properties: { sessionID: MAIN_SESSION_ID } } })
+
+        expect(mockInput._promptMock).toHaveBeenCalledTimes(3)
       } finally {
         Date.now = originalDateNow
       }

@@ -1,4 +1,5 @@
 import type { HookName, OhMyOpenCodeConfig } from "../../config"
+import type { BackgroundManager } from "../../features/background-agent"
 import type { PluginContext } from "../types"
 import type { ModelCacheState } from "../../plugin-state"
 
@@ -10,15 +11,17 @@ export function createCoreHooks(args: {
   ctx: PluginContext
   pluginConfig: OhMyOpenCodeConfig
   modelCacheState: ModelCacheState
+  backgroundManager: BackgroundManager
   isHookEnabled: (hookName: HookName) => boolean
   safeHookEnabled: boolean
 }) {
-  const { ctx, pluginConfig, modelCacheState, isHookEnabled, safeHookEnabled } = args
+  const { ctx, pluginConfig, modelCacheState, backgroundManager, isHookEnabled, safeHookEnabled } = args
 
   const session = createSessionHooks({
     ctx,
     pluginConfig,
     modelCacheState,
+    backgroundManager,
     isHookEnabled,
     safeHookEnabled,
   })

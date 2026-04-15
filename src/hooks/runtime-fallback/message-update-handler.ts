@@ -3,7 +3,7 @@ import type { AutoRetryHelpers } from "./auto-retry"
 import { HOOK_NAME, resolveLongRunningProgressTimeoutMs } from "./constants"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, extractAutoRetrySignal, containsErrorContent } from "./error-classifier"
-import { createFallbackState, markFallbackResponseSuccess, markLimitError } from "./fallback-state"
+import { createFallbackState, markFallbackResponseSuccess, markMeaningfulProgress, markLimitError } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
@@ -49,6 +49,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       model: args.info?.model,
       providerID: args.info?.providerID,
       modelID: args.info?.modelID,
+      variant: args.info?.variant,
     }) ?? resolveFallbackBootstrapModel({
       sessionID: args.sessionID,
       source: args.source,
@@ -132,6 +133,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       model: info?.model,
       providerID: info?.providerID,
       modelID: info?.modelID,
+      variant: info?.variant,
     })
 
     if (sessionID && role === "user") {
@@ -165,8 +167,12 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       sessionStatusRetryKeys.delete(sessionID)
       // Clear the stop inhibitor so the watchdog can re-arm for this new request.
       const stateForUser = sessionStates.get(sessionID)
-      if (stateForUser?.stoppedAt) {
-        stateForUser.stoppedAt = undefined
+      if (stateForUser) {
+        if (stateForUser.stoppedAt) {
+          stateForUser.stoppedAt = undefined
+        }
+        stateForUser.lastActiveStatusRefreshAt = undefined
+        stateForUser.lastMeaningfulProgressAt = undefined
       }
       await armActiveSessionWatchdog({
         sessionID,
@@ -196,6 +202,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         resetInternalContinuationLoopForVisibleAssistant(deps, sessionID)
         const state = sessionStates.get(sessionID)
         if (state) {
+          markMeaningfulProgress(state)
           markFallbackResponseSuccess(state)
         }
         log(`[${HOOK_NAME}] Assistant response observed directly in message.updated; cleared fallback timeout`, {
@@ -245,6 +252,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         resetInternalContinuationLoopForVisibleAssistant(deps, sessionID)
         const state = sessionStates.get(sessionID)
         if (state) {
+          markMeaningfulProgress(state)
           markFallbackResponseSuccess(state)
         }
         log(`[${HOOK_NAME}] Assistant response observed; cleared fallback timeout`, { sessionID, model })

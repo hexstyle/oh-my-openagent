@@ -9,7 +9,6 @@ import {
   MODEL_RECOVERY_PROBE_MIN_INTERVAL_MS,
   MODEL_RECOVERY_PROBE_TIMEOUT_MS,
   resolveLongRunningProgressTimeoutMs,
-  WATCHDOG_CONTINUATION_PROMPT,
 } from "./constants"
 import { log } from "../../shared/logger"
 import { normalizeAgentName, resolveAgentForSession } from "./agent-resolver"
@@ -33,9 +32,7 @@ import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { buildRetryModelPayload } from "./retry-model-payload"
 import { getLastUserRetryParts } from "./last-user-retry-parts"
 import { extractSessionMessages } from "./session-messages"
-import {
-  createInternalAgentTextPart,
-} from "../../shared"
+import { createInternalAgentTextPart } from "../../shared/internal-initiator-marker"
 import {
   isPrimaryRuntimeAgent,
   normalizeAgentForPrompt,
@@ -43,6 +40,7 @@ import {
   normalizeAgentForSessionPrompt,
 } from "../../shared/agent-display-names"
 import { getRecoveryProbeCandidates, selectFallbackModelsForAction } from "./fallback-policy"
+import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
 
 const SESSION_TTL_MS = 30 * 60 * 1000
 const EXTERNAL_WATCHDOG_RESPAWN_MS = 10_000
@@ -101,6 +99,36 @@ export function didRecoveryProbeSucceed(
   }
 
   return !RECOVERY_PROBE_FAILURE_PATTERNS.some((pattern) => pattern.test(output))
+}
+
+function terminateChildProcessTree(
+  child: {
+    pid?: number
+    kill: (signal?: number | NodeJS.Signals) => boolean
+  },
+  signal: NodeJS.Signals = "SIGKILL",
+): void {
+  const pid = child.pid
+  if (typeof pid === "number" && pid > 0 && process.platform !== "win32") {
+    try {
+      process.kill(-pid, signal)
+      return
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code
+      if (code !== "ESRCH") {
+        log(`[${HOOK_NAME}] Failed to kill detached child process group`, {
+          pid,
+          signal,
+          error: String(error),
+        })
+      }
+    }
+  }
+
+  try {
+    child.kill(signal)
+  } catch {
+  }
 }
 
 export function createAutoRetryHelpers(deps: HookDeps) {
@@ -257,7 +285,7 @@ export function createAutoRetryHelpers(deps: HookDeps) {
 
     const cliAgent = resolveExternalWatchdogAgent(args.resolvedAgent)
     const cliModel = splitWatchdogCliModel(nextModel)
-    const escapedWatchdogPrompt = JSON.stringify(WATCHDOG_CONTINUATION_PROMPT)
+    const internalWatchdogPrompt = createInternalAgentTextPart(FALLBACK_CONTINUATION_PROMPT).text
     const shellScript = `
 sleep "$1"
 TOKEN_FILE="$2"
@@ -279,10 +307,14 @@ VARIANT_ARGS=()
 if [ -n "$MODEL_VARIANT" ]; then
   VARIANT_ARGS=(--variant "$MODEL_VARIANT")
 fi
+PROMPT="$(cat <<'__OMO_WATCHDOG_PROMPT__'
+${internalWatchdogPrompt}
+__OMO_WATCHDOG_PROMPT__
+)"
 if [ -n "$AGENT_NAME" ]; then
-  exec opencode run -s "$SESSION_ID" --dir "$SESSION_DIR" --model "$NEXT_MODEL" "\${VARIANT_ARGS[@]}" --agent "$AGENT_NAME" ${escapedWatchdogPrompt} >> "$WATCHDOG_LOG" 2>&1
+  exec opencode run -s "$SESSION_ID" --dir "$SESSION_DIR" --model "$NEXT_MODEL" "\${VARIANT_ARGS[@]}" --agent "$AGENT_NAME" "$PROMPT" >> "$WATCHDOG_LOG" 2>&1
 else
-  exec opencode run -s "$SESSION_ID" --dir "$SESSION_DIR" --model "$NEXT_MODEL" "\${VARIANT_ARGS[@]}" ${escapedWatchdogPrompt} >> "$WATCHDOG_LOG" 2>&1
+  exec opencode run -s "$SESSION_ID" --dir "$SESSION_DIR" --model "$NEXT_MODEL" "\${VARIANT_ARGS[@]}" "$PROMPT" >> "$WATCHDOG_LOG" 2>&1
 fi
 `
 
@@ -382,6 +414,12 @@ fi
     invalidateExternalWatchdog(sessionID)
   }
 
+  const getBackgroundTaskInspection = (sessionID: string) => inspectParentSessionTasks({
+    backgroundManager: options?.backgroundManager,
+    sessionID,
+    logScope: HOOK_NAME,
+  })
+
   const isRecoveredAutoResumeEligible = (sessionID: string): boolean => {
     if (!sessionAwaitingFallbackResult.has(sessionID)) {
       return true
@@ -433,7 +471,14 @@ fi
     }
     invalidateExternalWatchdog(sessionID)
 
-    const timeoutMs = args?.timeoutMsOverride ?? options?.session_timeout_ms ?? config.timeout_seconds * 1000
+    const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
+    const backgroundTasksAtArm = getBackgroundTaskInspection(sessionID)
+    const timeoutMs = backgroundTasksAtArm.hasActiveTasks
+      ? Math.max(
+        args?.timeoutMsOverride ?? baseTimeoutMs,
+        resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
+      )
+      : (args?.timeoutMsOverride ?? baseTimeoutMs)
     if (timeoutMs <= 0) return
     const stateAtSchedule = sessionStates.get(sessionID)
     if (!stateAtSchedule) {
@@ -463,13 +508,20 @@ fi
         currentModel: stateAtSchedule.currentModel,
       },
     )
-    if (mode === "fallback") {
+    if (mode === "fallback" && !backgroundTasksAtArm.hasActiveTasks) {
       armExternalWatchdog({
         sessionID,
         timeoutMs,
         source,
         resolvedAgent: args?.resolvedAgent,
         currentModel: stateAtSchedule.currentModel,
+      })
+    } else if (mode === "fallback" && backgroundTasksAtArm.hasActiveTasks) {
+      log(`[${HOOK_NAME}] Skipped external watchdog while background tasks are active`, {
+        sessionID,
+        source,
+        timeoutMs,
+        activeBackgroundTaskCount: backgroundTasksAtArm.tasks.length,
       })
     }
 
@@ -495,13 +547,31 @@ fi
           return
         }
 
-        if (sessionRetryInFlight.has(sessionID)) {
+        const hadInFlightRetry = sessionRetryInFlight.has(sessionID)
+        if (hadInFlightRetry) {
           log(`[${HOOK_NAME}] Overriding in-flight retry due to session timeout`, { sessionID, source })
+          await abortSessionRequest(sessionID, source)
         }
 
         sessionRetryInFlight.delete(sessionID)
 
         const resolvedAgent = args?.resolvedAgent ?? await resolveAgentForSessionFromContext(sessionID)
+        const backgroundTasks = getBackgroundTaskInspection(sessionID)
+        if (backgroundTasks.hasActiveTasks) {
+          sessionLastAccess.set(sessionID, Date.now())
+          scheduleSessionFallbackTimeout(sessionID, {
+            resolvedAgent,
+            source: `${source}.background-tasks-active`,
+            timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
+          })
+          log(`[${HOOK_NAME}] Deferred session fallback timeout while background tasks are active`, {
+            sessionID,
+            source,
+            resolvedAgent,
+            activeBackgroundTaskCount: backgroundTasks.tasks.length,
+          })
+          return
+        }
 
         if (mode === "transient_retry" && state.pendingTransientRetry) {
           await abortSessionRequest(sessionID, source)
@@ -548,11 +618,15 @@ fi
         const result = prepareFallback(sessionID, state, fallbackModels, config)
         if (result.success && result.newModel) {
           await autoRetryWithFallback(sessionID, result.newModel, resolvedAgent, source)
-          await abortSessionRequest(sessionID, source)
+          if (!hadInFlightRetry) {
+            await abortSessionRequest(sessionID, source)
+          }
           return
         }
 
-        await abortSessionRequest(sessionID, source)
+        if (!hadInFlightRetry) {
+          await abortSessionRequest(sessionID, source)
+        }
       } catch (error) {
         log(`[${HOOK_NAME}] Session fallback timeout handler failed`, {
           sessionID,
@@ -676,10 +750,12 @@ fi
         const retryAgent = resolvedAgent ?? getSessionAgent(sessionID)
         const retryPromptAgent = normalizeAgentForSessionPrompt(retryAgent)
         sessionAwaitingFallbackResult.add(sessionID)
+        const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
         scheduleSessionFallbackTimeout(sessionID, {
           resolvedAgent: retryAgent,
           source,
           mode: args?.transientRetry ? "transient_retry" : "fallback",
+          timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
         })
 
         await ctx.client.session.promptAsync({
@@ -809,29 +885,10 @@ fi
 
     return await new Promise<boolean>((resolve) => {
       const variantArgs = cliModel.variant ? ["--variant", cliModel.variant] : []
-      const child = spawn(
-        "opencode",
-        [
-          "run",
-          "--dir",
-          probeDir,
-          "--model",
-          cliModel.model,
-          ...variantArgs,
-          RECOVERY_PROBE_PROMPT,
-        ],
-        {
-          stdio: ["ignore", "pipe", "pipe"],
-          env: {
-            ...process.env,
-            [RECOVERY_PROBE_RUNTIME_FALLBACK_DISABLE_ENV]: "1",
-          },
-        },
-      )
-
       let stdout = ""
       let stderr = ""
       let settled = false
+      let child: ReturnType<typeof spawn> | undefined
 
       const finalize = (result: boolean) => {
         if (settled) return
@@ -844,12 +901,43 @@ fi
       }
 
       const timeout = setTimeout(() => {
-        try {
-          child.kill("SIGKILL")
-        } catch {
+        if (child) {
+          terminateChildProcessTree(child)
         }
         finalize(false)
       }, MODEL_RECOVERY_PROBE_TIMEOUT_MS)
+
+      try {
+        child = spawn(
+          "opencode",
+          [
+            "run",
+            "--dir",
+            probeDir,
+            "--model",
+            cliModel.model,
+            ...variantArgs,
+            RECOVERY_PROBE_PROMPT,
+          ],
+          {
+            detached: process.platform !== "win32",
+            stdio: ["ignore", "pipe", "pipe"],
+            env: {
+              ...process.env,
+              [RECOVERY_PROBE_RUNTIME_FALLBACK_DISABLE_ENV]: "1",
+            },
+          },
+        )
+      } catch (error) {
+        clearTimeout(timeout)
+        log(`[${HOOK_NAME}] Failed to spawn recovery probe`, {
+          sessionID,
+          model,
+          error: String(error),
+        })
+        finalize(false)
+        return
+      }
 
       child.stdout?.on("data", (chunk) => {
         stdout += chunk.toString()

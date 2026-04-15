@@ -1,4 +1,5 @@
 import { log } from "../../shared/logger"
+import { isInternalInitiatorMessage } from "../runtime-fallback/internal-continuation-loop-detector"
 
 import { COUNTDOWN_GRACE_PERIOD_MS, HOOK_NAME } from "./constants"
 import type { SessionStateStore } from "./session-state"
@@ -14,9 +15,17 @@ export function handleNonIdleEvent(args: {
     const info = properties?.info as Record<string, unknown> | undefined
     const sessionID = info?.sessionID as string | undefined
     const role = info?.role as string | undefined
+    const eventParts = properties?.parts as Array<{ type?: string; text?: string }> | undefined
+    const infoParts = info?.parts as Array<{ type?: string; text?: string }> | undefined
+    const parts = eventParts && eventParts.length > 0 ? eventParts : infoParts
     if (!sessionID) return
 
     if (role === "user") {
+      if (isInternalInitiatorMessage(parts)) {
+        log(`[${HOOK_NAME}] Ignoring internal user message`, { sessionID })
+        return
+      }
+
       const state = sessionStateStore.getExistingState(sessionID)
       if (state?.countdownStartedAt) {
         const elapsed = Date.now() - state.countdownStartedAt

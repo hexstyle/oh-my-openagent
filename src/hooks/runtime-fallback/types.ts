@@ -1,5 +1,10 @@
 import type { RuntimeFallbackConfig, OhMyOpenCodeConfig } from "../../config"
+import type { BackgroundTask } from "../../features/background-agent/types"
 import type { LoopDetector } from "./internal-continuation-loop-detector"
+
+export interface RuntimeFallbackBackgroundManager {
+  getTasksByParentSession: (sessionID: string) => BackgroundTask[]
+}
 
 export interface RuntimeFallbackInterval {
   unref: () => void
@@ -58,6 +63,12 @@ export interface FallbackState {
    *  route `MessageAbortedError` events and watchdog timeouts through the
    *  `limit_fallback` path (spark → free) instead of `fallback_chain`. */
   lastLimitErrorAt?: number
+  /** Timestamp of the last real assistant/tool progress that should allow
+   *  the active session.status path to extend the watchdog once more. */
+  lastMeaningfulProgressAt?: number
+  /** Timestamp of the last time an active session.status pulse extended the
+   *  watchdog without any newer assistant/tool progress. */
+  lastActiveStatusRefreshAt?: number
   /** Timestamp set by `session.stop`. Prevents the watchdog timer from
    *  dispatching a new retry if the user explicitly stopped the session. */
   stoppedAt?: number
@@ -74,6 +85,7 @@ export interface RuntimeFallbackOptions {
   config?: RuntimeFallbackConfig
   pluginConfig?: OhMyOpenCodeConfig
   session_timeout_ms?: number
+  backgroundManager?: RuntimeFallbackBackgroundManager
   probeModelAvailability?: (args: {
     sessionID: string
     model: string

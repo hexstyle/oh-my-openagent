@@ -219,6 +219,50 @@ describe("createSessionStatusHandler", () => {
     expect(deps.sessionLastAccess.has(sessionID)).toBe(true)
   })
 
+  it("#given repeated active session.status pulses without new progress #when the second pulse arrives #then the watchdog is not extended again", async () => {
+    const sessionID = "session-status-active-repeated-without-progress"
+    const deps = createDeps()
+    const abortCalls: string[] = []
+    const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; timeoutMsOverride?: number }> = []
+    const state = createFallbackState("openai/gpt-5.4")
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createSessionStatusHandler(
+      deps,
+      createHelpers(abortCalls, retryCalls, scheduleCalls),
+      deps.sessionStatusRetryKeys,
+    )
+
+    await handler({
+      sessionID,
+      model: "openai/gpt-5.4",
+      status: {
+        type: "running",
+        message: "Still working",
+      },
+    })
+
+    await handler({
+      sessionID,
+      model: "openai/gpt-5.4",
+      status: {
+        type: "running",
+        message: "Still working",
+      },
+    })
+
+    expect(abortCalls).toEqual([])
+    expect(retryCalls).toEqual([])
+    expect(scheduleCalls).toEqual([
+      {
+        sessionID,
+        source: "session.status.active",
+        timeoutMsOverride: 120_000,
+      },
+    ])
+  })
+
   it("#given a transient 403 retry status #when the handler sees it #then it schedules delayed same-model retry instead of switching models", async () => {
     const sessionID = "session-status-transient-forbidden"
     SessionCategoryRegistry.clear()

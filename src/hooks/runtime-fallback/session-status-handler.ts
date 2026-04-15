@@ -8,7 +8,7 @@ import {
 } from "./constants"
 import { log } from "../../shared/logger"
 import { extractAutoRetrySignal } from "./error-classifier"
-import { createFallbackState, markLimitError } from "./fallback-state"
+import { canRefreshFromActiveStatus, createFallbackState, markActiveStatusRefresh, markLimitError } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { normalizeRetryStatusMessage, extractRetryAttempt } from "../../shared/retry-status-utils"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
@@ -80,6 +80,15 @@ export function createSessionStatusHandler(
         if (resolvedAgent) {
           state.resolvedAgent = resolvedAgent
         }
+        if (!canRefreshFromActiveStatus(state)) {
+          log(`[${HOOK_NAME}] Ignored repeated active session.status without new progress`, {
+            sessionID,
+            statusType: status.type,
+            model: state.currentModel,
+            resolvedAgent,
+          })
+          return
+        }
         sessionLastAccess.set(sessionID, Date.now())
         const baseTimeoutMs = deps.options?.session_timeout_ms ?? deps.config.timeout_seconds * 1000
         sessionRecentActiveStatusUntil?.set(
@@ -91,6 +100,7 @@ export function createSessionStatusHandler(
           source: "session.status.active",
           timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
         })
+        markActiveStatusRefresh(state)
 
         log(`[${HOOK_NAME}] Refreshed fallback timeout after active session.status`, {
           sessionID,

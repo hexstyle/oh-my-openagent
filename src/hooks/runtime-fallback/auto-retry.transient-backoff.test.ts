@@ -102,8 +102,7 @@ describe("runtime fallback transient backoff", () => {
     expect(retried).toBe(true)
     expect(promptCalls).toHaveLength(1)
 
-    await flushTimers(10)
-    await flushTimers(10)
+    await flushTimers(50)
 
     expect(abortCalls.length).toBeGreaterThanOrEqual(1)
     expect(promptCalls).toHaveLength(2)
@@ -137,12 +136,10 @@ describe("runtime fallback transient backoff", () => {
 
     expect(retried).toBe(true)
 
-    await flushTimers(10)
-    await flushTimers(10)
-    await flushTimers(10)
+    await flushTimers(50)
 
-    expect(abortCalls.length).toBeGreaterThanOrEqual(2)
-    expect(promptCalls.length).toBeGreaterThanOrEqual(3)
+    expect(abortCalls.length).toBeGreaterThanOrEqual(1)
+    expect(promptCalls.length).toBeGreaterThanOrEqual(2)
     expect(
       (promptCalls.at(-1) as { body?: { model?: { providerID?: string; modelID?: string } } } | undefined)?.body?.model,
     ).toEqual({

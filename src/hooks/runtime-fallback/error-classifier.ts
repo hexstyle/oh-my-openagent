@@ -5,6 +5,12 @@ const TRANSIENT_FORBIDDEN_MESSAGE_PATTERNS = [
   /\bforbidden\b/i,
 ]
 
+const GATEWAY_BLOCKED_FORBIDDEN_PATTERNS = [
+  /request was blocked by a gateway or proxy/i,
+  /unable to load site/i,
+  /check the status page/i,
+]
+
 function isStandaloneTransientForbiddenMessage(message: string): boolean {
   return /^\s*(request not allowed|forbidden)\s*$/i.test(message)
 }
@@ -183,6 +189,26 @@ export function isTransientForbiddenError(error: unknown): boolean {
     || isWrappedTransientForbiddenMessage(message)
 }
 
+export function isGatewayBlockedForbiddenError(error: unknown): boolean {
+  const message = getErrorMessage(error)
+  const serializedError = (() => {
+    try {
+      return JSON.stringify(error).toLowerCase()
+    } catch {
+      return message
+    }
+  })()
+  const matchesGatewayBlockedMessage = GATEWAY_BLOCKED_FORBIDDEN_PATTERNS.some((pattern) =>
+    pattern.test(message) || pattern.test(serializedError),
+  )
+  if (!matchesGatewayBlockedMessage) {
+    return false
+  }
+
+  const statusCode = extractStatusCode(error, [403])
+  return statusCode === 403 || /\bforbidden\b/i.test(message) || /\b403\b/.test(serializedError)
+}
+
 export interface AutoRetrySignal {
   signal: string
 }
@@ -246,6 +272,10 @@ export function isRetryableError(error: unknown, retryOnErrors: number[]): boole
   const statusCode = extractStatusCode(error, retryOnErrors)
   const message = getErrorMessage(error)
   const errorType = classifyErrorType(error)
+
+  if (isGatewayBlockedForbiddenError(error)) {
+    return true
+  }
 
   if (isTransientForbiddenError(error)) {
     return true

@@ -1355,6 +1355,79 @@ describe("runtime-fallback", () => {
       expect(body?.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" })
     })
 
+    test("gateway/proxy-blocked 403 in message.updated assistant error falls back immediately to the next model", async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "Continue the parity work." }] }],
+            }),
+            promptAsync: async (input) => {
+              promptCalls.push(input as Record<string, unknown>)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({
+            notify_on_fallback: false,
+            transient_retry_initial_delay_seconds: 0.03,
+            transient_retry_max_delay_seconds: 0.2,
+          }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback([
+            "anthropic/claude-opus-4-6",
+            "openai/gpt-5.3-codex-spark",
+          ]),
+        },
+      )
+
+      const sessionID = "test-session-gateway-blocked-msg-updated"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "openai/gpt-5.4" } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              sessionID,
+              role: "assistant",
+              model: "openai/gpt-5.4",
+              error: {
+                name: "APIError",
+                data: {
+                  statusCode: 403,
+                  message:
+                    "Forbidden: request was blocked by a gateway or proxy. You may not have permission to access this resource.",
+                  responseBody:
+                    "<html><body><p>Unable to load site</p><span>Please try again later.</span></body></html>",
+                },
+              },
+            },
+          },
+        },
+      })
+
+      expect(promptCalls).toHaveLength(1)
+      const body = promptCalls[0]?.body as { model?: { providerID?: string; modelID?: string } } | undefined
+      expect(body?.model).toEqual({ providerID: "anthropic", modelID: "claude-opus-4-6" })
+
+      await new Promise((resolve) => setTimeout(resolve, 45))
+      expect(promptCalls).toHaveLength(1)
+
+      const delayedRetryLog = logCalls.find((call) =>
+        call.msg.includes("Scheduling delayed transient retry on current model"),
+      )
+      expect(delayedRetryLog).toBeUndefined()
+    })
+
     test("should bootstrap session.error fallback from session category model and preserve variant", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(
@@ -1407,6 +1480,174 @@ describe("runtime-fallback", () => {
         category: "quick",
         model: "anthropic/claude-haiku-4-5",
       })
+    })
+
+    test("session.error skips variant-only self-fallback entries and jumps to the next distinct model", async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "continue atlas work" }] }],
+            }),
+            promptAsync: async (args) => {
+              promptCalls.push(args as Record<string, unknown>)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({
+            notify_on_fallback: false,
+            retry_on_errors: [403, 429, 503, 529],
+          }),
+          pluginConfig: {
+            git_master: {
+              commit_footer: true,
+              include_co_authored_by: true,
+              git_env_prefix: "GIT_MASTER=1",
+            },
+            categories: {
+              test: {
+                model: "openai/gpt-5.4",
+                variant: "xhigh",
+                fallback_models: [
+                  {
+                    model: "openai/gpt-5.4",
+                    variant: "xhigh",
+                    reasoningEffort: "xhigh",
+                  },
+                  "anthropic/claude-sonnet-4-6",
+                  "openai/gpt-5.3-codex-spark",
+                ],
+              },
+            },
+          },
+        },
+      )
+      const sessionID = "test-session-variant-self-fallback"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: {
+            info: {
+              id: sessionID,
+              providerID: "openai",
+              modelID: "gpt-5.4",
+              variant: "xhigh",
+            },
+          },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            error: {
+              name: "APIError",
+              data: {
+                statusCode: 403,
+                message:
+                  "Forbidden: request was blocked by a gateway or proxy. You may not have permission to access this resource.",
+                responseBody:
+                  "<html><body><p>Unable to load site</p><span>Please try again later.</span></body></html>",
+              },
+            },
+          },
+        },
+      })
+
+      expect(promptCalls).toHaveLength(1)
+      const promptBody = promptCalls[0]?.body as {
+        model?: { providerID?: string; modelID?: string }
+        variant?: string
+      } | undefined
+      expect(promptBody?.model).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-6" })
+      expect(promptBody?.variant).toBeUndefined()
+    })
+
+    test("duplicate session.error events do not advance the chain while a fallback is already pending", async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "keep going" }] }],
+            }),
+            promptAsync: async (args) => {
+              promptCalls.push(args as Record<string, unknown>)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({
+            notify_on_fallback: false,
+            retry_on_errors: [403, 429, 503, 529],
+          }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback([
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5.3-codex-spark",
+          ]),
+        },
+      )
+      const sessionID = "test-session-duplicate-session-error"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "openai/gpt-5.4" } },
+        },
+      })
+
+      const gatewayBlockedError = {
+        name: "APIError",
+        data: {
+          statusCode: 403,
+          message:
+            "Forbidden: request was blocked by a gateway or proxy. You may not have permission to access this resource.",
+          responseBody:
+            "<html><body><p>Unable to load site</p><span>Please try again later.</span></body></html>",
+        },
+      }
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            model: "openai/gpt-5.4",
+            error: gatewayBlockedError,
+          },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            model: "openai/gpt-5.4",
+            error: gatewayBlockedError,
+          },
+        },
+      })
+
+      expect(promptCalls).toHaveLength(1)
+      const promptBody = promptCalls[0]?.body as {
+        model?: { providerID?: string; modelID?: string }
+      } | undefined
+      expect(promptBody?.model).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-6" })
+
+      const pendingSkipLog = logCalls.find((call) =>
+        call.msg.includes("session.error skipped (pending fallback in progress)"),
+      )
+      expect(pendingSkipLog).toBeDefined()
     })
 
     test("should trigger fallback on Copilot auto-retry signal in message.updated", async () => {
@@ -2319,7 +2560,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      await new Promise((resolve) => setTimeout(resolve, 150))
 
       expect(retriedModels).toContain("github-copilot/claude-opus-4.6")
       expect(retriedModels).toContain("anthropic/claude-opus-4-6")
@@ -2397,7 +2638,7 @@ describe("runtime-fallback", () => {
         output
       )
 
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      await new Promise((resolve) => setTimeout(resolve, 140))
 
       expect(retriedModels).toContain("github-copilot/claude-opus-4.6")
       expect(retriedModels).toContain("anthropic/claude-opus-4-6")
@@ -2470,7 +2711,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      await new Promise((resolve) => setTimeout(resolve, 140))
 
       expect(abortCalls.some((call) => call.path?.id === sessionID)).toBe(true)
       expect(retriedModels).toContain("github-copilot/claude-opus-4.6")
@@ -2718,7 +2959,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 60))
+      await new Promise((resolve) => setTimeout(resolve, 120))
 
       expect(retriedModels).toContain("openai/gpt-5.3-codex")
     })
@@ -2793,7 +3034,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 60))
+      await new Promise((resolve) => setTimeout(resolve, 120))
 
       expect(retriedModels).toContain("anthropic/claude-opus-4-6")
     })
@@ -2869,7 +3110,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 60))
+      await new Promise((resolve) => setTimeout(resolve, 120))
 
       expect(retriedModels).toContain("openai/gpt-5.3-codex")
     })
@@ -2945,7 +3186,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 60))
+      await new Promise((resolve) => setTimeout(resolve, 120))
 
       expect(retriedModels).toContain("openai/gpt-5.3-codex")
     })
@@ -3015,7 +3256,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 60))
+      await new Promise((resolve) => setTimeout(resolve, 120))
 
       expect(retriedModels).toContain("openai/gpt-5.3-codex")
     })

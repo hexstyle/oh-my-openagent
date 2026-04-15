@@ -38,6 +38,8 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     pendingTransientRetry: false,
     pendingFallbackModel: undefined,
     lastLimitErrorAt: undefined,
+    lastMeaningfulProgressAt: undefined,
+    lastActiveStatusRefreshAt: undefined,
     stoppedAt: undefined,
   }
 }
@@ -90,7 +92,25 @@ export function markFallbackResponseSuccess(state: FallbackState): void {
   state.pendingFallbackModel = undefined
   state.attemptCount = 0
   state.fullChainCyclesCompleted = 0
+  state.lastActiveStatusRefreshAt = undefined
   resetTransientRetryState(state)
+}
+
+export function markMeaningfulProgress(state: FallbackState, now = Date.now()): void {
+  state.lastMeaningfulProgressAt = now
+  state.lastActiveStatusRefreshAt = undefined
+}
+
+export function canRefreshFromActiveStatus(state: FallbackState): boolean {
+  if (state.lastActiveStatusRefreshAt === undefined) {
+    return true
+  }
+
+  return (state.lastMeaningfulProgressAt ?? 0) > state.lastActiveStatusRefreshAt
+}
+
+export function markActiveStatusRefresh(state: FallbackState, now = Date.now()): void {
+  state.lastActiveStatusRefreshAt = now
 }
 
 export function resetTransientRetryState(state: FallbackState): void {

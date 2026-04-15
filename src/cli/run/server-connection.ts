@@ -4,6 +4,8 @@ import type { ServerConnection } from "./types"
 import { getAvailableServerPort, isPortAvailable, DEFAULT_SERVER_PORT } from "../../shared/port-utils"
 import { withWorkingOpencodePath } from "./opencode-binary-resolver"
 
+const SERVER_START_TIMEOUT_MS = 30_000
+
 function isPortStartFailure(error: unknown, port: number): boolean {
   if (!(error instanceof Error)) {
     return false
@@ -23,7 +25,7 @@ function isPortRangeExhausted(error: unknown): boolean {
 async function startServer(options: { signal: AbortSignal, port: number }): Promise<ServerConnection> {
   const { signal, port } = options
   const { client, server } = await withWorkingOpencodePath(() =>
-    createOpencode({ signal, port, hostname: "127.0.0.1" }),
+    createOpencode({ signal, port, hostname: "127.0.0.1", timeout: SERVER_START_TIMEOUT_MS }),
   )
 
   console.log(pc.dim("Server listening at"), pc.cyan(server.url))

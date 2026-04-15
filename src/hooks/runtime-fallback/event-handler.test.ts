@@ -203,6 +203,17 @@ describe("createEventHandler", () => {
         },
       },
       {
+        name: "todowrite terminal parts",
+        properties: {
+          part: {
+            sessionID: "session-progress-todowrite-terminal",
+            type: "tool",
+            tool: "todowrite",
+            state: { status: "error" },
+          },
+        },
+      },
+      {
         name: "tool_use parts",
         properties: {
           part: {
@@ -285,11 +296,20 @@ describe("createEventHandler", () => {
               const part = progressCase.properties.part as Record<string, unknown> | undefined
               const type = part?.type
               const status = (part?.state as { status?: string } | undefined)?.status
+              const toolName = typeof part?.tool === "string" ? part.tool : undefined
               const isLongRunning =
                 type === "compaction"
                 || type === "tool_use"
                 || type === "tool-call"
-                || (type === "tool" && status === "running")
+                || (
+                  type === "tool" && (
+                    status === "running"
+                    || (
+                      (status === "completed" || status === "error")
+                      && ["write", "apply_patch", "todowrite"].includes(toolName ?? "")
+                    )
+                  )
+                )
               return isLongRunning
               ? { timeoutMsOverride: 120_000 }
               : {}

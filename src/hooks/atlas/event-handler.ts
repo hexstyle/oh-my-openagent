@@ -4,6 +4,7 @@ import { HOOK_NAME } from "./hook-name"
 import { isAbortError } from "./is-abort-error"
 import { handleAtlasSessionIdle } from "./idle-event"
 import type { AtlasHookOptions, SessionState } from "./types"
+import { isInternalInitiatorMessage } from "../runtime-fallback/internal-continuation-loop-detector"
 
 export function createAtlasEventHandler(input: {
   ctx: PluginInput
@@ -44,7 +45,19 @@ export function createAtlasEventHandler(input: {
       const info = props?.info as Record<string, unknown> | undefined
       const sessionID = info?.sessionID as string | undefined
       const role = info?.role as string | undefined
+      const eventParts = props?.parts as Array<{ type?: string; text?: string }> | undefined
+      const infoParts = info?.parts as Array<{ type?: string; text?: string }> | undefined
+      const parts = eventParts && eventParts.length > 0 ? eventParts : infoParts
       if (!sessionID) return
+      const isInternalUserMessage = role === "user" && isInternalInitiatorMessage(parts)
+
+      if (isInternalUserMessage) {
+        const state = getState(sessionID)
+        // Another continuation mechanism already injected work into this session.
+        // Back off briefly so Atlas doesn't immediately stack a Boulder continuation on top.
+        state.lastContinuationInjectedAt = Date.now()
+        return
+      }
 
       const state = sessions.get(sessionID)
       if (state) {

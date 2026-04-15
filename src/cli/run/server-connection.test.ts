@@ -5,6 +5,7 @@ import * as originalPortUtils from "../../shared/port-utils"
 import * as originalBinaryResolver from "./opencode-binary-resolver"
 
 const originalConsole = globalThis.console
+const SERVER_START_TIMEOUT_MS = 30_000
 
 const mockServerClose = mock(() => {})
 const mockCreateOpencode = mock(() =>
@@ -87,7 +88,12 @@ describe("createServerConnection", () => {
     // then
     expect(mockIsPortAvailable).toHaveBeenCalledWith(8080, "127.0.0.1")
     expect(mockWithWorkingOpencodePath).toHaveBeenCalledTimes(1)
-    expect(mockCreateOpencode).toHaveBeenCalledWith({ signal, port: 8080, hostname: "127.0.0.1" })
+    expect(mockCreateOpencode).toHaveBeenCalledWith({
+      signal,
+      port: 8080,
+      hostname: "127.0.0.1",
+      timeout: SERVER_START_TIMEOUT_MS,
+    })
     expect(mockCreateOpencodeClient).not.toHaveBeenCalled()
     expect(result.client).toBeDefined()
     expect(result.cleanup).toBeDefined()
@@ -143,7 +149,12 @@ describe("createServerConnection", () => {
     // then
     expect(mockGetAvailableServerPort).toHaveBeenCalledWith(4096, "127.0.0.1")
     expect(mockWithWorkingOpencodePath).toHaveBeenCalledTimes(1)
-    expect(mockCreateOpencode).toHaveBeenCalledWith({ signal, port: 4100, hostname: "127.0.0.1" })
+    expect(mockCreateOpencode).toHaveBeenCalledWith({
+      signal,
+      port: 4100,
+      hostname: "127.0.0.1",
+      timeout: SERVER_START_TIMEOUT_MS,
+    })
     expect(mockCreateOpencodeClient).not.toHaveBeenCalled()
     expect(result.client).toBeDefined()
     expect(result.cleanup).toBeDefined()
@@ -171,8 +182,18 @@ describe("createServerConnection", () => {
     // then
     expect(mockGetAvailableServerPort).toHaveBeenNthCalledWith(1, 4096, "127.0.0.1")
     expect(mockGetAvailableServerPort).toHaveBeenNthCalledWith(2, 4097, "127.0.0.1")
-    expect(mockCreateOpencode).toHaveBeenNthCalledWith(1, { signal, port: 4096, hostname: "127.0.0.1" })
-    expect(mockCreateOpencode).toHaveBeenNthCalledWith(2, { signal, port: 4097, hostname: "127.0.0.1" })
+    expect(mockCreateOpencode).toHaveBeenNthCalledWith(1, {
+      signal,
+      port: 4096,
+      hostname: "127.0.0.1",
+      timeout: SERVER_START_TIMEOUT_MS,
+    })
+    expect(mockCreateOpencode).toHaveBeenNthCalledWith(2, {
+      signal,
+      port: 4097,
+      hostname: "127.0.0.1",
+      timeout: SERVER_START_TIMEOUT_MS,
+    })
     result.cleanup()
     expect(mockServerClose).toHaveBeenCalledTimes(1)
   })

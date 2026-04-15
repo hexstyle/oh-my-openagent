@@ -5,6 +5,7 @@ import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-m
 import {
   createLoopDetector,
   DEFAULT_INTERNAL_CONTINUATION_LOOP_THRESHOLD,
+  isInternalContinuationMessage,
   isInternalInitiatorMessage,
 } from "./internal-continuation-loop-detector"
 
@@ -56,6 +57,35 @@ describe("isInternalInitiatorMessage", () => {
     ]
 
     expect(isInternalInitiatorMessage(parts)).toBe(true)
+  })
+})
+
+describe("isInternalContinuationMessage", () => {
+  it("#given parts containing the boulder continuation directive #then returns true", () => {
+    const parts = [{
+      type: "text",
+      text: `[SYSTEM DIRECTIVE: OH-MY-OPENCODE - BOULDER CONTINUATION]\nContinue working.\n${OMO_INTERNAL_INITIATOR_MARKER}`,
+    }]
+
+    expect(isInternalContinuationMessage(parts)).toBe(true)
+  })
+
+  it("#given parts containing the todo continuation directive #then returns true", () => {
+    const parts = [{
+      type: "text",
+      text: `[SYSTEM DIRECTIVE: OH-MY-OPENCODE - TODO CONTINUATION]\nContinue working.\n${OMO_INTERNAL_INITIATOR_MARKER}`,
+    }]
+
+    expect(isInternalContinuationMessage(parts)).toBe(true)
+  })
+
+  it("#given a background task reminder with the internal marker #then returns false", () => {
+    const parts = [{
+      type: "text",
+      text: `<system-reminder>\n[BACKGROUND TASK STATUS]\n**Active background tasks:** 1\n</system-reminder>\n${OMO_INTERNAL_INITIATOR_MARKER}`,
+    }]
+
+    expect(isInternalContinuationMessage(parts)).toBe(false)
   })
 })
 

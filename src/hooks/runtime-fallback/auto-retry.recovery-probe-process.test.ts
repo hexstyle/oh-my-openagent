@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test"
-import { mkdirSync, rmSync } from "node:fs"
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test"
+import { mkdirSync, readdirSync, rmSync } from "node:fs"
 import * as originalChildProcess from "node:child_process"
 import * as originalOs from "node:os"
 import { join } from "node:path"
@@ -60,11 +60,13 @@ function createDeps(): HookDeps {
 }
 
 describe("runtime fallback recovery probe process isolation", () => {
-  let spawnCalls: Array<{ args: unknown[]; options: Record<string, unknown> | undefined }>
+  let spawnMode: "success" | "hang" | "throw"
+  let spawnCalls: Array<{ pid: number; args: unknown[]; options: Record<string, unknown> | undefined }>
 
   beforeEach(() => {
     rmSync(TEST_TMP_DIR, { recursive: true, force: true })
     mkdirSync(TEST_TMP_DIR, { recursive: true })
+    spawnMode = "success"
     spawnCalls = []
 
     mock.module("node:os", () => ({
@@ -74,12 +76,16 @@ describe("runtime fallback recovery probe process isolation", () => {
     mock.module("node:child_process", () => ({
       ...originalChildProcess,
       spawn: (...args: unknown[]) => {
+        if (spawnMode === "throw") {
+          throw new Error("EAGAIN: resource temporarily unavailable")
+        }
+        const pid = 45_000 + spawnCalls.length
         const options = (args[2] ?? undefined) as Record<string, unknown> | undefined
-        spawnCalls.push({ args, options })
+        spawnCalls.push({ pid, args, options })
         return {
           stdout: {
             on: (event: string, callback: (chunk: string) => void) => {
-              if (event === "data") {
+              if (spawnMode === "success" && event === "data") {
                 setTimeout(() => callback("OK\n"), 0)
               }
             },
@@ -88,10 +94,11 @@ describe("runtime fallback recovery probe process isolation", () => {
             on: () => undefined,
           },
           on: (event: string, callback: (code?: number) => void) => {
-            if (event === "close") {
+            if (spawnMode === "success" && event === "close") {
               setTimeout(() => callback(0), 0)
             }
           },
+          pid,
           kill: () => true,
         }
       },
@@ -131,5 +138,70 @@ describe("runtime fallback recovery probe process isolation", () => {
 
     const env = spawnCalls[0]?.options?.env as Record<string, string | undefined> | undefined
     expect(env?.OH_MY_OPENCODE_DISABLE_RUNTIME_FALLBACK).toBe("1")
+    expect(spawnCalls[0]?.options?.detached).toBe(process.platform !== "win32")
+  })
+
+  it("kills the detached recovery probe process group on timeout so wrapper children cannot survive", async () => {
+    const originalSetTimeout = globalThis.setTimeout
+    const originalClearTimeout = globalThis.clearTimeout
+    const processKillSpy = spyOn(process, "kill").mockImplementation((() => true) as typeof process.kill)
+
+    globalThis.setTimeout = ((handler: Parameters<typeof setTimeout>[0]): ReturnType<typeof setTimeout> => {
+      if (typeof handler === "function") {
+        queueMicrotask(() => {
+          ;(handler as () => void)()
+        })
+      }
+      return { probeTimeout: true } as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout
+    globalThis.clearTimeout = (() => undefined) as typeof clearTimeout
+
+    try {
+      spawnMode = "hang"
+      const { createAutoRetryHelpers } = await import(`./auto-retry?recovery-probe-timeout-${Date.now()}-${Math.random()}`)
+      const sessionID = "ses_recovery_probe_timeout"
+      const deps = createDeps()
+      const state = createFallbackState("anthropic/claude-opus-4-6", [
+        "openai/gpt-5.3-codex-spark",
+      ])
+
+      state.currentModel = "openai/gpt-5.3-codex-spark"
+      state.fallbackIndex = 0
+      state.failedModels.set("anthropic/claude-opus-4-6", Date.now())
+      deps.sessionStates.set(sessionID, state)
+
+      const helpers = createAutoRetryHelpers(deps)
+      await helpers.recoverPreferredModels()
+
+      expect(spawnCalls).toHaveLength(1)
+      expect(processKillSpy).toHaveBeenCalledWith(-spawnCalls[0]!.pid, "SIGKILL")
+    } finally {
+      processKillSpy.mockRestore()
+      globalThis.setTimeout = originalSetTimeout
+      globalThis.clearTimeout = originalClearTimeout
+    }
+  })
+
+  it("cleans up the temporary probe directory when spawn throws synchronously", async () => {
+    spawnMode = "throw"
+    const { createAutoRetryHelpers } = await import(`./auto-retry?recovery-probe-spawn-throw-${Date.now()}-${Math.random()}`)
+    const sessionID = "ses_recovery_probe_spawn_throw"
+    const deps = createDeps()
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.3-codex-spark",
+    ])
+
+    state.currentModel = "openai/gpt-5.3-codex-spark"
+    state.fallbackIndex = 0
+    state.failedModels.set("anthropic/claude-opus-4-6", Date.now())
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    await helpers.recoverPreferredModels()
+
+    expect(spawnCalls).toHaveLength(0)
+    expect(
+      readdirSync(TEST_TMP_DIR).filter((entry) => entry.startsWith("oh-my-opencode-recovery-probe-")),
+    ).toHaveLength(0)
   })
 })

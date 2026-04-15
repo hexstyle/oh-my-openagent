@@ -6,6 +6,8 @@ import { tmpdir } from "node:os"
 import { createFallbackState } from "./fallback-state"
 import { createLoopDetector } from "./internal-continuation-loop-detector"
 import type { HookDeps } from "./types"
+import { FALLBACK_CONTINUATION_PROMPT } from "./constants"
+import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
 
 type SpawnCall = {
   pid: number
@@ -167,5 +169,56 @@ describe("runtime fallback external watchdog process lifecycle", () => {
     expect(killSpy).toHaveBeenCalledWith(spawnCalls[0]?.pid, "SIGKILL")
     expect(livePids.has(spawnCalls[0]!.pid)).toBe(false)
     expect(existsSync(pidFilePath)).toBe(false)
+  })
+
+  it("does not arm an external watchdog while parent background tasks are active", async () => {
+    const { createAutoRetryHelpers } = await import(`./auto-retry?external-watchdog-background-${Date.now()}-${Math.random()}`)
+    const sessionID = "ses_external_watchdog_background"
+
+    const deps = createDeps()
+    deps.options = {
+      ...deps.options,
+      backgroundManager: {
+        getTasksByParentSession: () => [{
+          id: "bg-1",
+          parentSessionID: sessionID,
+          parentMessageID: "msg-1",
+          description: "background work",
+          prompt: "background work",
+          agent: "Sisyphus Junior (Focused Executor)",
+          status: "running",
+        }],
+      },
+    }
+    deps.sessionStates.set(sessionID, createFallbackState("openai/gpt-5.4"))
+
+    createAutoRetryHelpers(deps).scheduleSessionFallbackTimeout(sessionID, {
+      resolvedAgent: "Atlas (Plan Executor)",
+      source: "message.part.updated.progress",
+    })
+
+    expect(spawnCalls).toHaveLength(0)
+  })
+
+  it("spawns the external watchdog with an internal continuation prompt instead of the raw watchdog text", async () => {
+    const { createAutoRetryHelpers } = await import(`./auto-retry?external-watchdog-internal-prompt-${Date.now()}-${Math.random()}`)
+    const sessionID = "ses_external_watchdog_internal_prompt"
+
+    const deps = createDeps()
+    deps.sessionStates.set(sessionID, createFallbackState("openai/gpt-5.4"))
+
+    createAutoRetryHelpers(deps).scheduleSessionFallbackTimeout(sessionID, {
+      resolvedAgent: "Atlas (Plan Executor)",
+      source: "session.error",
+    })
+
+    expect(spawnCalls).toHaveLength(1)
+
+    const shellArgs = spawnCalls[0]?.args[1] as string[] | undefined
+    const shellScript = shellArgs?.[1] ?? ""
+
+    expect(shellScript).toContain(FALLBACK_CONTINUATION_PROMPT)
+    expect(shellScript).toContain(OMO_INTERNAL_INITIATOR_MARKER)
+    expect(shellScript).not.toContain("Continue the current task from where you left off.")
   })
 })

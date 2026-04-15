@@ -7,7 +7,7 @@ import {
 } from "./constants"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError } from "./error-classifier"
-import { createFallbackState, markFallbackResponseSuccess, resetTransientRetryState, markLimitError, markSessionStopped, isRecentLimitError } from "./fallback-state"
+import { createFallbackState, markFallbackResponseSuccess, markMeaningfulProgress, resetTransientRetryState, markLimitError, markSessionStopped, isRecentLimitError } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
@@ -77,6 +77,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       model: info?.model,
       providerID: info?.providerID,
       modelID: info?.modelID,
+      variant: info?.variant,
     })
 
     if (!ensureStateForActiveWatch({
@@ -89,6 +90,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     }
 
     const partType = typeof part?.type === "string" ? part.type : undefined
+    const toolName = typeof part?.tool === "string" ? part.tool : undefined
     const toolStatus = typeof part?.state === "object" && part.state
       ? (part.state as { status?: string }).status
       : undefined
@@ -115,6 +117,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     const timeoutMsOverride = isLongRunningAssistantProgress({
       partType,
       toolStatus,
+      toolName,
     })
       ? resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
       : undefined
@@ -125,8 +128,11 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       eventAgent,
     ) ?? state?.resolvedAgent
 
-    if (state && resolvedAgent) {
-      state.resolvedAgent = resolvedAgent
+    if (state) {
+      if (resolvedAgent) {
+        state.resolvedAgent = resolvedAgent
+      }
+      markMeaningfulProgress(state)
     }
 
     helpers.scheduleSessionFallbackTimeout(sessionID, {
@@ -148,6 +154,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       sessionID,
       source,
       partType,
+      toolName,
       toolStatus,
       field,
       resolvedAgent,
@@ -170,6 +177,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       model: props?.model,
       providerID: props?.providerID,
       modelID: props?.modelID,
+      variant: props?.variant,
     })
 
     if (!ensureStateForActiveWatch({
@@ -189,8 +197,11 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       eventAgent,
     ) ?? state?.resolvedAgent
 
-    if (state && resolvedAgent) {
-      state.resolvedAgent = resolvedAgent
+    if (state) {
+      if (resolvedAgent) {
+        state.resolvedAgent = resolvedAgent
+      }
+      markMeaningfulProgress(state)
     }
 
     sessionLastAccess.set(sessionID, Date.now())
@@ -225,6 +236,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       model: sessionInfo?.model,
       providerID: sessionInfo?.providerID,
       modelID: sessionInfo?.modelID,
+      variant: sessionInfo?.variant,
     })
 
     if (sessionID && model) {
@@ -358,6 +370,12 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     const sessionID = props?.sessionID as string | undefined
     const error = props?.error
     const agent = props?.agent as string | undefined
+    const eventModel = extractEventModelString({
+      model: props?.model,
+      providerID: props?.providerID,
+      modelID: props?.modelID,
+      variant: props?.variant,
+    })
 
     if (!sessionID) {
       log(`[${HOOK_NAME}] session.error without sessionID, skipping`)
@@ -426,7 +444,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       const initialModel = resolveFallbackBootstrapModel({
         sessionID,
         source: "session.error",
-        eventModel: props?.model as string | undefined,
+        eventModel,
         resolvedAgent,
         pluginConfig,
       })
@@ -440,6 +458,16 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       sessionLastAccess.set(sessionID, Date.now())
     } else {
       sessionLastAccess.set(sessionID, Date.now())
+    }
+
+    if (state.pendingFallbackModel && eventModel && eventModel !== state.currentModel) {
+      log(`[${HOOK_NAME}] session.error skipped (pending fallback in progress)`, {
+        sessionID,
+        eventModel,
+        currentModel: state.currentModel,
+        pendingFallbackModel: state.pendingFallbackModel,
+      })
+      return
     }
 
     if (resolvedAgent) {

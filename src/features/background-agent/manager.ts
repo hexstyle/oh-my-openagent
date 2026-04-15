@@ -33,7 +33,8 @@ import {
   TASK_TTL_MS,
 } from "./constants"
 
-const BACKGROUND_STATUS_UPDATE_INTERVAL_MS = 15_000
+const BACKGROUND_STATUS_UPDATE_INTERVAL_MS = 60_000
+const BACKGROUND_STATUS_BURST_COALESCE_MS = 500
 
 import { subagentSessions } from "../claude-code-session-state"
 import { resolveBoulderExecutionDirectory } from "../boulder-state"
@@ -255,6 +256,8 @@ export class BackgroundManager {
   private transientRetryTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
   private notificationQueueByParent: Map<string, Promise<void>> = new Map()
   private parentStatusReports: Map<string, { lastSentAt: number; lastDigest: string }> = new Map()
+  private pendingParentStatusTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
+  private pendingParentStatusPayloads: Map<string, { digest: string; notification: string }> = new Map()
   private rootDescendantCounts: Map<string, number>
   private preStartDescendantReservations: Set<string>
   private enableParentSessionNotifications: boolean
@@ -1543,6 +1546,75 @@ export class BackgroundManager {
       .filter((task) => task.status === "running" || task.status === "pending")
   }
 
+  private cancelPendingParentStatusReport(parentSessionID: string): void {
+    const timer = this.pendingParentStatusTimers.get(parentSessionID)
+    if (timer) {
+      clearTimeout(timer)
+      this.pendingParentStatusTimers.delete(parentSessionID)
+    }
+    this.pendingParentStatusPayloads.delete(parentSessionID)
+  }
+
+  private async sendParentActiveTaskStatus(input: {
+    parentSessionID: string
+    digest: string
+    notification: string
+    sentAt: number
+  }): Promise<void> {
+    await this.client.session.promptAsync({
+      path: { id: input.parentSessionID },
+      body: {
+        noReply: true,
+        parts: [createInternalAgentTextPart(input.notification)],
+      },
+    })
+
+    this.parentStatusReports.set(input.parentSessionID, {
+      lastSentAt: input.sentAt,
+      lastDigest: input.digest,
+    })
+  }
+
+  private scheduleParentActiveTaskStatus(input: {
+    parentSessionID: string
+    digest: string
+    notification: string
+  }): void {
+    this.pendingParentStatusPayloads.set(input.parentSessionID, {
+      digest: input.digest,
+      notification: input.notification,
+    })
+
+    if (this.pendingParentStatusTimers.has(input.parentSessionID)) {
+      return
+    }
+
+    const timer = setTimeout(() => {
+      this.pendingParentStatusTimers.delete(input.parentSessionID)
+      const pendingPayload = this.pendingParentStatusPayloads.get(input.parentSessionID)
+      this.pendingParentStatusPayloads.delete(input.parentSessionID)
+      if (!pendingPayload) {
+        return
+      }
+
+      void this.enqueueNotificationForParent(input.parentSessionID, () =>
+        this.sendParentActiveTaskStatus({
+          parentSessionID: input.parentSessionID,
+          digest: pendingPayload.digest,
+          notification: pendingPayload.notification,
+          sentAt: Date.now(),
+        }),
+      ).catch((error) => {
+        log("[background-agent] Failed to send coalesced active-task status:", {
+          parentSessionID: input.parentSessionID,
+          error,
+        })
+      })
+    }, BACKGROUND_STATUS_BURST_COALESCE_MS)
+
+    this.pendingParentStatusTimers.set(input.parentSessionID, timer)
+  }
+
   private async maybeNotifyParentActiveTasks(parentSessionID: string | undefined, force = false): Promise<void> {
     if (!this.enableParentSessionNotifications || !parentSessionID) {
       return
@@ -1550,6 +1622,7 @@ export class BackgroundManager {
 
     const activeTasks = this.getActiveTasksByParentSession(parentSessionID)
     if (activeTasks.length === 0) {
+      this.cancelPendingParentStatusReport(parentSessionID)
       this.parentStatusReports.delete(parentSessionID)
       return
     }
@@ -1565,18 +1638,23 @@ export class BackgroundManager {
     }
 
     const notification = buildActiveTaskStatusNotification(activeTasks, new Date(now))
+    const sentRecently = previous !== undefined && now - previous.lastSentAt < BACKGROUND_STATUS_BURST_COALESCE_MS
 
-    await this.client.session.promptAsync({
-      path: { id: parentSessionID },
-      body: {
-        noReply: true,
-        parts: [createInternalAgentTextPart(notification)],
-      },
-    })
+    if (digestChanged && (sentRecently || this.pendingParentStatusTimers.has(parentSessionID))) {
+      this.scheduleParentActiveTaskStatus({
+        parentSessionID,
+        digest,
+        notification,
+      })
+      return
+    }
 
-    this.parentStatusReports.set(parentSessionID, {
-      lastSentAt: now,
-      lastDigest: digest,
+    this.cancelPendingParentStatusReport(parentSessionID)
+    await this.sendParentActiveTaskStatus({
+      parentSessionID,
+      digest,
+      notification,
+      sentAt: now,
     })
   }
 
@@ -2369,6 +2447,11 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
     this.pendingNotifications.clear()
     this.pendingByParent.clear()
     this.notificationQueueByParent.clear()
+    for (const timer of this.pendingParentStatusTimers.values()) {
+      clearTimeout(timer)
+    }
+    this.pendingParentStatusTimers.clear()
+    this.pendingParentStatusPayloads.clear()
     this.rootDescendantCounts.clear()
     this.queuesByKey.clear()
     this.processingKeys.clear()

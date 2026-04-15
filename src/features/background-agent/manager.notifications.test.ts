@@ -1,9 +1,11 @@
-import { describe, expect, it, mock } from "bun:test"
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test"
 import type { PluginInput } from "@opencode-ai/plugin"
 import { tmpdir } from "node:os"
 
 import { BackgroundManager } from "./manager"
 import type { BackgroundTask } from "./types"
+
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 function createTask(overrides: Partial<BackgroundTask> = {}): BackgroundTask {
   return {
@@ -43,6 +45,18 @@ function createManagerWithPromptSpy() {
 }
 
 describe("BackgroundManager failure notifications", () => {
+  let dateNowSpy: ReturnType<typeof spyOn> | undefined
+  let now = 100_000
+
+  beforeEach(() => {
+    now = 100_000
+    dateNowSpy = spyOn(Date, "now").mockImplementation(() => now)
+  })
+
+  afterEach(() => {
+    dateNowSpy?.mockRestore()
+  })
+
   it("reports active background tasks in chat with counts, statuses, and durations", async () => {
     const { manager, promptAsync } = createManagerWithPromptSpy()
     const runningTask = createTask({
@@ -106,6 +120,100 @@ describe("BackgroundManager failure notifications", () => {
     await maybeNotify.call(manager, runningTask.parentSessionID)
 
     expect(promptAsync).toHaveBeenCalledTimes(1)
+
+    await manager.shutdown()
+  })
+
+  it("keeps duplicate active-task chat updates suppressed until a full minute has passed", async () => {
+    const { manager, promptAsync } = createManagerWithPromptSpy()
+    const runningTask = createTask({
+      id: "task-running-minute-throttle",
+      status: "running",
+      startedAt: new Date(now - 5_000),
+      completedAt: undefined,
+      error: undefined,
+    })
+
+    const taskMap = (manager as unknown as { tasks: Map<string, BackgroundTask> }).tasks
+    taskMap.set(runningTask.id, runningTask)
+
+    const maybeNotify = (manager as unknown as {
+      maybeNotifyParentActiveTasks: (parentSessionID: string, force?: boolean) => Promise<void>
+    }).maybeNotifyParentActiveTasks
+
+    await maybeNotify.call(manager, runningTask.parentSessionID, true)
+    now += 20_000
+    await maybeNotify.call(manager, runningTask.parentSessionID)
+    now += 39_000
+    await maybeNotify.call(manager, runningTask.parentSessionID)
+
+    expect(promptAsync).toHaveBeenCalledTimes(1)
+
+    now += 1_000
+    await maybeNotify.call(manager, runningTask.parentSessionID)
+
+    expect(promptAsync).toHaveBeenCalledTimes(2)
+
+    await manager.shutdown()
+  })
+
+  it("coalesces burst active-task status updates into a single follow-up snapshot", async () => {
+    const { manager, promptAsync } = createManagerWithPromptSpy()
+    const firstTask = createTask({
+      id: "task-one",
+      status: "running",
+      startedAt: new Date(now - 5_000),
+      completedAt: undefined,
+      error: undefined,
+    })
+    const secondTask = createTask({
+      id: "task-two",
+      sessionID: "ses-task-2",
+      status: "pending",
+      queuedAt: new Date(now),
+      startedAt: undefined,
+      completedAt: undefined,
+      error: undefined,
+    })
+    const thirdTask = createTask({
+      id: "task-three",
+      sessionID: "ses-task-3",
+      status: "pending",
+      queuedAt: new Date(now),
+      startedAt: undefined,
+      completedAt: undefined,
+      error: undefined,
+    })
+
+    const taskMap = (manager as unknown as { tasks: Map<string, BackgroundTask> }).tasks
+    taskMap.set(firstTask.id, firstTask)
+
+    const maybeNotify = (manager as unknown as {
+      maybeNotifyParentActiveTasks: (parentSessionID: string, force?: boolean) => Promise<void>
+    }).maybeNotifyParentActiveTasks
+
+    await maybeNotify.call(manager, firstTask.parentSessionID, true)
+    expect(promptAsync).toHaveBeenCalledTimes(1)
+
+    taskMap.set(secondTask.id, secondTask)
+    await maybeNotify.call(manager, firstTask.parentSessionID, true)
+    secondTask.status = "running"
+    secondTask.startedAt = new Date(now)
+    await maybeNotify.call(manager, firstTask.parentSessionID, true)
+    taskMap.set(thirdTask.id, thirdTask)
+    await maybeNotify.call(manager, firstTask.parentSessionID, true)
+
+    expect(promptAsync).toHaveBeenCalledTimes(1)
+
+    await wait(650)
+
+    expect(promptAsync).toHaveBeenCalledTimes(2)
+
+    const secondCall = (promptAsync.mock.calls as Array<Array<{ body: { parts: Array<{ text: string }> } }>>)[1]
+    expect(secondCall).toBeDefined()
+    const promptText = secondCall![0].body.parts[0].text
+    expect(promptText).toContain("**Active background tasks:** 3")
+    expect(promptText).toContain("**Summary:** 2 running, 1 pending")
 
     await manager.shutdown()
   })
