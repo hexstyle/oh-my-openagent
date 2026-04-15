@@ -8,7 +8,7 @@ import {
 } from "./constants"
 import { log } from "../../shared/logger"
 import { extractAutoRetrySignal } from "./error-classifier"
-import { canRefreshFromActiveStatus, createFallbackState, markActiveStatusRefresh, markLimitError } from "./fallback-state"
+import { canRefreshFromActiveStatus, createFallbackState, hasSameModelIdentity, markActiveStatusRefresh, markLimitError } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { normalizeRetryStatusMessage, extractRetryAttempt } from "../../shared/retry-status-utils"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
@@ -181,15 +181,32 @@ export function createSessionStatusHandler(
     sessionLastAccess.set(sessionID, Date.now())
 
     if (state.pendingFallbackModel) {
+      const isCurrentPendingModelRetry =
+        typeof model === "string" && hasSameModelIdentity(model, state.currentModel)
+
+      if (!isCurrentPendingModelRetry) {
+        log(`[${HOOK_NAME}] session.status retry skipped (pending fallback in progress)`, {
+          sessionID,
+          model,
+          currentModel: state.currentModel,
+          pendingFallbackModel: state.pendingFallbackModel,
+        })
+        return
+      }
+
       if (timeoutEnabled) {
         log(`[${HOOK_NAME}] Clearing pending fallback due to provider auto-retry signal`, {
           sessionID,
+          model,
+          currentModel: state.currentModel,
           pendingFallbackModel: state.pendingFallbackModel,
         })
         state.pendingFallbackModel = undefined
       } else {
         log(`[${HOOK_NAME}] session.status retry skipped (pending fallback in progress)`, {
           sessionID,
+          model,
+          currentModel: state.currentModel,
           pendingFallbackModel: state.pendingFallbackModel,
         })
         return

@@ -32,6 +32,27 @@ const NETWORK_ERROR_PATTERNS = [
   /overloaded/i,
 ]
 
+function isRequestNotAllowedForbiddenError(error: unknown): boolean {
+  const message = getErrorMessage(error)
+  const serializedError = (() => {
+    try {
+      return JSON.stringify(error).toLowerCase()
+    } catch {
+      return message
+    }
+  })()
+  if (!/\brequest not allowed\b/i.test(message) && !/\brequest not allowed\b/i.test(serializedError)) {
+    return false
+  }
+
+  const statusCode = extractStatusCode(error, [403])
+  return statusCode === 403
+    || /\b403\b/.test(message)
+    || /\bforbidden\b/i.test(message)
+    || /\b403\b/.test(serializedError)
+    || /\bforbidden\b/i.test(serializedError)
+}
+
 function dedupeModels(models: string[], currentModel?: string): string[] {
   const seen = new Set<string>()
   const result: string[] = []
@@ -67,6 +88,10 @@ export function getRuntimeFallbackAction(error: unknown, retryOnErrors: number[]
   }
 
   if (isGatewayBlockedForbiddenError(error)) {
+    return "fallback_chain"
+  }
+
+  if (isRequestNotAllowedForbiddenError(error)) {
     return "fallback_chain"
   }
 

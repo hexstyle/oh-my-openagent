@@ -137,6 +137,47 @@ describe("createSessionStatusHandler", () => {
     SessionCategoryRegistry.clear()
   })
 
+  it("#given a pending fallback model #when a stale retry signal arrives from the previous model #then the handler keeps the pending fallback instead of advancing again", async () => {
+    SessionCategoryRegistry.clear()
+    const sessionID = "session-status-stale-previous-model-retry"
+    SessionCategoryRegistry.register(sessionID, "test")
+
+    const deps = createDeps()
+    const abortCalls: string[] = []
+    const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" }> = []
+    const state = createFallbackState("anthropic/claude-opus-4-6")
+    state.currentModel = "openai/gpt-5.4"
+    state.fallbackIndex = 0
+    state.attemptCount = 1
+    state.pendingFallbackModel = "openai/gpt-5.4"
+    state.failedModels.set("anthropic/claude-opus-4-6", Date.now())
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createSessionStatusHandler(
+      deps,
+      createHelpers(abortCalls, retryCalls, scheduleCalls),
+      deps.sessionStatusRetryKeys,
+    )
+
+    await handler({
+      sessionID,
+      model: "anthropic/claude-opus-4-6",
+      status: {
+        type: "retry",
+        attempt: 2,
+        message: "All credentials for model claude-opus-4-6 are cooling down [retrying in 7m 56s attempt #2]",
+      },
+    })
+
+    expect(abortCalls).toEqual([])
+    expect(retryCalls).toEqual([])
+    expect(scheduleCalls).toEqual([])
+    expect(state.currentModel).toBe("openai/gpt-5.4")
+    expect(state.pendingFallbackModel).toBe("openai/gpt-5.4")
+    SessionCategoryRegistry.clear()
+  })
+
   it("#given an Anthropic extra-usage retry status #when the handler sees it #then it falls back immediately instead of waiting for provider retry", async () => {
     // given
     SessionCategoryRegistry.clear()
@@ -263,7 +304,7 @@ describe("createSessionStatusHandler", () => {
     ])
   })
 
-  it("#given a transient 403 retry status #when the handler sees it #then it schedules delayed same-model retry instead of switching models", async () => {
+  it("#given a request-not-allowed 403 retry status #when the handler sees it #then it advances the fallback chain instead of retrying the same model", async () => {
     const sessionID = "session-status-transient-forbidden"
     SessionCategoryRegistry.clear()
     SessionCategoryRegistry.register(sessionID, "test")
@@ -276,17 +317,7 @@ describe("createSessionStatusHandler", () => {
 
     const handler = createSessionStatusHandler(
       deps,
-      {
-        ...createHelpers(abortCalls, retryCalls, scheduleCalls),
-        retryCurrentModel: async (_sessionID, _resolvedAgent, source, options) => {
-          retryCalls.push({
-            sessionID,
-            model: state.currentModel,
-            source: `${source}:${options?.immediate === false ? "delayed" : "immediate"}`,
-          })
-          return true
-        },
-      },
+      createHelpers(abortCalls, retryCalls, scheduleCalls),
       deps.sessionStatusRetryKeys,
     )
 
@@ -304,12 +335,12 @@ describe("createSessionStatusHandler", () => {
     expect(retryCalls).toEqual([
       {
         sessionID,
-        model: "anthropic/claude-opus-4-6",
-        source: "session.status.transient_same_model:delayed",
+        model: "openai/gpt-5.4",
+        source: "session.status.fallback_chain",
       },
     ])
     expect(scheduleCalls).toEqual([])
-    expect(state.currentModel).toBe("anthropic/claude-opus-4-6")
+    expect(state.currentModel).toBe("openai/gpt-5.4")
     SessionCategoryRegistry.clear()
   })
 })

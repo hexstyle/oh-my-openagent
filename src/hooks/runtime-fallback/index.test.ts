@@ -493,7 +493,7 @@ describe("runtime-fallback", () => {
       expect(fallbackLogs).toHaveLength(0)
     })
 
-    test("tool execution aborted wrapper around transient 403 still schedules delayed same-model retry", async () => {
+    test("tool execution aborted wrapper around request-not-allowed 403 falls back immediately", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(
         createMockPluginInput({
@@ -545,20 +545,16 @@ describe("runtime-fallback", () => {
         },
       })
 
-      expect(promptCalls).toHaveLength(0)
-
-      await new Promise((resolve) => setTimeout(resolve, 20))
-
       expect(promptCalls).toHaveLength(1)
       expect(
         (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
       ).toEqual({
         providerID: "openai",
-        modelID: "gpt-5.4",
+        modelID: "gpt-5.3-codex-spark",
       })
 
       const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
-      expect(fallbackLogs).toHaveLength(0)
+      expect(fallbackLogs).toHaveLength(1)
     })
 
     test("remote compact 403 forbidden errors still schedule delayed same-model retry", async () => {
@@ -625,7 +621,7 @@ describe("runtime-fallback", () => {
       expect(fallbackLogs).toHaveLength(0)
     })
 
-    test("embedded forbidden json wrapper messages still schedule delayed same-model retry", async () => {
+    test("embedded forbidden request-not-allowed wrapper messages fall back immediately", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(
         createMockPluginInput({
@@ -673,20 +669,16 @@ describe("runtime-fallback", () => {
         },
       })
 
-      expect(promptCalls).toHaveLength(0)
-
-      await new Promise((resolve) => setTimeout(resolve, 20))
-
       expect(promptCalls).toHaveLength(1)
       expect(
         (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
       ).toEqual({
         providerID: "openai",
-        modelID: "gpt-5.4",
+        modelID: "gpt-5.3-codex-spark",
       })
 
       const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
-      expect(fallbackLogs).toHaveLength(0)
+      expect(fallbackLogs).toHaveLength(1)
     })
 
     test("tool execution aborted wrapper around transient 500 retries the current model immediately", async () => {
@@ -873,7 +865,7 @@ describe("runtime-fallback", () => {
       expect(fallbackLogs).toHaveLength(0)
     })
 
-    test("transient 403 retry survives the immediate session.idle event that follows the error", async () => {
+    test("request-not-allowed 403 falls back immediately and session.idle does not trigger a duplicate retry", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(
         createMockPluginInput({
@@ -929,6 +921,14 @@ describe("runtime-fallback", () => {
         },
       })
 
+      expect(promptCalls).toHaveLength(1)
+      expect(
+        (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
+      ).toEqual({
+        providerID: "openai",
+        modelID: "gpt-5.4",
+      })
+
       await hook.event({
         event: {
           type: "session.idle",
@@ -936,20 +936,14 @@ describe("runtime-fallback", () => {
         },
       })
 
-      expect(promptCalls).toHaveLength(0)
+      expect(promptCalls).toHaveLength(1)
 
       await new Promise((resolve) => setTimeout(resolve, 20))
 
       expect(promptCalls).toHaveLength(1)
-      expect(
-        (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
-      ).toEqual({
-        providerID: "anthropic",
-        modelID: "claude-opus-4-6",
-      })
 
       const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
-      expect(fallbackLogs).toHaveLength(0)
+      expect(fallbackLogs).toHaveLength(1)
     })
 
     test("duplicate assistant error updates do not back off an already scheduled transient 403 retry", async () => {
