@@ -3,6 +3,7 @@ import type { PluginInput } from "@opencode-ai/plugin"
 import type { BackgroundManager } from "../../features/background-agent"
 import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
 import { getSessionAgent } from "../../features/claude-code-session-state"
+import { setContinuationMarkerSource } from "../../features/run-continuation-state"
 import {
   createInternalAgentTextPart,
   resolveInheritedPromptTools,
@@ -40,6 +41,10 @@ function hasWritePermission(tools: Record<string, ToolPermission> | undefined): 
   )
 }
 
+function markTodoContinuationIdle(directory: string, sessionID: string): void {
+  setContinuationMarkerSource(directory, sessionID, "todo", "idle")
+}
+
 export async function injectContinuation(args: {
   ctx: PluginInput
   sessionID: string
@@ -62,11 +67,13 @@ export async function injectContinuation(args: {
   const state = sessionStateStore.getExistingState(sessionID)
   if (state?.isRecovering) {
     log(`[${HOOK_NAME}] Skipped injection: in recovery`, { sessionID })
+    markTodoContinuationIdle(ctx.directory, sessionID)
     return
   }
 
   if (isContinuationStopped?.(sessionID)) {
     log(`[${HOOK_NAME}] Skipped injection: continuation stopped for session`, { sessionID })
+    markTodoContinuationIdle(ctx.directory, sessionID)
     return
   }
 
@@ -77,11 +84,13 @@ export async function injectContinuation(args: {
   })
   if (!backgroundTasks.available) {
     log(`[${HOOK_NAME}] Skipped injection: background task state unavailable`, { sessionID })
+    markTodoContinuationIdle(ctx.directory, sessionID)
     return
   }
 
   if (backgroundTasks.hasActiveTasks) {
     log(`[${HOOK_NAME}] Skipped injection: background tasks active`, { sessionID })
+    markTodoContinuationIdle(ctx.directory, sessionID)
     return
   }
 
@@ -91,12 +100,14 @@ export async function injectContinuation(args: {
     source: "continuation.injection",
   })
   if (!todos) {
+    markTodoContinuationIdle(ctx.directory, sessionID)
     return
   }
 
   const freshIncompleteCount = getIncompleteCount(todos)
   if (freshIncompleteCount === 0) {
     log(`[${HOOK_NAME}] Skipped injection: no incomplete todos`, { sessionID })
+    markTodoContinuationIdle(ctx.directory, sessionID)
     return
   }
 
@@ -129,6 +140,7 @@ export async function injectContinuation(args: {
 
   if (agentName && skipAgents.some(s => getAgentConfigKey(s) === getAgentConfigKey(agentName))) {
     log(`[${HOOK_NAME}] Skipped: agent in skipAgents list`, { sessionID, agent: agentName })
+    markTodoContinuationIdle(ctx.directory, sessionID)
     return
   }
 
@@ -136,12 +148,14 @@ export async function injectContinuation(args: {
     const compactionState = sessionStateStore.getExistingState(sessionID)
     if (compactionState && isCompactionGuardActive(compactionState, Date.now())) {
       log(`[${HOOK_NAME}] Skipped: agent unknown after compaction`, { sessionID })
+      markTodoContinuationIdle(ctx.directory, sessionID)
       return
     }
   }
 
   if (!hasWritePermission(tools)) {
     log(`[${HOOK_NAME}] Skipped: agent lacks write permission`, { sessionID, agent: agentName })
+    markTodoContinuationIdle(ctx.directory, sessionID)
     return
   }
 
@@ -191,6 +205,7 @@ ${todoList}`
     }
   } catch (error) {
     log(`[${HOOK_NAME}] Injection failed`, { sessionID, error: String(error) })
+    markTodoContinuationIdle(ctx.directory, sessionID)
     if (injectionState) {
       injectionState.inFlight = false
       injectionState.lastInjectedAt = Date.now()

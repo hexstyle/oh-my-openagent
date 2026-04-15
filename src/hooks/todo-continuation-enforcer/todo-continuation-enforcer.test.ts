@@ -1,7 +1,11 @@
 /// <reference types="bun-types" />
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { mkdtempSync, rmSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
 
 import type { BackgroundManager } from "../../features/background-agent"
+import { readContinuationMarker } from "../../features/run-continuation-state"
 import { setMainSession, subagentSessions, _resetForTesting } from "../../features/claude-code-session-state"
 import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
 import { createTodoContinuationEnforcer } from "."
@@ -164,10 +168,19 @@ function createFakeTimers(): FakeTimers {
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+const tempDirs: string[] = []
+
+function createTempDir(): string {
+  const directory = mkdtempSync(join(tmpdir(), "omo-todo-cont-"))
+  tempDirs.push(directory)
+  return directory
+}
+
 describe("todo-continuation-enforcer", () => {
   let promptCalls: Array<{ sessionID: string; agent?: string; model?: { providerID?: string; modelID?: string }; text: string }>
   let toastCalls: Array<{ title: string; message: string }>
   let fakeTimers: FakeTimers
+  let currentDirectory: string
 
   interface MockMessage {
     info: {
@@ -227,7 +240,7 @@ describe("todo-continuation-enforcer", () => {
           },
         },
       },
-      directory: "/tmp/test",
+      directory: currentDirectory,
     } as any
   }
 
@@ -245,11 +258,18 @@ describe("todo-continuation-enforcer", () => {
     promptCalls = []
     toastCalls = []
     mockMessages = []
+    currentDirectory = createTempDir()
   })
 
   afterEach(() => {
     fakeTimers.restore()
     _resetForTesting()
+    while (tempDirs.length > 0) {
+      const directory = tempDirs.pop()
+      if (directory) {
+        rmSync(directory, { recursive: true, force: true })
+      }
+    }
   })
 
   test("should inject continuation when idle with incomplete todos", async () => {
@@ -277,6 +297,37 @@ describe("todo-continuation-enforcer", () => {
     expect(promptCalls.length).toBe(1)
     expect(promptCalls[0].text).toContain("TODO CONTINUATION")
   }, { timeout: 15000 })
+
+  test("should mark todo continuation active during countdown and clear it on assistant activity", async () => {
+    // given - idle session with incomplete todos starting continuation countdown
+    const sessionID = "main-marker"
+    setMainSession(sessionID)
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    // when - idle starts the countdown
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    // then - run mode must see an active todo continuation marker
+    expect(readContinuationMarker(currentDirectory, sessionID)?.sources.todo?.state).toBe("active")
+
+    // when - assistant activity resumes before the countdown finishes
+    await hook.handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+          },
+        },
+      },
+    })
+
+    // then - the marker is cleared back to idle
+    expect(readContinuationMarker(currentDirectory, sessionID)?.sources.todo?.state).toBe("idle")
+  })
 
   test("should not inject when all todos are complete", async () => {
     // given - session with all todos complete

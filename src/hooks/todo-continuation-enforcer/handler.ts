@@ -5,6 +5,7 @@ import { DEFAULT_CONFIG as DEFAULT_RUNTIME_FALLBACK_CONFIG } from "../runtime-fa
 import { getRuntimeFallbackAction } from "../runtime-fallback/fallback-policy"
 import {
   clearContinuationMarker,
+  setContinuationMarkerSource,
 } from "../../features/run-continuation-state"
 import { log } from "../../shared/logger"
 
@@ -56,6 +57,7 @@ export function createTodoContinuationHandler(args: {
         })
       }
 
+      setContinuationMarkerSource(ctx.directory, sessionID, "todo", "idle")
       sessionStateStore.cancelCountdown(sessionID)
       log(`[${HOOK_NAME}] session.error`, { sessionID })
       return
@@ -102,6 +104,7 @@ export function createTodoContinuationHandler(args: {
     }
 
     handleNonIdleEvent({
+      directory: ctx.directory,
       eventType: event.type,
       properties: props,
       sessionStateStore,

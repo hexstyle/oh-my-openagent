@@ -1,15 +1,17 @@
 import { log } from "../../shared/logger"
+import { setContinuationMarkerSource } from "../../features/run-continuation-state"
 import { isInternalInitiatorMessage } from "../runtime-fallback/internal-continuation-loop-detector"
 
 import { COUNTDOWN_GRACE_PERIOD_MS, HOOK_NAME } from "./constants"
 import type { SessionStateStore } from "./session-state"
 
 export function handleNonIdleEvent(args: {
+  directory: string
   eventType: string
   properties: Record<string, unknown> | undefined
   sessionStateStore: SessionStateStore
 }): void {
-  const { eventType, properties, sessionStateStore } = args
+  const { directory, eventType, properties, sessionStateStore } = args
 
   if (eventType === "message.updated") {
     const info = properties?.info as Record<string, unknown> | undefined
@@ -39,6 +41,7 @@ export function handleNonIdleEvent(args: {
         state.transientRetryDetectedAt = undefined
       }
       sessionStateStore.cancelCountdown(sessionID)
+      setContinuationMarkerSource(directory, sessionID, "todo", "idle")
       return
     }
 
@@ -49,6 +52,7 @@ export function handleNonIdleEvent(args: {
         state.transientRetryDetectedAt = undefined
       }
       sessionStateStore.cancelCountdown(sessionID)
+      setContinuationMarkerSource(directory, sessionID, "todo", "idle")
       return
     }
 
@@ -80,6 +84,7 @@ export function handleNonIdleEvent(args: {
         state.transientRetryDetectedAt = undefined
       }
       sessionStateStore.cancelCountdown(sessionID)
+      setContinuationMarkerSource(directory, sessionID, "todo", "idle")
     }
     return
   }

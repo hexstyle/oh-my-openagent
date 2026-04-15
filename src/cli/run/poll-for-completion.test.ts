@@ -1,7 +1,19 @@
 import { afterEach, beforeEach, describe, it, expect, mock, spyOn } from "bun:test"
+import { mkdtempSync, rmSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
 import type { RunContext, Todo, ChildSession, SessionStatus } from "./types"
 import { createEventState } from "./events"
 import { pollForCompletion } from "./poll-for-completion"
+import { createTodoContinuationEnforcer } from "../../hooks/todo-continuation-enforcer"
+
+const tempDirs: string[] = []
+
+function createTempDir(): string {
+  const directory = mkdtempSync(join(tmpdir(), "omo-run-poll-"))
+  tempDirs.push(directory)
+  return directory
+}
 
 const createMockContext = (overrides: {
   todo?: Todo[]
@@ -45,6 +57,12 @@ beforeEach(() => {
 afterEach(() => {
   consoleLogSpy.mockRestore()
   consoleErrorSpy.mockRestore()
+  while (tempDirs.length > 0) {
+    const directory = tempDirs.pop()
+    if (directory) {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  }
 })
 
 describe("pollForCompletion", () => {
@@ -323,6 +341,54 @@ describe("pollForCompletion", () => {
     })
 
     //#then - should NOT have exited with 0 (tool blocked it, then aborted)
+    expect(result).toBe(130)
+  })
+
+  it("does not exit while todo continuation countdown is active", async () => {
+    //#given - run session goes idle with incomplete todos and todo continuation hook arms countdown
+    const directory = createTempDir()
+    const sessionID = "test-session"
+    const hook = createTodoContinuationEnforcer(
+      {
+        directory,
+        client: {
+          session: {
+            todo: async () => ({
+              data: [
+                { id: "todo-1", content: "Continue working", status: "pending", priority: "high" },
+              ],
+            }),
+            messages: async () => ({ data: [] }),
+            promptAsync: async () => ({}),
+          },
+          tui: {
+            showToast: async () => ({}),
+          },
+        },
+      } as any,
+      {},
+    )
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    const ctx = createMockContext()
+    ctx.sessionID = sessionID
+    ctx.directory = directory
+    const eventState = createEventState()
+    eventState.mainSessionIdle = true
+    eventState.hasReceivedMeaningfulWork = true
+    const abortController = new AbortController()
+
+    //#when - poll runs during the countdown window
+    abortAfter(abortController, 100)
+    const result = await pollForCompletion(ctx, eventState, abortController, {
+      pollIntervalMs: 10,
+      requiredConsecutive: 1,
+      minStabilizationMs: 10,
+    })
+
+    //#then - active continuation must keep run alive
     expect(result).toBe(130)
   })
 

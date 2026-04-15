@@ -1,6 +1,7 @@
 import type { PluginInput } from "@opencode-ai/plugin"
 
 import type { BackgroundManager } from "../../features/background-agent"
+import { setContinuationMarkerSource } from "../../features/run-continuation-state"
 import { log } from "../../shared/logger"
 
 import {
@@ -53,6 +54,13 @@ export function startCountdown(args: {
 
   const state = sessionStateStore.getState(sessionID)
   sessionStateStore.cancelCountdown(sessionID)
+  setContinuationMarkerSource(
+    ctx.directory,
+    sessionID,
+    "todo",
+    "active",
+    "todo continuation countdown active",
+  )
 
   let secondsRemaining = COUNTDOWN_SECONDS
   showCountdownToast(ctx, secondsRemaining, incompleteCount)
