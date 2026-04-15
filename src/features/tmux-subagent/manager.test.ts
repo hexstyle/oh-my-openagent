@@ -371,6 +371,33 @@ describe('TmuxSessionManager', () => {
       expect(mockExecuteActions).toHaveBeenCalledTimes(0)
     })
 
+    test('does NOT spawn pane for internal runtime-fallback handoff sessions', async () => {
+      // given
+      mockIsInsideTmux.mockReturnValue(true)
+      const { TmuxSessionManager } = await import('./manager')
+      const ctx = createMockContext()
+      const config: TmuxConfig = {
+        enabled: true,
+        layout: 'main-vertical',
+        main_pane_size: 60,
+        main_pane_min_width: 80,
+        agent_pane_min_width: 40,
+      }
+      const manager = new TmuxSessionManager(ctx, config, mockTmuxDeps)
+      const event = createSessionCreatedEvent(
+        'ses_runtime_fallback_child',
+        'ses_parent',
+        '[runtime-fallback] Scoped Fallback: gpt-5.3-codex-spark'
+      )
+
+      // when
+      await manager.onSessionCreated(event)
+
+      // then
+      expect(mockQueryWindowState).toHaveBeenCalledTimes(0)
+      expect(mockExecuteActions).toHaveBeenCalledTimes(0)
+    })
+
     test('does NOT spawn pane when disabled', async () => {
       // given
       mockIsInsideTmux.mockReturnValue(true)

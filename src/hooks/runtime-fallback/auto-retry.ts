@@ -37,6 +37,7 @@ import { getLastUserRetryParts } from "./last-user-retry-parts"
 import { extractSessionMessages } from "./session-messages"
 import { createInternalAgentTextPart } from "../../shared/internal-initiator-marker"
 import { getServerBaseUrl } from "../../shared/opencode-http-api"
+import { getRuntimeFallbackTransitionMode } from "./fallback-transition-policy"
 import {
   isPrimaryRuntimeAgent,
   normalizeAgentForPrompt,
@@ -45,6 +46,9 @@ import {
 } from "../../shared/agent-display-names"
 import { getRecoveryProbeCandidates, selectFallbackModelsForAction } from "./fallback-policy"
 import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
+import {
+  RUNTIME_FALLBACK_SCOPED_HANDOFF_TITLE_PREFIX,
+} from "../../shared/runtime-fallback-session-titles"
 
 const SESSION_TTL_MS = 30 * 60 * 1000
 const EXTERNAL_WATCHDOG_RESPAWN_MS = 10_000
@@ -57,6 +61,7 @@ const EXTERNAL_WATCHDOG_RUNNER = fileURLToPath(
 const RECOVERY_PROBE_DIR_PREFIX = "oh-my-opencode-recovery-probe-"
 const RECOVERY_PROBE_PROMPT = "Reply with OK only."
 const RECOVERY_PROBE_RUNTIME_FALLBACK_DISABLE_ENV = "OH_MY_OPENCODE_DISABLE_RUNTIME_FALLBACK"
+const SCOPED_FALLBACK_HANDOFF_MAX_BRIEF_CHARS = 4000
 const RECOVERY_PROBE_FAILURE_PATTERNS = [
   /\[session\.error\]/i,
   /\bsession ended with error\b/i,
@@ -83,6 +88,45 @@ function shouldOmitRetryAgent(targetModel: string, originalModel?: string): bool
   }
 
   return getWatchdogModelIdentity(targetModel) !== getWatchdogModelIdentity(originalModel)
+}
+
+function formatScopedFallbackBrief(
+  parts: Array<{ type?: string; text?: string }>,
+): string {
+  const text = parts
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text?.trim() ?? "")
+    .filter(Boolean)
+    .join("\n\n")
+
+  if (!text) {
+    return "No reusable user brief was available from the parent session. Continue from the parent session lineage only."
+  }
+
+  if (text.length <= SCOPED_FALLBACK_HANDOFF_MAX_BRIEF_CHARS) {
+    return text
+  }
+
+  return `${text.slice(0, SCOPED_FALLBACK_HANDOFF_MAX_BRIEF_CHARS).trim()}\n\n[Brief truncated for scoped fallback handoff]`
+}
+
+function buildScopedFallbackHandoffPrompt(args: {
+  parentSessionID: string
+  newModel: string
+  lastUserRetryParts: Array<{ type?: string; text?: string }>
+}): string {
+  const brief = formatScopedFallbackBrief(args.lastUserRetryParts)
+  return [
+    "Scoped fallback handoff.",
+    `Parent session: ${args.parentSessionID}`,
+    `Fallback model: ${args.newModel}`,
+    "Continue the existing task from the current project state.",
+    "Do not restate the full user request or redo completed work.",
+    "Focus only on the next unresolved step and keep the result compact.",
+    "",
+    "Task brief:",
+    brief,
+  ].join("\n")
 }
 
 export function selectExternalWatchdogModel(
@@ -458,6 +502,71 @@ fi
     }
   }
 
+  const resolveFallbackSessionDirectory = async (sessionID: string): Promise<string> => {
+    try {
+      const sessionGet = ctx.client.session.get
+      if (!sessionGet) {
+        return ctx.directory
+      }
+
+      const session = await sessionGet({ path: { id: sessionID } })
+      const sessionDirectory = session?.data?.directory
+      return typeof sessionDirectory === "string" && sessionDirectory.trim().length > 0
+        ? sessionDirectory
+        : ctx.directory
+    } catch {
+      return ctx.directory
+    }
+  }
+
+  const createScopedFallbackSession = async (args: {
+    parentSessionID: string
+    newModel: string
+  }): Promise<{ sessionID: string; directory: string } | undefined> => {
+    const sessionCreate = ctx.client.session.create
+    if (!sessionCreate) {
+      log(`[${HOOK_NAME}] Scoped fallback handoff unavailable because client.session.create is missing`, {
+        sessionID: args.parentSessionID,
+        newModel: args.newModel,
+      })
+      return undefined
+    }
+
+    const directory = await resolveFallbackSessionDirectory(args.parentSessionID)
+    const modelLabel = args.newModel.split("/").pop() ?? args.newModel
+
+    try {
+      const createResult = await sessionCreate({
+        body: {
+          parentID: args.parentSessionID,
+          title: `${RUNTIME_FALLBACK_SCOPED_HANDOFF_TITLE_PREFIX}: ${modelLabel}`,
+        },
+        query: { directory },
+      })
+
+      if (createResult?.error || !createResult?.data?.id) {
+        log(`[${HOOK_NAME}] Failed to create scoped fallback handoff session`, {
+          sessionID: args.parentSessionID,
+          newModel: args.newModel,
+          error: String(createResult?.error ?? "missing session id"),
+        })
+        return undefined
+      }
+
+      return {
+        sessionID: createResult.data.id,
+        directory,
+      }
+    } catch (error) {
+      log(`[${HOOK_NAME}] Failed to create scoped fallback handoff session`, {
+        sessionID: args.parentSessionID,
+        newModel: args.newModel,
+        error: String(error),
+      })
+      return undefined
+    }
+  }
+
   const clearSessionTransientRetryTimeout = (sessionID: string): void => {
     const timer = sessionTransientRetryTimeouts.get(sessionID)
     if (timer) {
@@ -684,7 +793,9 @@ fi
 
         const result = prepareFallback(sessionID, state, fallbackModels, config)
         if (result.success && result.newModel) {
-          await autoRetryWithFallback(sessionID, result.newModel, resolvedAgent, source)
+          await autoRetryWithFallback(sessionID, result.newModel, resolvedAgent, source, {
+            previousModel: result.previousModel,
+          })
           if (!hadInFlightRetry) {
             await abortSessionRequest(sessionID, source)
           }
@@ -781,6 +892,7 @@ fi
     args?: {
       transientRetry?: boolean
       continuationPrompt?: string
+      previousModel?: string
     },
   ): Promise<boolean> => {
     if (sessionRetryInFlight.has(sessionID)) {
@@ -817,9 +929,69 @@ fi
         })
 
         const retryAgent = resolvedAgent ?? getSessionAgent(sessionID)
+        const previousModel = args?.previousModel ?? state?.currentModel ?? newModel
+        const transitionMode = getRuntimeFallbackTransitionMode({
+          resolvedAgent: retryAgent,
+          currentModel: previousModel,
+          newModel,
+        })
         const retryPromptAgent = shouldOmitRetryAgent(newModel, state?.originalModel ?? newModel)
           ? undefined
           : normalizeAgentForSessionPrompt(retryAgent)
+
+        if (transitionMode === "scoped_handoff") {
+          const childSession = await createScopedFallbackSession({
+            parentSessionID: sessionID,
+            newModel,
+          })
+
+          if (childSession) {
+            log(`[${HOOK_NAME}] Auto-retrying via scoped fallback handoff`, {
+              sessionID,
+              childSessionID: childSession.sessionID,
+              from: previousModel,
+              to: newModel,
+              resolvedAgent: retryAgent,
+            })
+
+            await ctx.client.session.promptAsync({
+              path: { id: childSession.sessionID },
+              body: {
+                ...(retryPromptAgent ? { agent: retryPromptAgent } : {}),
+                ...retryModelPayload,
+                parts: [
+                  createInternalAgentTextPart(
+                    buildScopedFallbackHandoffPrompt({
+                      parentSessionID: sessionID,
+                      newModel,
+                      lastUserRetryParts,
+                    }),
+                  ),
+                ],
+              },
+              query: { directory: childSession.directory },
+            })
+
+            sessionAwaitingFallbackResult.delete(sessionID)
+            clearSessionFallbackTimeout(sessionID)
+            if (state?.pendingFallbackModel) {
+              state.pendingFallbackModel = undefined
+            }
+            if (state?.pendingTransientRetry) {
+              state.pendingTransientRetry = false
+            }
+            retryDispatched = true
+            return retryDispatched
+          }
+
+          log(`[${HOOK_NAME}] Scoped fallback handoff unavailable, falling back to same-session retry`, {
+            sessionID,
+            from: previousModel,
+            to: newModel,
+            resolvedAgent: retryAgent,
+          })
+        }
+
         sessionAwaitingFallbackResult.add(sessionID)
         const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
         scheduleSessionFallbackTimeout(sessionID, {

@@ -65,6 +65,7 @@ describe("runtime fallback state recovery", () => {
     expect(result).toEqual({
       success: true,
       newModel: "openai/gpt-5.4(xhigh)",
+      previousModel: "anthropic/claude-opus-4-6(max)",
     })
     expect(state.currentModel).toBe("openai/gpt-5.4(xhigh)")
   })

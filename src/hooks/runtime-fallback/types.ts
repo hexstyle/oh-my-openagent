@@ -15,6 +15,11 @@ export type RuntimeFallbackTimeout = object | number
 export interface RuntimeFallbackPluginInput {
   client: {
     session: {
+      create?: (input: {
+        body: Record<string, unknown>
+        query: { directory: string }
+      }) => Promise<{ data?: { id?: string }; error?: unknown }>
+      get?: (input: { path: { id: string } }) => Promise<{ data?: { directory?: string } }>
       abort: (input: { path: { id: string } }) => Promise<unknown>
       messages: (input: { path: { id: string }; query: { directory: string } }) => Promise<unknown>
       promptAsync: (input: {
@@ -80,6 +85,7 @@ export interface FallbackState {
 export interface FallbackResult {
   success: boolean
   newModel?: string
+  previousModel?: string
   error?: string
   maxAttemptsReached?: boolean
 }

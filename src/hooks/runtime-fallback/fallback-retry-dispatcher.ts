@@ -43,6 +43,7 @@ export async function dispatchFallbackRetry(
       result.newModel,
       options.resolvedAgent,
       options.source,
+      { previousModel: result.previousModel },
     )
     return
   }

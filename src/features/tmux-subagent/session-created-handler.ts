@@ -2,6 +2,7 @@ import type { PluginInput } from "@opencode-ai/plugin"
 import type { TmuxConfig } from "../../config/schema"
 import type { CapacityConfig, TrackedSession } from "./types"
 import { log } from "../../shared"
+import { isRuntimeFallbackScopedHandoffTitle } from "../../shared/runtime-fallback-session-titles"
 import { queryWindowState } from "./pane-state-querier"
 import { decideSpawnActions, type SessionMapping } from "./decision-engine"
 import { executeActions } from "./action-executor"
@@ -47,6 +48,13 @@ export async function handleSessionCreated(
 
   const sessionId = info.id
   const title = info.title ?? "Subagent"
+  if (isRuntimeFallbackScopedHandoffTitle(title)) {
+    log("[tmux-session-manager] ignoring internal runtime-fallback scoped handoff session", {
+      sessionId,
+      title,
+    })
+    return
+  }
 
   if (deps.sessions.has(sessionId) || deps.pendingSessions.has(sessionId)) {
     log("[tmux-session-manager] session already tracked or pending", { sessionId })

@@ -69,4 +69,20 @@ describe("verify-local-opencode-install smoke handling", () => {
       state: "pending",
     })
   })
+
+  test("handles nested sdk message payloads without crashing", () => {
+    expect(
+      interpretSmokeMessages({
+        messages: [
+          {
+            role: "assistant",
+            parts: [{ type: "text", text: "OK" }],
+          },
+        ],
+      }),
+    ).toEqual({
+      output: "OK",
+      state: "success",
+    })
+  })
 })

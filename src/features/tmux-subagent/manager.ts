@@ -2,6 +2,7 @@ import type { PluginInput } from "@opencode-ai/plugin"
 import type { TmuxConfig } from "../../config/schema"
 import type { TrackedSession, CapacityConfig, WindowState } from "./types"
 import { log, normalizeSDKResponse } from "../../shared"
+import { isRuntimeFallbackScopedHandoffTitle } from "../../shared/runtime-fallback-session-titles"
 import {
   isInsideTmux as defaultIsInsideTmux,
   getCurrentPaneId as defaultGetCurrentPaneId,
@@ -500,6 +501,13 @@ export class TmuxSessionManager {
 
     const sessionId = info.id
     const title = info.title ?? "Subagent"
+    if (isRuntimeFallbackScopedHandoffTitle(title)) {
+      log("[tmux-session-manager] ignoring internal runtime-fallback scoped handoff session", {
+        sessionId,
+        title,
+      })
+      return
+    }
 
     if (!this.sourcePaneId) {
       log("[tmux-session-manager] no source pane id")

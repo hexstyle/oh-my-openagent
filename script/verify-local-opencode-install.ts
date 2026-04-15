@@ -270,8 +270,16 @@ function getSmokeMessageText(message: SmokeMessage): string {
     .join("\n")
 }
 
-export function interpretSmokeMessages(messages: SmokeMessage[]): SmokeMessageOutcome {
-  const latestMessage = [...messages]
+export function interpretSmokeMessages(messages: SmokeMessage[] | unknown): SmokeMessageOutcome {
+  const normalizedMessages = Array.isArray(messages)
+    ? messages
+    : messages && typeof messages === "object" && "messages" in messages && Array.isArray(messages.messages)
+      ? messages.messages as SmokeMessage[]
+      : messages && typeof messages === "object" && "data" in messages && Array.isArray(messages.data)
+        ? messages.data as SmokeMessage[]
+        : []
+
+  const latestMessage = [...normalizedMessages]
     .reverse()
     .find((message) => getSmokeMessageRole(message) === "assistant" || getSmokeMessageRole(message) === "user")
 

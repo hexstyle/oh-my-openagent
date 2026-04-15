@@ -325,5 +325,5 @@ export function prepareFallback(
   state.currentModel = nextModel
   state.pendingFallbackModel = nextModel
 
-  return { success: true, newModel: nextModel }
+  return { success: true, newModel: nextModel, previousModel: failedModel }
 }
