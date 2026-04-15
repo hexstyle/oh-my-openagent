@@ -108,6 +108,15 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
     return resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
   }
 
+  const resolveInitialUserTimeoutOverride = (model: string | undefined): number | undefined => {
+    if (!model?.startsWith("anthropic/")) {
+      return undefined
+    }
+
+    const baseTimeoutMs = deps.options?.session_timeout_ms ?? deps.config.timeout_seconds * 1000
+    return resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
+  }
+
   return async (props: Record<string, unknown> | undefined) => {
     const info = props?.info as Record<string, unknown> | undefined
     const sessionID = info?.sessionID as string | undefined
@@ -179,6 +188,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         role,
         source: "message.updated.user",
         info,
+        timeoutMsOverride: resolveInitialUserTimeoutOverride(model),
       })
       return
     }

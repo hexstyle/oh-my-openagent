@@ -138,6 +138,79 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(logCalls.some((call) => call.msg.includes("Session fallback timeout reached"))).toBe(true)
   })
 
+  test("extends the initial quiet window for an Anthropic user turn before the first token arrives", async () => {
+    const retriedModels: string[] = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-initial-anthropic-no-first-token"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "Reply with OK only." }] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                retriedModels.push(`${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(70)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toHaveLength(0)
+    expect(retriedModels).toHaveLength(0)
+
+    jest.advanceTimersByTime(20)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toContain(sessionID)
+    expect(retriedModels).toContain("openai/gpt-5.4")
+  })
+
   test("re-arms the watchdog when data_catalog makes mid-stream progress and then stalls", async () => {
     const retriedModels: string[] = []
     const abortCalls: string[] = []

@@ -407,9 +407,12 @@ describe("Bug 2 – Watchdog timeout respects limit_fallback ordering when quota
       },
     })
 
-    // Wait for timeout to fire
+    // Anthropic first-token turns now get the extended quiet window before
+    // we conclude the session is actually stalled.
     await sleep(120)
+    expect(promptCalls.length).toBe(0)
 
+    await sleep(140)
     expect(promptCalls.length).toBeGreaterThanOrEqual(1)
     const first = (promptCalls[0] as { body: { model: { providerID: string; modelID: string } } }).body
     // No quota context → first in chain is paid gpt-5.4
@@ -523,8 +526,12 @@ describe("Bug 3 – session.stop inhibits watchdog retries", () => {
 
     expect(state?.stoppedAt).toBeUndefined()
 
-    // Now timeout fires normally → retry dispatched
+    // Anthropic first-token turns still get the extended quiet window after
+    // a resumed user turn re-arms the watchdog.
     await sleep(120)
+    expect(promptCalls).toHaveLength(0)
+
+    await sleep(140)
     expect(promptCalls.length).toBeGreaterThanOrEqual(1)
 
     hook.dispose?.()

@@ -310,7 +310,15 @@ describe("runtime-fallback recent completion replay guard", () => {
       },
     })
 
-    jest.advanceTimersByTime(25)
+    jest.advanceTimersByTime(70)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toEqual([])
+    expect(promptAsyncCalls).toHaveLength(0)
+
+    jest.advanceTimersByTime(20)
+    await Promise.resolve()
     await Promise.resolve()
 
     expect(abortCalls).toEqual([sessionID])
