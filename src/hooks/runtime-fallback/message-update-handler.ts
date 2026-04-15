@@ -3,7 +3,7 @@ import type { AutoRetryHelpers } from "./auto-retry"
 import { HOOK_NAME, resolveLongRunningProgressTimeoutMs } from "./constants"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, extractAutoRetrySignal, containsErrorContent } from "./error-classifier"
-import { createFallbackState, markFallbackResponseSuccess, markMeaningfulProgress, markLimitError } from "./fallback-state"
+import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, markLimitError } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
@@ -117,6 +117,27 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
     return resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
   }
 
+  const isPendingFallbackUserContinuation = (args: {
+    sessionID: string
+    model: string | undefined
+    parts: Array<{ type?: string; text?: string }> | undefined
+  }): boolean => {
+    if (!sessionAwaitingFallbackResult.has(args.sessionID)) {
+      return false
+    }
+
+    if ((args.parts?.length ?? 0) > 0) {
+      return false
+    }
+
+    const state = sessionStates.get(args.sessionID)
+    if (!state?.pendingFallbackModel || !args.model) {
+      return false
+    }
+
+    return hasSameModelIdentity(args.model, state.pendingFallbackModel)
+  }
+
   return async (props: Record<string, unknown> | undefined) => {
     const info = props?.info as Record<string, unknown> | undefined
     const sessionID = info?.sessionID as string | undefined
@@ -149,7 +170,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       // Internal initiator prompts (from atlas/todo-continuation) must NOT
       // clear stoppedAt or re-arm the fallback watchdog — treating them as
       // fresh user intent causes infinite retry loops.
-      if (isInternalInitiatorMessage(parts)) {
+      if (isInternalInitiatorMessage(parts) || isPendingFallbackUserContinuation({ sessionID, model, parts })) {
         handleInternalContinuationUserMessage(deps, helpers, sessionID)
         return
       }

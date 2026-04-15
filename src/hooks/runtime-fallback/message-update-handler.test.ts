@@ -249,6 +249,46 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     expect(deps.sessionLastUserMessageIDs.get(sessionID)).toBe("existing-user-message")
   })
 
+  it("#given a fallback-generated user update without parts #when message.updated is handled #then awaiting fallback state is preserved", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?fallback-user-no-parts-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-fallback-user-no-parts"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const deps = createDeps({ data: [] })
+    const loopDetector = createLoopDetectorSpy()
+    deps.loopDetector = loopDetector
+    const state = createFallbackState("openai/gpt-5.4")
+    state.currentModel = "anthropic/claude-sonnet-4-6"
+    state.pendingFallbackModel = "anthropic/claude-sonnet-4-6"
+    state.stoppedAt = 123456789
+    deps.sessionStates.set(sessionID, state)
+    deps.sessionLastAccess.set(sessionID, 4242)
+    deps.sessionRecentCompletionUntil.set(sessionID, 999999)
+    deps.sessionAwaitingFallbackResult.add(sessionID)
+    deps.sessionStatusRetryKeys.set(sessionID, "retry:fallback-user")
+    deps.sessionLastUserMessageIDs.set(sessionID, "existing-user-message")
+    const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls))
+
+    await handler({
+      info: {
+        id: "msg-fallback-user-no-parts",
+        sessionID,
+        role: "user",
+        providerID: "anthropic",
+        modelID: "claude-sonnet-4-6",
+      },
+    })
+
+    expect(state.stoppedAt).toBe(123456789)
+    expect(scheduleCalls).toEqual([])
+    expect(deps.sessionLastAccess.get(sessionID)).toBe(4242)
+    expect(deps.sessionRecentCompletionUntil.get(sessionID)).toBe(999999)
+    expect(deps.sessionAwaitingFallbackResult.has(sessionID)).toBe(true)
+    expect(deps.sessionStatusRetryKeys.get(sessionID)).toBe("retry:fallback-user")
+    expect(deps.sessionLastUserMessageIDs.get(sessionID)).toBe("existing-user-message")
+    expect(loopDetector.internalContinuationCalls).toEqual([sessionID])
+    expect(loopDetector.resetCalls).toEqual([])
+  })
+
   it("#given a visible assistant update #when message.updated is handled #then only visible assistant reset is recorded", async () => {
     const { createMessageUpdateHandler } = await import(`./message-update-handler?visible-reset-${Date.now()}-${Math.random()}`)
     const sessionID = "session-visible-assistant-reset"

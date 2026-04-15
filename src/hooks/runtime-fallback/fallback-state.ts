@@ -7,7 +7,7 @@ function getModelIdentity(model: string): string {
   return model.replace(/\([^)]*\)\s*$/, "").trim()
 }
 
-function hasSameModelIdentity(left: string, right: string): boolean {
+export function hasSameModelIdentity(left: string, right: string): boolean {
   return getModelIdentity(left) === getModelIdentity(right)
 }
 
