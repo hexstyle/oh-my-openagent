@@ -33,6 +33,21 @@ export interface AutoPortResult {
   wasAutoSelected: boolean
 }
 
+export function killProcessListeningOnPort(port: number): void {
+  Bun.spawnSync(
+    [
+      "/bin/sh",
+      "-lc",
+      `pids="$(lsof -tiTCP:${port} -sTCP:LISTEN 2>/dev/null)" && [ -n "$pids" ] && kill -9 $pids >/dev/null 2>&1 || true`,
+    ],
+    {
+      stdout: "ignore",
+      stderr: "ignore",
+      env: process.env,
+    },
+  )
+}
+
 export async function getAvailableServerPort(
   preferredPort: number = DEFAULT_SERVER_PORT,
   hostname: string = "127.0.0.1"

@@ -18,6 +18,7 @@ const mockCreateOpencode = mock(() =>
 const mockCreateOpencodeClient = mock(() => ({ session: {} }))
 const mockIsPortAvailable = mock(() => Promise.resolve(true))
 const mockGetAvailableServerPort = mock(() => Promise.resolve({ port: 9999, wasAutoSelected: false }))
+const mockKillProcessListeningOnPort = mock(() => {})
 
 mock.module("@opencode-ai/sdk", () => ({
   createOpencode: mockCreateOpencode,
@@ -27,6 +28,7 @@ mock.module("@opencode-ai/sdk", () => ({
 mock.module("../../shared/port-utils", () => ({
   isPortAvailable: mockIsPortAvailable,
   getAvailableServerPort: mockGetAvailableServerPort,
+  killProcessListeningOnPort: mockKillProcessListeningOnPort,
   DEFAULT_SERVER_PORT: 4096,
 }))
 

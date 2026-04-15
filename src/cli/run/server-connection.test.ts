@@ -17,6 +17,7 @@ const mockCreateOpencode = mock(() =>
 const mockCreateOpencodeClient = mock(() => ({ session: {} }))
 const mockIsPortAvailable = mock(() => Promise.resolve(true))
 const mockGetAvailableServerPort = mock(() => Promise.resolve({ port: 4096, wasAutoSelected: false }))
+const mockKillProcessListeningOnPort = mock(() => {})
 const mockConsoleLog = mock(() => {})
 const mockWithWorkingOpencodePath = mock((startServer: () => Promise<unknown>) => startServer())
 
@@ -28,6 +29,7 @@ mock.module("@opencode-ai/sdk", () => ({
 mock.module("../../shared/port-utils", () => ({
   isPortAvailable: mockIsPortAvailable,
   getAvailableServerPort: mockGetAvailableServerPort,
+  killProcessListeningOnPort: mockKillProcessListeningOnPort,
   DEFAULT_SERVER_PORT: 4096,
 }))
 
@@ -49,6 +51,7 @@ describe("createServerConnection", () => {
     mockCreateOpencodeClient.mockClear()
     mockIsPortAvailable.mockClear()
     mockGetAvailableServerPort.mockClear()
+    mockKillProcessListeningOnPort.mockClear()
     mockServerClose.mockClear()
     mockConsoleLog.mockClear()
     mockWithWorkingOpencodePath.mockClear()
@@ -74,6 +77,7 @@ describe("createServerConnection", () => {
     expect(result.cleanup).toBeDefined()
     result.cleanup()
     expect(mockServerClose).not.toHaveBeenCalled()
+    expect(mockKillProcessListeningOnPort).not.toHaveBeenCalled()
   })
 
   it("explicit port starts server when port is available", async () => {
@@ -99,6 +103,7 @@ describe("createServerConnection", () => {
     expect(result.cleanup).toBeDefined()
     result.cleanup()
     expect(mockServerClose).toHaveBeenCalled()
+    expect(mockKillProcessListeningOnPort).toHaveBeenCalledWith(8080)
   })
 
   it("explicit port attaches when start fails because port became occupied", async () => {
@@ -117,6 +122,7 @@ describe("createServerConnection", () => {
     expect(mockCreateOpencodeClient).toHaveBeenCalledWith({ baseUrl: "http://127.0.0.1:8080" })
     result.cleanup()
     expect(mockServerClose).not.toHaveBeenCalled()
+    expect(mockKillProcessListeningOnPort).not.toHaveBeenCalled()
   })
 
   it("explicit port attaches when port is occupied", async () => {
@@ -136,6 +142,7 @@ describe("createServerConnection", () => {
     expect(result.cleanup).toBeDefined()
     result.cleanup()
     expect(mockServerClose).not.toHaveBeenCalled()
+    expect(mockKillProcessListeningOnPort).not.toHaveBeenCalled()
   })
 
   it("auto mode uses getAvailableServerPort", async () => {
@@ -160,6 +167,7 @@ describe("createServerConnection", () => {
     expect(result.cleanup).toBeDefined()
     result.cleanup()
     expect(mockServerClose).toHaveBeenCalled()
+    expect(mockKillProcessListeningOnPort).toHaveBeenCalledWith(4100)
   })
 
   it("auto mode retries on next port when initial start fails", async () => {
@@ -196,6 +204,7 @@ describe("createServerConnection", () => {
     })
     result.cleanup()
     expect(mockServerClose).toHaveBeenCalledTimes(1)
+    expect(mockKillProcessListeningOnPort).toHaveBeenCalledWith(4097)
   })
 
   it("auto mode attaches to default server when port range is exhausted", async () => {
@@ -218,6 +227,7 @@ describe("createServerConnection", () => {
     expect(mockCreateOpencode).not.toHaveBeenCalled()
     result.cleanup()
     expect(mockServerClose).not.toHaveBeenCalled()
+    expect(mockKillProcessListeningOnPort).not.toHaveBeenCalled()
   })
 
   it("invalid port throws error", async () => {
@@ -241,6 +251,7 @@ describe("createServerConnection", () => {
 
     // then
     expect(mockServerClose).toHaveBeenCalledTimes(1)
+    expect(mockKillProcessListeningOnPort).toHaveBeenCalledWith(8080)
   })
 
   it("cleanup is no-op for attached server", async () => {
@@ -254,5 +265,22 @@ describe("createServerConnection", () => {
 
     // then
     expect(mockServerClose).not.toHaveBeenCalled()
+    expect(mockKillProcessListeningOnPort).not.toHaveBeenCalled()
+  })
+
+  it("cleanup is idempotent for owned server", async () => {
+    // given
+    const signal = new AbortController().signal
+    mockIsPortAvailable.mockResolvedValueOnce(true)
+
+    // when
+    const result = await createServerConnection({ port: 8080, signal })
+    result.cleanup()
+    result.cleanup()
+
+    // then
+    expect(mockServerClose).toHaveBeenCalledTimes(1)
+    expect(mockKillProcessListeningOnPort).toHaveBeenCalledTimes(1)
+    expect(mockKillProcessListeningOnPort).toHaveBeenCalledWith(8080)
   })
 })

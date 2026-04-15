@@ -1,7 +1,12 @@
 import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk"
 import pc from "picocolors"
 import type { ServerConnection } from "./types"
-import { getAvailableServerPort, isPortAvailable, DEFAULT_SERVER_PORT } from "../../shared/port-utils"
+import {
+  getAvailableServerPort,
+  isPortAvailable,
+  DEFAULT_SERVER_PORT,
+  killProcessListeningOnPort,
+} from "../../shared/port-utils"
 import { withWorkingOpencodePath } from "./opencode-binary-resolver"
 
 const SERVER_START_TIMEOUT_MS = 30_000
@@ -29,7 +34,20 @@ async function startServer(options: { signal: AbortSignal, port: number }): Prom
   )
 
   console.log(pc.dim("Server listening at"), pc.cyan(server.url))
-  return { client, cleanup: () => server.close() }
+  let cleanedUp = false
+  return {
+    client,
+    cleanup: () => {
+      if (cleanedUp) return
+      cleanedUp = true
+
+      try {
+        server.close()
+      } finally {
+        killProcessListeningOnPort(port)
+      }
+    },
+  }
 }
 
 export async function createServerConnection(options: {
