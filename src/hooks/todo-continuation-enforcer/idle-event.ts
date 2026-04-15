@@ -7,7 +7,7 @@ import { inspectParentSessionTasks } from "../../features/background-agent/paren
 import { isLatestStoredInternalContinuation } from "../runtime-fallback/internal-continuation-loop-detector"
 
 import { ABORT_WINDOW_MS, CONTINUATION_COOLDOWN_MS, DEFAULT_SKIP_AGENTS, FAILURE_RESET_WINDOW_MS, HOOK_NAME, MAX_CONSECUTIVE_FAILURES, TRANSIENT_RETRY_GUARD_MS } from "./constants"
-import { isLastAssistantMessageAborted } from "./abort-detection"
+import { isLastAssistantAbortAfterCompaction, isLastAssistantMessageAborted } from "./abort-detection"
 import { hasUnansweredQuestion } from "./pending-question-detection"
 import { shouldStopForStagnation } from "./stagnation-detection"
 import { getIncompleteCount } from "./todo"
@@ -88,9 +88,13 @@ export async function handleSessionIdle(args: {
     source: "session.idle.preflight",
   })
   if (messages) {
-    if (isLastAssistantMessageAborted(messages)) {
+    const abortedAfterCompaction = isLastAssistantAbortAfterCompaction(messages)
+    if (isLastAssistantMessageAborted(messages) && !abortedAfterCompaction) {
       log(`[${HOOK_NAME}] Skipped: last assistant message was aborted (API fallback)`, { sessionID })
       return
+    }
+    if (abortedAfterCompaction) {
+      log(`[${HOOK_NAME}] Allowing continuation: last assistant abort followed compaction`, { sessionID })
     }
     if (hasUnansweredQuestion(messages)) {
       log(`[${HOOK_NAME}] Skipped: pending question awaiting user response`, { sessionID })

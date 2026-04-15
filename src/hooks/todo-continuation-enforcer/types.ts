@@ -53,6 +53,12 @@ export interface MessageInfo {
 
 export interface SessionMessage {
   info?: MessageInfo
+  parts?: Array<{
+    type: string
+    text?: string
+    name?: string
+    toolName?: string
+  }>
 }
 
 export interface ResolvedMessageInfo {

@@ -11,6 +11,7 @@ import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-m
 import { createTodoContinuationEnforcer } from "."
 import { WATCHDOG_CONTINUATION_PROMPT } from "../runtime-fallback/constants"
 import {
+  COMPACTION_GUARD_MS,
   CONTINUATION_COOLDOWN_MS,
   FAILURE_RESET_WINDOW_MS,
   MAX_CONSECUTIVE_FAILURES,
@@ -1849,6 +1850,49 @@ describe("todo-continuation-enforcer", () => {
 
     // then - no continuation (API fallback detected the abort)
     expect(promptCalls).toHaveLength(0)
+  })
+
+  test("should resume after compaction-aborted assistant once compaction guard expires", async () => {
+    // given - flare-style tail: compaction followed by an aborted assistant turn
+    const sessionID = "main-compaction-abort-recover"
+    setMainSession(sessionID)
+    mockMessages = [
+      {
+        info: {
+          id: "msg-1",
+          role: "assistant",
+          agent: "sisyphus",
+          modelID: "gpt-5.4",
+          providerID: "openai",
+        },
+      },
+      {
+        info: { id: "msg-2", role: "user" },
+        parts: [{ type: "compaction" }],
+      },
+      {
+        info: {
+          id: "msg-3",
+          role: "assistant",
+          error: { name: "MessageAbortedError", data: { message: "Aborted" } },
+        },
+      },
+    ]
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    // when - compaction is recorded, then the guard window expires, then the session idles
+    await hook.handler({
+      event: { type: "session.compacted", properties: { sessionID } },
+    })
+    await fakeTimers.advanceClockBy(COMPACTION_GUARD_MS + 1)
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+    await fakeTimers.advanceBy(3000)
+
+    // then - continuation resumes instead of being blocked forever by the aborted tail
+    expect(promptCalls).toHaveLength(1)
   })
 
   test("should pass model property in prompt call (undefined when no message context)", async () => {
