@@ -1274,20 +1274,30 @@ describe("runtime-fallback", () => {
       })
       expect(promptCalls).toHaveLength(1)
 
-      // Error 2 (fallback also fails) → fallback to spark
+      // Error 2 (gpt-5.4 fallback also fails) → fallback to spark
       await hook.event({
         event: {
           type: "session.error",
-          properties: { sessionID, agent: "Explore (Code Search)", error: agentNotFoundError },
+          properties: {
+            sessionID,
+            agent: "Explore (Code Search)",
+            model: "openai/gpt-5.4",
+            error: agentNotFoundError,
+          },
         },
       })
       expect(promptCalls).toHaveLength(2)
 
-      // Error 3 → all models exhausted, NO new fallback dispatched
+      // Error 3 (spark fallback also fails) → all models exhausted, NO new fallback dispatched
       await hook.event({
         event: {
           type: "session.error",
-          properties: { sessionID, agent: "Explore (Code Search)", error: agentNotFoundError },
+          properties: {
+            sessionID,
+            agent: "Explore (Code Search)",
+            model: "openai/gpt-5.3-codex-spark",
+            error: agentNotFoundError,
+          },
         },
       })
       expect(promptCalls).toHaveLength(2)
@@ -1748,6 +1758,85 @@ describe("runtime-fallback", () => {
         model?: { providerID?: string; modelID?: string }
       } | undefined
       expect(promptBody?.model).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-6" })
+    })
+
+    test("late session.error without model does not advance a message.updated fallback that is already pending", async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "keep going" }] }],
+            }),
+            promptAsync: async (args) => {
+              promptCalls.push(args as Record<string, unknown>)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({
+            notify_on_fallback: false,
+            retry_on_errors: [403, 429, 503, 529],
+          }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback([
+            "anthropic/claude-sonnet-4-6",
+            "anthropic/claude-opus-4-6",
+          ]),
+        },
+      )
+      const sessionID = "test-session-message-updated-then-session-error-without-model"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      const gatewayBlockedError = {
+        name: "APIError",
+        data: {
+          statusCode: 403,
+          message:
+            "Forbidden: request was blocked by a gateway or proxy. You may not have permission to access this resource.",
+          responseBody:
+            "<html><body><p>Unable to load site</p><span>Please try again later.</span></body></html>",
+        },
+      }
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "openai/gpt-5.4" } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              sessionID,
+              role: "assistant",
+              model: "openai/gpt-5.4",
+              error: gatewayBlockedError,
+            },
+          },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            error: gatewayBlockedError,
+          },
+        },
+      })
+
+      expect(promptCalls).toHaveLength(1)
+      const promptBody = promptCalls[0]?.body as {
+        model?: { providerID?: string; modelID?: string }
+      } | undefined
+      expect(promptBody?.model).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-6" })
+      expect(hook._deps?.sessionAwaitingFallbackResult.has(sessionID)).toBe(true)
+      expect(hook._deps?.sessionStates.get(sessionID)?.pendingFallbackModel).toBe("anthropic/claude-sonnet-4-6")
     })
 
     test("should trigger fallback on Copilot auto-retry signal in message.updated", async () => {

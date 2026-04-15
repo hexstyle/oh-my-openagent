@@ -7,7 +7,7 @@ import {
 } from "./constants"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError } from "./error-classifier"
-import { createFallbackState, markFallbackResponseSuccess, markMeaningfulProgress, resetTransientRetryState, markLimitError, markSessionStopped, isRecentLimitError } from "./fallback-state"
+import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, resetTransientRetryState, markLimitError, markSessionStopped, isRecentLimitError } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
@@ -383,6 +383,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     }
 
     const resolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent)
+    const existingState = sessionStates.get(sessionID)
 
     if (sessionRetryInFlight.has(sessionID)) {
       log(`[${HOOK_NAME}] session.error skipped — retry in flight`, {
@@ -390,6 +391,21 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
         retryInFlight: true,
       })
       return
+    }
+
+    if (existingState?.pendingFallbackModel) {
+      const isCurrentPendingModelError =
+        typeof eventModel === "string" && hasSameModelIdentity(eventModel, existingState.currentModel)
+
+      if (!isCurrentPendingModelError) {
+        log(`[${HOOK_NAME}] session.error skipped (pending fallback in progress)`, {
+          sessionID,
+          eventModel,
+          currentModel: existingState.currentModel,
+          pendingFallbackModel: existingState.pendingFallbackModel,
+        })
+        return
+      }
     }
 
     sessionAwaitingFallbackResult.delete(sessionID)
@@ -402,7 +418,6 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     // (spark → free) instead of the standard fallback chain.
     const rawErrorName = extractErrorName(error)?.toLowerCase()
     const isAbortedError = rawErrorName === "messageabortederror"
-    const existingState = sessionStates.get(sessionID)
     const effectiveError =
       isAbortedError && existingState && isRecentLimitError(existingState)
         ? { name: "QuotaExceededError", message: "quota exceeded (inferred from abort after limit error)" }
@@ -460,7 +475,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       sessionLastAccess.set(sessionID, Date.now())
     }
 
-    if (state.pendingFallbackModel && eventModel && eventModel !== state.currentModel) {
+    if (state.pendingFallbackModel && eventModel && !hasSameModelIdentity(eventModel, state.currentModel)) {
       log(`[${HOOK_NAME}] session.error skipped (pending fallback in progress)`, {
         sessionID,
         eventModel,
