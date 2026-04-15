@@ -15,6 +15,7 @@ import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
 import { getRuntimeFallbackAction, selectFallbackModelsForAction } from "./fallback-policy"
 import { isQuotaAutoRetrySignal } from "./error-classifier"
+import { logTrackedProvider403 } from "./provider-403-diagnostics"
 import {
   clearRecentCompletionState,
   shouldSuppressRecentCompletionReplay,
@@ -231,6 +232,14 @@ export function createSessionStatusHandler(
     })
 
     const retryAction = getRuntimeFallbackAction({ message: retryMessage }, deps.config.retry_on_errors)
+    logTrackedProvider403({
+      source: "session.status.retry",
+      sessionID,
+      model: state.currentModel,
+      resolvedAgent,
+      error: { message: retryMessage },
+      action: retryAction,
+    })
     if (retryAction === "retry_same_model_delayed") {
       await helpers.abortSessionRequest(sessionID, "session.status.transient-retry")
 

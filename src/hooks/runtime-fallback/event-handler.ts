@@ -16,6 +16,7 @@ import { createSessionStatusHandler } from "./session-status-handler"
 import { extractEventModelString } from "./event-model"
 import { clearRecentCompletionState, markSessionRecentlyCompleted } from "./recent-completion-guard"
 import { getRuntimeFallbackAction, selectFallbackModelsForAction } from "./fallback-policy"
+import { logTrackedProvider403 } from "./provider-403-diagnostics"
 
 export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   const { config, options, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRecentActiveStatusUntil, sessionSilentAssistantUpdateCounts, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionFallbackTimeouts, sessionTransientRetryTimeouts, sessionStatusRetryKeys } = deps
@@ -494,6 +495,14 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     }
 
     const action = getRuntimeFallbackAction(effectiveError, config.retry_on_errors)
+    logTrackedProvider403({
+      source: "session.error",
+      sessionID,
+      model: state.currentModel,
+      resolvedAgent,
+      error: effectiveError,
+      action,
+    })
 
     if (action === "limit_fallback") {
       markLimitError(state)

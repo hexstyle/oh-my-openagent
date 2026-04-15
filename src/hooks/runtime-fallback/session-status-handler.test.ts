@@ -1,9 +1,10 @@
-import { describe, expect, it } from "bun:test"
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test"
 import type { HookDeps, RuntimeFallbackPluginInput } from "./types"
 import type { AutoRetryHelpers } from "./auto-retry"
 import { createFallbackState } from "./fallback-state"
 import { createSessionStatusHandler } from "./session-status-handler"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
+import * as sharedModule from "../../shared/logger"
 
 function createContext(): RuntimeFallbackPluginInput {
   return {
@@ -59,7 +60,9 @@ function createDeps(): HookDeps {
 function createHelpers(
   abortCalls: string[],
   retryCalls: Array<{ sessionID: string; model: string; source: string }>,
+  sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; resolvedAgent?: string }>,
   scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry"; timeoutMsOverride?: number }>,
+  retryCurrentModelResult = false,
 ): AutoRetryHelpers {
   return {
     abortSessionRequest: async (sessionID: string) => {
@@ -80,7 +83,15 @@ function createHelpers(
     autoRetryWithFallback: async (sessionID: string, model: string, _resolvedAgent: string | undefined, source: string) => {
       retryCalls.push({ sessionID, model, source })
     },
-    retryCurrentModel: async () => false,
+    retryCurrentModel: async (sessionID: string, resolvedAgent: string | undefined, source: string, options?: { immediate?: boolean }) => {
+      sameModelRetryCalls.push({
+        sessionID,
+        resolvedAgent,
+        source,
+        immediate: options?.immediate ?? false,
+      })
+      return retryCurrentModelResult
+    },
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
     recoverPreferredModels: async () => {},
@@ -88,6 +99,21 @@ function createHelpers(
 }
 
 describe("createSessionStatusHandler", () => {
+  let logCalls: Array<{ msg: string; data?: unknown }>
+  let logSpy: ReturnType<typeof spyOn>
+
+  beforeEach(() => {
+    logCalls = []
+    logSpy = spyOn(sharedModule, "log").mockImplementation((msg: string, data?: unknown) => {
+      logCalls.push({ msg, data })
+    })
+  })
+
+  afterEach(() => {
+    logSpy?.mockRestore()
+    SessionCategoryRegistry.clear()
+  })
+
   it("#given a pending fallback model #when a new provider cooldown retry arrives #then the handler overrides the pending fallback and advances the chain", async () => {
     // given
     SessionCategoryRegistry.clear()
@@ -97,6 +123,7 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; resolvedAgent?: string }> = []
     const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" }> = []
     const state = createFallbackState("anthropic/claude-opus-4-6")
     state.currentModel = "openai/gpt-5.4"
@@ -108,7 +135,7 @@ describe("createSessionStatusHandler", () => {
 
     const handler = createSessionStatusHandler(
       deps,
-      createHelpers(abortCalls, retryCalls, scheduleCalls),
+      createHelpers(abortCalls, retryCalls, sameModelRetryCalls, scheduleCalls),
       deps.sessionStatusRetryKeys,
     )
 
@@ -125,6 +152,7 @@ describe("createSessionStatusHandler", () => {
 
     // then
     expect(abortCalls).toEqual([sessionID])
+    expect(sameModelRetryCalls).toEqual([])
     expect(retryCalls).toEqual([
       {
         sessionID,
@@ -145,6 +173,7 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; resolvedAgent?: string }> = []
     const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" }> = []
     const state = createFallbackState("anthropic/claude-opus-4-6")
     state.currentModel = "openai/gpt-5.4"
@@ -156,7 +185,7 @@ describe("createSessionStatusHandler", () => {
 
     const handler = createSessionStatusHandler(
       deps,
-      createHelpers(abortCalls, retryCalls, scheduleCalls),
+      createHelpers(abortCalls, retryCalls, sameModelRetryCalls, scheduleCalls),
       deps.sessionStatusRetryKeys,
     )
 
@@ -171,6 +200,7 @@ describe("createSessionStatusHandler", () => {
     })
 
     expect(abortCalls).toEqual([])
+    expect(sameModelRetryCalls).toEqual([])
     expect(retryCalls).toEqual([])
     expect(scheduleCalls).toEqual([])
     expect(state.currentModel).toBe("openai/gpt-5.4")
@@ -187,13 +217,14 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; resolvedAgent?: string }> = []
     const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string }> = []
     const state = createFallbackState("anthropic/claude-opus-4-6")
     deps.sessionStates.set(sessionID, state)
 
     const handler = createSessionStatusHandler(
       deps,
-      createHelpers(abortCalls, retryCalls, scheduleCalls),
+      createHelpers(abortCalls, retryCalls, sameModelRetryCalls, scheduleCalls),
       deps.sessionStatusRetryKeys,
     )
 
@@ -210,6 +241,7 @@ describe("createSessionStatusHandler", () => {
 
     // then
     expect(abortCalls).toEqual([sessionID])
+    expect(sameModelRetryCalls).toEqual([])
     expect(retryCalls).toEqual([
       {
         sessionID,
@@ -227,13 +259,14 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; resolvedAgent?: string }> = []
     const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; timeoutMsOverride?: number }> = []
     const state = createFallbackState("openai/gpt-5.4")
     deps.sessionStates.set(sessionID, state)
 
     const handler = createSessionStatusHandler(
       deps,
-      createHelpers(abortCalls, retryCalls, scheduleCalls),
+      createHelpers(abortCalls, retryCalls, sameModelRetryCalls, scheduleCalls),
       deps.sessionStatusRetryKeys,
     )
 
@@ -249,6 +282,7 @@ describe("createSessionStatusHandler", () => {
 
     // then
     expect(abortCalls).toEqual([])
+    expect(sameModelRetryCalls).toEqual([])
     expect(retryCalls).toEqual([])
     expect(scheduleCalls).toEqual([
       {
@@ -265,13 +299,14 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; resolvedAgent?: string }> = []
     const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; timeoutMsOverride?: number }> = []
     const state = createFallbackState("openai/gpt-5.4")
     deps.sessionStates.set(sessionID, state)
 
     const handler = createSessionStatusHandler(
       deps,
-      createHelpers(abortCalls, retryCalls, scheduleCalls),
+      createHelpers(abortCalls, retryCalls, sameModelRetryCalls, scheduleCalls),
       deps.sessionStatusRetryKeys,
     )
 
@@ -294,6 +329,7 @@ describe("createSessionStatusHandler", () => {
     })
 
     expect(abortCalls).toEqual([])
+    expect(sameModelRetryCalls).toEqual([])
     expect(retryCalls).toEqual([])
     expect(scheduleCalls).toEqual([
       {
@@ -304,20 +340,21 @@ describe("createSessionStatusHandler", () => {
     ])
   })
 
-  it("#given a request-not-allowed 403 retry status #when the handler sees it #then it advances the fallback chain instead of retrying the same model", async () => {
+  it("#given a request-not-allowed 403 retry status #when the handler sees it #then it schedules a delayed same-model retry and emits a provider diagnostic log", async () => {
     const sessionID = "session-status-transient-forbidden"
     SessionCategoryRegistry.clear()
     SessionCategoryRegistry.register(sessionID, "test")
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; resolvedAgent?: string }> = []
     const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" }> = []
     const state = createFallbackState("anthropic/claude-opus-4-6")
     deps.sessionStates.set(sessionID, state)
 
     const handler = createSessionStatusHandler(
       deps,
-      createHelpers(abortCalls, retryCalls, scheduleCalls),
+      createHelpers(abortCalls, retryCalls, sameModelRetryCalls, scheduleCalls, true),
       deps.sessionStatusRetryKeys,
     )
 
@@ -332,15 +369,25 @@ describe("createSessionStatusHandler", () => {
     })
 
     expect(abortCalls).toEqual([sessionID])
-    expect(retryCalls).toEqual([
+    expect(sameModelRetryCalls).toEqual([
       {
         sessionID,
-        model: "openai/gpt-5.4",
-        source: "session.status.fallback_chain",
+        source: "session.status.transient_same_model",
+        immediate: false,
+        resolvedAgent: undefined,
       },
     ])
+    expect(retryCalls).toEqual([])
     expect(scheduleCalls).toEqual([])
-    expect(state.currentModel).toBe("openai/gpt-5.4")
-    SessionCategoryRegistry.clear()
+    expect(state.currentModel).toBe("anthropic/claude-opus-4-6")
+
+    const provider403Log = logCalls.find((call) => call.msg.includes("Observed tracked provider 403"))
+    expect(provider403Log?.data).toMatchObject({
+      sessionID,
+      providerFamily: "claude",
+      model: "anthropic/claude-opus-4-6",
+      action: "retry_same_model_delayed",
+      statusCode: 403,
+    })
   })
 })

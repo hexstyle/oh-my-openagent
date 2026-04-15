@@ -68,13 +68,13 @@ describe("runtime fallback policy", () => {
     ).toBe("retry_same_model_delayed")
   })
 
-  it("routes request-not-allowed 403 errors directly to the fallback chain", () => {
+  it("treats request-not-allowed 403 errors as delayed same-model retries", () => {
     expect(
       getRuntimeFallbackAction(
         { statusCode: 403, message: "Request not allowed" },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("fallback_chain")
+    ).toBe("retry_same_model_delayed")
 
     expect(
       getRuntimeFallbackAction(
@@ -94,7 +94,7 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("fallback_chain")
+    ).toBe("retry_same_model_delayed")
 
     expect(
       getRuntimeFallbackAction(
@@ -110,7 +110,7 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("fallback_chain")
+    ).toBe("retry_same_model_delayed")
 
     expect(
       getRuntimeFallbackAction(
@@ -151,7 +151,7 @@ describe("runtime fallback policy", () => {
     ).toBe("fallback_chain")
   })
 
-  it("routes embedded forbidden request-not-allowed wrapper messages to the fallback chain", () => {
+  it("treats embedded forbidden request-not-allowed wrapper messages as delayed same-model retries", () => {
     expect(
       getRuntimeFallbackAction(
         {
@@ -159,7 +159,7 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("fallback_chain")
+    ).toBe("retry_same_model_delayed")
   })
 
   it("treats wrapped and remote compact 500 internal-server errors as immediate same-model retries", () => {

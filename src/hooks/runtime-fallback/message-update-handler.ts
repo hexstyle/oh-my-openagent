@@ -9,6 +9,7 @@ import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
 import { extractEventModelString } from "./event-model"
 import { getRuntimeFallbackAction, selectFallbackModelsForAction } from "./fallback-policy"
+import { logTrackedProvider403 } from "./provider-403-diagnostics"
 import {
   hasVisibleAssistantEventContent,
   hasVisibleAssistantResponse,
@@ -419,6 +420,15 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       if (action === "limit_fallback") {
         markLimitError(state)
       }
+
+      logTrackedProvider403({
+        source: "message.updated.assistant.error",
+        sessionID,
+        model: state.currentModel,
+        resolvedAgent,
+        error,
+        action,
+      })
 
       if (action === "retry_same_model" || action === "retry_same_model_delayed") {
         const retried = await helpers.retryCurrentModel(sessionID, resolvedAgent, "message.updated", {
