@@ -102,7 +102,7 @@ export function getRuntimeFallbackAction(error: unknown, retryOnErrors: number[]
   }
 
   if (isGatewayBlockedForbiddenError(error)) {
-    return "fallback_chain"
+    return "retry_same_model_delayed_persistent"
   }
 
   if (isTransientForbiddenError(error)) {

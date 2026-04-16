@@ -282,6 +282,83 @@ describe("executeSyncTask - cleanup on error paths", () => {
     expect(deleteCalls.length).toBe(1)
     expect(deleteCalls[0]).toBe("ses_test_12345678")
   })
+
+  test("retries sendSyncPrompt on fallback chain before failing sync delegation", async () => {
+    const mockClient = {
+      session: {
+        create: async () => ({ data: { id: "ses_test_12345678" } }),
+      },
+    }
+
+    const { executeSyncTask } = require("./sync-task")
+    const promptModels: Array<{ providerID: string; modelID: string } | undefined> = []
+
+    const deps = {
+      createSyncSession: async () => ({ ok: true, sessionID: "ses_test_12345678" }),
+      sendSyncPrompt: async (_client: unknown, input: { categoryModel?: { providerID: string; modelID: string } }) => {
+        promptModels.push(input.categoryModel)
+        if (promptModels.length === 1) {
+          return "initial prompt failure"
+        }
+        return null
+      },
+      pollSyncSession: async () => null,
+      fetchSyncResult: async () => ({ ok: true as const, textContent: "Recovered result" }),
+    }
+
+    const mockCtx = {
+      sessionID: "parent-session",
+      callID: "call-123",
+      metadata: () => {},
+    }
+
+    const mockExecutorCtx = {
+      client: mockClient,
+      directory: "/tmp",
+      onSyncSessionCreated: null,
+    }
+
+    const args = {
+      prompt: "test prompt",
+      description: "test task",
+      category: "test",
+      load_skills: [],
+      run_in_background: false,
+      command: null,
+    }
+
+    const categoryModel = {
+      providerID: "anthropic",
+      modelID: "claude-sonnet-4-6",
+    }
+    const fallbackChain = [
+      {
+        providers: ["openai"],
+        model: "gpt-5.4",
+      },
+    ]
+
+    const result = await executeSyncTask(
+      args,
+      mockCtx,
+      mockExecutorCtx,
+      { sessionID: "parent-session" },
+      "test-agent",
+      categoryModel,
+      undefined,
+      undefined,
+      fallbackChain,
+      deps,
+      true,
+    )
+
+    expect(result).toContain("Task completed")
+    expect(result).toContain("openai/gpt-5.4")
+    expect(promptModels).toEqual([
+      { providerID: "anthropic", modelID: "claude-sonnet-4-6" },
+      { providerID: "openai", modelID: "gpt-5.4", variant: undefined },
+    ])
+  })
 })
 
 export {}

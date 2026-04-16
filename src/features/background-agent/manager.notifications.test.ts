@@ -150,7 +150,7 @@ describe("BackgroundManager failure notifications", () => {
     await manager.shutdown()
   })
 
-  it("keeps duplicate active-task chat updates suppressed until a full minute has passed", async () => {
+  it("keeps duplicate active-task chat updates suppressed even after a full minute when the digest is unchanged", async () => {
     const { manager, promptAsync } = createManagerWithPromptSpy()
     const runningTask = createTask({
       id: "task-running-minute-throttle",
@@ -172,13 +172,10 @@ describe("BackgroundManager failure notifications", () => {
     await maybeNotify.call(manager, runningTask.parentSessionID)
     now += 39_000
     await maybeNotify.call(manager, runningTask.parentSessionID)
-
-    expect(promptAsync).toHaveBeenCalledTimes(1)
-
     now += 1_000
     await maybeNotify.call(manager, runningTask.parentSessionID)
 
-    expect(promptAsync).toHaveBeenCalledTimes(2)
+    expect(promptAsync).toHaveBeenCalledTimes(1)
 
     await manager.shutdown()
   })

@@ -33,7 +33,6 @@ import {
   TASK_TTL_MS,
 } from "./constants"
 
-const BACKGROUND_STATUS_UPDATE_INTERVAL_MS = 60_000
 const BACKGROUND_STATUS_BURST_COALESCE_MS = 500
 
 import { subagentSessions } from "../claude-code-session-state"
@@ -1730,9 +1729,7 @@ export class BackgroundManager {
     const parentContext = getMostRecentParentTaskContext(activeTasks)
     const previous = this.parentStatusReports.get(parentSessionID)
     const digestChanged = previous?.lastDigest !== digest
-    const intervalElapsed = previous === undefined || now - previous.lastSentAt >= BACKGROUND_STATUS_UPDATE_INTERVAL_MS
-
-    if (!force && !digestChanged && !intervalElapsed) {
+    if (!force && !digestChanged) {
       return
     }
 

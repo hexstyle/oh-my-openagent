@@ -11,6 +11,7 @@ import { formatDetailedError } from "./error-formatting"
 import { syncTaskDeps, type SyncTaskDeps } from "./sync-task-deps"
 import { setSessionFallbackChain, clearSessionFallbackChain } from "../../hooks/model-fallback/hook"
 import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
+import { retrySyncPromptWithFallbacks } from "./sync-task-fallback"
 
 export async function executeSyncTask(
   args: DelegateTaskArgs,
@@ -123,18 +124,41 @@ export async function executeSyncTask(
       storeToolMetadata(ctx.sessionID, ctx.callID, syncTaskMeta)
     }
 
-    const promptError = await deps.sendSyncPrompt(client, {
+    let effectiveCategoryModel = categoryModel
+    let promptError = await deps.sendSyncPrompt(client, {
       sessionID,
       agentToUse,
       args,
       systemContent,
-      categoryModel,
+      categoryModel: effectiveCategoryModel,
       toastManager,
       taskId,
       sisyphusAgentConfig: executorCtx.sisyphusAgentConfig,
     })
     if (promptError) {
-      return promptError
+      const promptResult = await retrySyncPromptWithFallbacks({
+        sessionID,
+        agentToUse,
+        initialError: promptError,
+        categoryModel: effectiveCategoryModel,
+        fallbackChain,
+        sendPrompt: async (fallbackModel) => deps.sendSyncPrompt(client, {
+          sessionID,
+          agentToUse,
+          args,
+          systemContent,
+          categoryModel: fallbackModel,
+          toastManager,
+          taskId,
+          sisyphusAgentConfig: executorCtx.sisyphusAgentConfig,
+        }),
+      })
+
+      promptError = promptResult.promptError
+      effectiveCategoryModel = promptResult.categoryModel
+      if (promptError) {
+        return promptError
+      }
     }
 
     try {
@@ -156,8 +180,8 @@ export async function executeSyncTask(
       const duration = formatDuration(startTime)
 
       // 检测模型路由是否与父 session 不同，给用户可见的提示
-      const actualModelStr = categoryModel
-        ? `${categoryModel.providerID}/${categoryModel.modelID}`
+      const actualModelStr = effectiveCategoryModel
+        ? `${effectiveCategoryModel.providerID}/${effectiveCategoryModel.modelID}`
         : undefined
       const parentModelStr = parentContext.model
         ? `${parentContext.model.providerID}/${parentContext.model.modelID}`

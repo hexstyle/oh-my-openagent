@@ -122,7 +122,7 @@ describe("runtime fallback policy", () => {
     ).toBe("retry_same_model_delayed_persistent")
   })
 
-  it("routes gateway/proxy-blocked 403 forbidden errors directly to fallback_chain", () => {
+  it("treats gateway/proxy-blocked 403 forbidden errors as delayed same-model retries", () => {
     expect(
       getRuntimeFallbackAction(
         {
@@ -132,7 +132,7 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("fallback_chain")
+    ).toBe("retry_same_model_delayed_persistent")
 
     expect(
       getRuntimeFallbackAction(
@@ -148,7 +148,27 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("fallback_chain")
+    ).toBe("retry_same_model_delayed_persistent")
+  })
+
+  it("keeps Cloudflare-style OpenAI 403 challenge pages on the same model", () => {
+    expect(
+      getRuntimeFallbackAction(
+        {
+          name: "AI_APICallError",
+          statusCode: 403,
+          url: "https://api.openai.com/v1/responses",
+          message: "Forbidden",
+          responseHeaders: {
+            server: "cloudflare",
+            "cf-ray": "abc123",
+          },
+          responseBody:
+            "<html><body><p>Unable to load site</p><span>Please try again later.</span><span>[IP:109.252.37.138 | Ray ID:9ed686783eb4f131]</span></body></html>",
+        },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("retry_same_model_delayed_persistent")
   })
 
   it("treats embedded forbidden request-not-allowed wrapper messages as delayed same-model retries", () => {
