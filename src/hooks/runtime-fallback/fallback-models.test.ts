@@ -1,4 +1,6 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 
 const readCachedModelCatalogMock = mock(() => new Set<string>())
 const resolveKnownCachedModelMock = mock((_target: string, availableModels: Set<string>) => availableModels.size > 0 ? null : "known")
@@ -110,6 +112,30 @@ describe("runtime-fallback fallback-models", () => {
     expect(result).toEqual([
       "openai/gpt-5.3-codex-spark",
       "opencode/nemotron-3-super-free",
+    ])
+  })
+
+  test("managed sisyphus-junior chain keeps sonnet ahead of spark", () => {
+    const managedConfig = JSON.parse(
+      readFileSync(
+        join(import.meta.dir, "../../../assets/custom-opencode/oh-my-opencode.json"),
+        "utf8",
+      ),
+    )
+
+    const result = getFallbackModelsForSession(
+      "ses_runtime_fallback_sisyphus_junior",
+      "sisyphus-junior",
+      managedConfig,
+    )
+
+    expect(result).toEqual([
+      "openai/gpt-5.4(medium)",
+      "anthropic/claude-sonnet-4-6",
+      "openai/gpt-5.3-codex-spark",
+      "opencode/nemotron-3-super-free",
+      "opencode/minimax-m2.5-free",
+      "opencode/big-pickle",
     ])
   })
 })

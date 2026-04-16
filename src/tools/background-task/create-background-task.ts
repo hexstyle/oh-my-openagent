@@ -7,6 +7,7 @@ import { getSessionAgent } from "../../features/claude-code-session-state"
 import { storeToolMetadata } from "../../features/tool-metadata-store"
 import { log } from "../../shared/logger"
 import { normalizeAgentForDisplay, normalizeAgentForExecution } from "../../shared/agent-display-names"
+import { resolveParentAgent } from "../../shared/parent-agent-resolution"
 import { delay } from "./delay"
 import { getMessageDir } from "./message-dir"
 
@@ -47,7 +48,12 @@ export function createBackgroundTask(
         )
 
         const sessionAgent = getSessionAgent(ctx.sessionID)
-        const parentAgent = ctx.agent ?? sessionAgent ?? firstMessageAgent ?? prevMessage?.agent
+        const parentAgent = resolveParentAgent({
+          sessionAgent,
+          toolAgent: ctx.agent,
+          firstMessageAgent,
+          previousMessageAgent: prevMessage?.agent,
+        })
 
         log("[background_task] parentAgent resolution", {
           sessionID: ctx.sessionID,

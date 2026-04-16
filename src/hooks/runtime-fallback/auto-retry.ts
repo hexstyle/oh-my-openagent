@@ -46,6 +46,8 @@ import {
 } from "../../shared/agent-display-names"
 import { getRecoveryProbeCandidates, selectFallbackModelsForAction } from "./fallback-policy"
 import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
+import { getAgentFromSession } from "../prometheus-md-only/agent-resolution"
+import { readBoulderState } from "../../features/boulder-state"
 import {
   RUNTIME_FALLBACK_SCOPED_HANDOFF_TITLE_PREFIX,
 } from "../../shared/runtime-fallback-session-titles"
@@ -88,6 +90,11 @@ function shouldOmitRetryAgent(targetModel: string, originalModel?: string): bool
   }
 
   return getWatchdogModelIdentity(targetModel) !== getWatchdogModelIdentity(originalModel)
+}
+
+function isBoulderTrackedExecutionSession(sessionID: string, directory: string): boolean {
+  const boulderState = readBoulderState(directory)
+  return Boolean(boulderState?.session_ids?.includes(sessionID))
 }
 
 function formatScopedFallbackBrief(
@@ -731,7 +738,8 @@ fi
 
         sessionRetryInFlight.delete(sessionID)
 
-        const resolvedAgent = args?.resolvedAgent ?? await resolveAgentForSessionFromContext(sessionID)
+        const resolvedAgent = await resolveAgentForSessionFromContext(sessionID, args?.resolvedAgent)
+          ?? args?.resolvedAgent
         const backgroundTasks = getBackgroundTaskInspection(sessionID)
         if (backgroundTasks.hasActiveTasks) {
           sessionLastAccess.set(sessionID, Date.now())
@@ -928,14 +936,19 @@ fi
           model: newModel,
         })
 
-        const retryAgent = resolvedAgent ?? getSessionAgent(sessionID)
+        const retryAgent = await resolveAgentForSessionFromContext(
+          sessionID,
+          resolvedAgent ?? getSessionAgent(sessionID),
+        ) ?? resolvedAgent ?? getSessionAgent(sessionID)
         const previousModel = args?.previousModel ?? state?.currentModel ?? newModel
         const transitionMode = getRuntimeFallbackTransitionMode({
           resolvedAgent: retryAgent,
           currentModel: previousModel,
           newModel,
         })
-        const retryPromptAgent = shouldOmitRetryAgent(newModel, state?.originalModel ?? newModel)
+        const preserveRetryAgent = isBoulderTrackedExecutionSession(sessionID, ctx.directory)
+        const retryPromptAgent = (!preserveRetryAgent
+          && shouldOmitRetryAgent(newModel, state?.originalModel ?? newModel))
           ? undefined
           : normalizeAgentForSessionPrompt(retryAgent)
 
@@ -1092,6 +1105,12 @@ fi
     sessionID: string,
     eventAgent?: string,
   ): Promise<string | undefined> => {
+    const boulderResolvedAgent = await getAgentFromSession(sessionID, ctx.directory, ctx.client as never)
+    const normalizedBoulderAgent = normalizeAgentName(boulderResolvedAgent)
+    if (normalizedBoulderAgent) {
+      return normalizedBoulderAgent
+    }
+
     const resolved = resolveAgentForSession(sessionID, eventAgent)
     if (resolved) return resolved
 
@@ -1317,7 +1336,8 @@ fi
       return false
     }
 
-    const resolvedAgent = state.resolvedAgent ?? await resolveAgentForSessionFromContext(sessionID)
+    const resolvedAgent = await resolveAgentForSessionFromContext(sessionID, state.resolvedAgent)
+      ?? state.resolvedAgent
     log(`[${HOOK_NAME}] Nudging stalled session after prolonged inactivity`, {
       sessionID,
       currentModel: state.currentModel,

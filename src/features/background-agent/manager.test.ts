@@ -4901,6 +4901,97 @@ describe("BackgroundManager.handleEvent - non-tool event lastUpdate", () => {
     //#then - task should still be running (delta event refreshed lastUpdate)
     expect(task.status).toBe("running")
   })
+
+  test("should refresh lastUpdate when message.part.updated carries sessionID only in info", async () => {
+    //#given - a running task with stale lastUpdate and a live payload shape that keeps sessionID in info
+    const client = {
+      session: {
+        prompt: async () => ({}),
+        promptAsync: async () => ({}),
+        abort: async () => ({}),
+      },
+    }
+    const manager = new BackgroundManager({ client, directory: tmpdir() } as unknown as PluginInput, {
+      sessionGoneTimeoutMs: 60_000,
+    })
+    stubNotifyParentSession(manager)
+
+    const oldUpdate = new Date(Date.now() - 70_000)
+    const task: BackgroundTask = {
+      id: "task-info-shaped-1",
+      sessionID: "session-info-shaped-1",
+      parentSessionID: "parent-1",
+      parentMessageID: "msg-1",
+      description: "Task with info-shaped part event",
+      prompt: "Keep working",
+      agent: "sisyphus-junior",
+      status: "running",
+      startedAt: new Date(Date.now() - 90_000),
+      progress: {
+        toolCalls: 1,
+        lastUpdate: oldUpdate,
+      },
+    }
+    getTaskMap(manager).set(task.id, task)
+
+    //#when - the live payload omits part.sessionID but still includes it in info
+    manager.handleEvent({
+      type: "message.part.updated",
+      properties: {
+        info: { sessionID: task.sessionID },
+        part: { id: "text-1", type: "text", text: "still working" },
+      },
+    })
+    await manager["checkAndInterruptStaleTasks"]({})
+
+    //#then - the task survives because progress was refreshed from info.sessionID
+    expect(task.progress!.lastUpdate.getTime()).toBeGreaterThan(oldUpdate.getTime())
+    expect(task.status).toBe("running")
+  })
+
+  test("should refresh lastUpdate when message.part.delta uses sessionId alias", async () => {
+    //#given - a running task where delta payload uses sessionId instead of sessionID
+    const client = {
+      session: {
+        prompt: async () => ({}),
+        promptAsync: async () => ({}),
+        abort: async () => ({}),
+      },
+    }
+    const manager = new BackgroundManager({ client, directory: tmpdir() } as unknown as PluginInput, {
+      staleTimeoutMs: 180_000,
+    })
+    stubNotifyParentSession(manager)
+
+    const oldUpdate = new Date(Date.now() - 300_000)
+    const task: BackgroundTask = {
+      id: "task-session-id-alias-1",
+      sessionID: "session-id-alias-1",
+      parentSessionID: "parent-1",
+      parentMessageID: "msg-1",
+      description: "Task with sessionId alias delta",
+      prompt: "Keep streaming",
+      agent: "sisyphus-junior",
+      status: "running",
+      startedAt: new Date(Date.now() - 600_000),
+      progress: {
+        toolCalls: 0,
+        lastUpdate: oldUpdate,
+      },
+    }
+    getTaskMap(manager).set(task.id, task)
+
+    //#when - OpenCode sends the delta payload with sessionId instead of sessionID
+    manager.handleEvent({
+      type: "message.part.delta",
+      properties: { sessionId: task.sessionID, field: "text", delta: "progress" },
+    })
+    await manager["checkAndInterruptStaleTasks"]()
+
+    //#then - the delta still refreshes progress and the task is not stale-killed
+    expect(task.progress!.lastUpdate.getTime()).toBeGreaterThan(oldUpdate.getTime())
+    expect(task.status).toBe("running")
+  })
 })
 
 describe("BackgroundManager regression fixes - resume and aborted notification", () => {

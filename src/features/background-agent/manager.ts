@@ -127,6 +127,26 @@ function buildActiveTaskStatusDigest(tasks: BackgroundTask[]): string {
     .join("|")
 }
 
+function getMostRecentParentTaskContext(tasks: BackgroundTask[]): {
+  parentAgent?: string
+  parentModel?: { providerID: string; modelID: string }
+  parentTools?: Record<string, boolean>
+} {
+  const mostRecentTask = tasks.reduce<BackgroundTask | undefined>((current, candidate) => {
+    if (!current) return candidate
+
+    const currentTime = current.startedAt?.getTime() ?? current.queuedAt?.getTime() ?? 0
+    const candidateTime = candidate.startedAt?.getTime() ?? candidate.queuedAt?.getTime() ?? 0
+    return candidateTime >= currentTime ? candidate : current
+  }, undefined)
+
+  return {
+    parentAgent: mostRecentTask?.parentAgent,
+    parentModel: mostRecentTask?.parentModel,
+    parentTools: mostRecentTask?.parentTools,
+  }
+}
+
 function buildActiveTaskStatusNotification(tasks: BackgroundTask[], now: Date): string {
   const runningCount = tasks.filter((task) => task.status === "running").length
   const pendingCount = tasks.filter((task) => task.status === "pending").length
@@ -179,8 +199,10 @@ function createDuplicateLaunchSignature(input: Pick<LaunchInput, "agent" | "desc
 interface MessagePartInfo {
   id?: string
   sessionID?: string
+  sessionId?: string
   type?: string
   tool?: string
+  name?: string
   state?: { status?: string; input?: Record<string, unknown> }
 }
 
@@ -201,11 +223,54 @@ function resolveMessagePartInfo(properties: EventProperties | undefined): Messag
   }
 
   const nestedPart = properties.part
+  const nestedInfo = properties.info
+
+  const rootSessionID =
+    typeof properties.sessionID === "string"
+      ? properties.sessionID
+      : typeof properties.sessionId === "string"
+        ? properties.sessionId
+        : undefined
+  const infoSessionID =
+    nestedInfo && typeof nestedInfo === "object"
+      ? typeof (nestedInfo as Record<string, unknown>).sessionID === "string"
+          ? (nestedInfo as Record<string, unknown>).sessionID as string
+          : typeof (nestedInfo as Record<string, unknown>).sessionId === "string"
+            ? (nestedInfo as Record<string, unknown>).sessionId as string
+            : undefined
+      : undefined
+
   if (nestedPart && typeof nestedPart === "object") {
-    return nestedPart as MessagePartInfo
+    const partRecord = nestedPart as Record<string, unknown>
+    const partSessionID =
+      typeof partRecord.sessionID === "string"
+        ? partRecord.sessionID
+        : typeof partRecord.sessionId === "string"
+          ? partRecord.sessionId
+          : undefined
+
+    return {
+      ...(nestedPart as MessagePartInfo),
+      sessionID: partSessionID ?? infoSessionID ?? rootSessionID,
+      tool:
+        typeof partRecord.tool === "string"
+          ? partRecord.tool
+          : typeof partRecord.name === "string"
+            ? partRecord.name
+            : undefined,
+    }
   }
 
-  return properties as MessagePartInfo
+  return {
+    ...(properties as MessagePartInfo),
+    sessionID: rootSessionID ?? infoSessionID,
+    tool:
+      typeof properties.tool === "string"
+        ? properties.tool
+        : typeof properties.name === "string"
+          ? properties.name
+          : undefined,
+  }
 }
 
 interface Todo {
@@ -257,7 +322,13 @@ export class BackgroundManager {
   private notificationQueueByParent: Map<string, Promise<void>> = new Map()
   private parentStatusReports: Map<string, { lastSentAt: number; lastDigest: string }> = new Map()
   private pendingParentStatusTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
-  private pendingParentStatusPayloads: Map<string, { digest: string; notification: string }> = new Map()
+  private pendingParentStatusPayloads: Map<string, {
+    digest: string
+    notification: string
+    parentAgent?: string
+    parentModel?: { providerID: string; modelID: string }
+    parentTools?: Record<string, boolean>
+  }> = new Map()
   private rootDescendantCounts: Map<string, number>
   private preStartDescendantReservations: Set<string>
   private enableParentSessionNotifications: boolean
@@ -1560,11 +1631,24 @@ export class BackgroundManager {
     digest: string
     notification: string
     sentAt: number
+    parentAgent?: string
+    parentModel?: { providerID: string; modelID: string }
+    parentTools?: Record<string, boolean>
   }): Promise<void> {
+    const promptContext = await this.resolveParentPromptContext({
+      parentSessionID: input.parentSessionID,
+      parentAgent: input.parentAgent,
+      parentModel: input.parentModel,
+      parentTools: input.parentTools,
+    })
+
     await this.client.session.promptAsync({
       path: { id: input.parentSessionID },
       body: {
         noReply: true,
+        ...(promptContext.agent !== undefined ? { agent: promptContext.agent } : {}),
+        ...(promptContext.model !== undefined ? { model: promptContext.model } : {}),
+        ...(promptContext.tools !== undefined ? { tools: promptContext.tools } : {}),
         parts: [createInternalAgentTextPart(input.notification)],
       },
     })
@@ -1579,10 +1663,16 @@ export class BackgroundManager {
     parentSessionID: string
     digest: string
     notification: string
+    parentAgent?: string
+    parentModel?: { providerID: string; modelID: string }
+    parentTools?: Record<string, boolean>
   }): void {
     this.pendingParentStatusPayloads.set(input.parentSessionID, {
       digest: input.digest,
       notification: input.notification,
+      parentAgent: input.parentAgent,
+      parentModel: input.parentModel,
+      parentTools: input.parentTools,
     })
 
     if (this.pendingParentStatusTimers.has(input.parentSessionID)) {
@@ -1603,6 +1693,9 @@ export class BackgroundManager {
           digest: pendingPayload.digest,
           notification: pendingPayload.notification,
           sentAt: Date.now(),
+          parentAgent: pendingPayload.parentAgent,
+          parentModel: pendingPayload.parentModel,
+          parentTools: pendingPayload.parentTools,
         }),
       ).catch((error) => {
         log("[background-agent] Failed to send coalesced active-task status:", {
@@ -1629,6 +1722,7 @@ export class BackgroundManager {
 
     const now = Date.now()
     const digest = buildActiveTaskStatusDigest(activeTasks)
+    const parentContext = getMostRecentParentTaskContext(activeTasks)
     const previous = this.parentStatusReports.get(parentSessionID)
     const digestChanged = previous?.lastDigest !== digest
     const intervalElapsed = previous === undefined || now - previous.lastSentAt >= BACKGROUND_STATUS_UPDATE_INTERVAL_MS
@@ -1645,6 +1739,7 @@ export class BackgroundManager {
         parentSessionID,
         digest,
         notification,
+        ...parentContext,
       })
       return
     }
@@ -1655,7 +1750,69 @@ export class BackgroundManager {
       digest,
       notification,
       sentAt: now,
+      ...parentContext,
     })
+  }
+
+  private async resolveParentPromptContext(input: {
+    parentSessionID: string
+    parentAgent?: string
+    parentModel?: { providerID: string; modelID: string }
+    parentTools?: Record<string, boolean>
+  }): Promise<{
+    agent?: string
+    model?: { providerID: string; modelID: string }
+    tools?: Record<string, boolean>
+  }> {
+    let agent: string | undefined = input.parentAgent
+    let model: { providerID: string; modelID: string } | undefined = input.parentModel
+    let tools: Record<string, boolean> | undefined = input.parentTools
+
+    try {
+      const messagesResp = await this.client.session.messages({ path: { id: input.parentSessionID } })
+      const messages = normalizeSDKResponse(messagesResp, [] as Array<{
+        info?: {
+          agent?: string
+          model?: { providerID: string; modelID: string }
+          modelID?: string
+          providerID?: string
+          tools?: Record<string, boolean | "allow" | "deny" | "ask">
+        }
+      }>)
+      const promptContext = resolvePromptContextFromSessionMessages(messages, input.parentSessionID)
+      const normalizedTools = isRecord(promptContext?.tools)
+        ? normalizePromptTools(promptContext.tools)
+        : undefined
+
+      if (promptContext?.agent || promptContext?.model || normalizedTools) {
+        agent = promptContext?.agent ?? input.parentAgent
+        model = promptContext?.model?.providerID && promptContext.model.modelID
+          ? { providerID: promptContext.model.providerID, modelID: promptContext.model.modelID }
+          : input.parentModel
+        tools = normalizedTools ?? tools
+      }
+    } catch (error) {
+      if (isAbortedSessionError(error)) {
+        log("[background-agent] Parent session aborted while loading messages; using messageDir fallback:", {
+          parentSessionID: input.parentSessionID,
+        })
+      }
+      const messageDir = join(MESSAGE_STORAGE, input.parentSessionID)
+      const currentMessage = messageDir
+        ? findNearestMessageExcludingCompaction(messageDir, input.parentSessionID)
+        : null
+      agent = currentMessage?.agent ?? input.parentAgent
+      model = currentMessage?.model?.providerID && currentMessage?.model?.modelID
+        ? { providerID: currentMessage.model.providerID, modelID: currentMessage.model.modelID }
+        : input.parentModel
+      tools = normalizePromptTools(currentMessage?.tools) ?? tools
+    }
+
+    return {
+      agent: normalizeAgentForSessionPrompt(agent),
+      model,
+      tools: resolveInheritedPromptTools(input.parentSessionID, tools),
+    }
   }
 
   private scheduleTaskRemoval(taskId: string, rescheduleCount = 0): void {
@@ -2031,62 +2188,18 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
 </system-reminder>`
     }
 
-      let agent: string | undefined = task.parentAgent
-      let model: { providerID: string; modelID: string } | undefined
-      let tools: Record<string, boolean> | undefined = task.parentTools
-
       if (this.enableParentSessionNotifications) {
-        try {
-          const messagesResp = await this.client.session.messages({ path: { id: task.parentSessionID } })
-          const messages = normalizeSDKResponse(messagesResp, [] as Array<{
-            info?: {
-              agent?: string
-              model?: { providerID: string; modelID: string }
-              modelID?: string
-              providerID?: string
-              tools?: Record<string, boolean | "allow" | "deny" | "ask">
-            }
-          }>)
-          const promptContext = resolvePromptContextFromSessionMessages(
-            messages,
-            task.parentSessionID,
-          )
-          const normalizedTools = isRecord(promptContext?.tools)
-            ? normalizePromptTools(promptContext.tools)
-            : undefined
-
-          if (promptContext?.agent || promptContext?.model || normalizedTools) {
-            agent = promptContext?.agent ?? task.parentAgent
-            model = promptContext?.model?.providerID && promptContext.model.modelID
-              ? { providerID: promptContext.model.providerID, modelID: promptContext.model.modelID }
-              : undefined
-            tools = normalizedTools ?? tools
-          }
-        } catch (error) {
-          if (isAbortedSessionError(error)) {
-            log("[background-agent] Parent session aborted while loading messages; using messageDir fallback:", {
-              taskId: task.id,
-              parentSessionID: task.parentSessionID,
-            })
-          }
-          const messageDir = join(MESSAGE_STORAGE, task.parentSessionID)
-          const currentMessage = messageDir
-            ? findNearestMessageExcludingCompaction(messageDir, task.parentSessionID)
-            : null
-          agent = currentMessage?.agent ?? task.parentAgent
-          model = currentMessage?.model?.providerID && currentMessage?.model?.modelID
-            ? { providerID: currentMessage.model.providerID, modelID: currentMessage.model.modelID }
-            : undefined
-          tools = normalizePromptTools(currentMessage?.tools) ?? tools
-        }
-
-        const resolvedTools = resolveInheritedPromptTools(task.parentSessionID, tools)
-        const promptAgent = normalizeAgentForSessionPrompt(agent)
+        const promptContext = await this.resolveParentPromptContext({
+          parentSessionID: task.parentSessionID,
+          parentAgent: task.parentAgent,
+          parentModel: task.parentModel,
+          parentTools: task.parentTools,
+        })
 
         log("[background-agent] notifyParentSession context:", {
           taskId: task.id,
-          resolvedAgent: promptAgent ?? agent,
-          resolvedModel: model,
+          resolvedAgent: promptContext.agent,
+          resolvedModel: promptContext.model,
         })
 
         const isTaskFailure = task.status === "error" || task.status === "cancelled" || task.status === "interrupt"
@@ -2097,9 +2210,9 @@ Use \`background_output(task_id="${task.id}")\` to retrieve this result when rea
             path: { id: task.parentSessionID },
             body: {
               noReply: !shouldReply,
-              ...(promptAgent !== undefined ? { agent: promptAgent } : {}),
-              ...(model !== undefined ? { model } : {}),
-              ...(resolvedTools ? { tools: resolvedTools } : {}),
+              ...(promptContext.agent !== undefined ? { agent: promptContext.agent } : {}),
+              ...(promptContext.model !== undefined ? { model: promptContext.model } : {}),
+              ...(promptContext.tools !== undefined ? { tools: promptContext.tools } : {}),
               parts: [createInternalAgentTextPart(notification)],
             },
           })

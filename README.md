@@ -25,7 +25,7 @@ Primary model picture in this fork:
 - planning/review/controller roles prefer `anthropic/claude-opus-4-6`
 - deep execution roles prefer `openai/gpt-5.4`
 - `Explore (Code Search)` is the spark-first speed lane on `openai/gpt-5.3-codex-spark`
-- `Sisyphus Junior (Focused Executor)` is the fast coding lane on `openai/gpt-5.4`, with `spark` before free fallback
+- `Sisyphus Junior (Focused Executor)` is the fast coding lane on `openai/gpt-5.4`, with `anthropic/claude-sonnet-4-6` before `spark`
 - free models stay behind `spark`
 - the managed free chain is `opencode/nemotron-3-super-free` -> `opencode/minimax-m2.5-free` -> `opencode/big-pickle`
 - managed host context caps stay conservative:
@@ -37,7 +37,7 @@ Primary agents and their visible fallback shape:
 - `Prometheus`, `Sisyphus`, `Oracle`, `Metis`, `Momus`: `anthropic/claude-opus-4-6` -> `openai/gpt-5.4` -> `anthropic/claude-sonnet-4-6` -> `openai/gpt-5.3-codex-spark` -> free models
 - `Hephaestus`, `Atlas`, `Librarian`, `Multimodal Looker`: `openai/gpt-5.4` -> paid alternates -> `openai/gpt-5.3-codex-spark` -> free models
 - `Explore`: `openai/gpt-5.3-codex-spark` -> free models
-- `Sisyphus Junior`: `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
+- `Sisyphus Junior`: `openai/gpt-5.4` -> `anthropic/claude-sonnet-4-6` -> `openai/gpt-5.3-codex-spark` -> free models
 
 Managed source of truth for this table: `assets/custom-opencode/oh-my-opencode.json`.
 
@@ -48,7 +48,7 @@ Managed source of truth for this table: `assets/custom-opencode/oh-my-opencode.j
 - the retry interval grows over time and caps at 5 minutes between attempts
 - quota/cooldown/payment/usage-limit failures fall back to `gpt-5.3-codex-spark`, then to free models
 - for `Explore`, `spark` is already the primary model, so its limit/fallback path is `spark` -> free models
-- for `Sisyphus Junior`, `gpt-5.4` stays ahead of `spark`
+- for `Sisyphus Junior`, `gpt-5.4` stays ahead of `claude-sonnet-4-6`, and `claude-sonnet-4-6` stays ahead of `spark`
 - when a session is pushed down to `spark` or free models, background recovery probes can move it back up to stronger models when they recover
 - the fork only treats free models as valid when they resolve in the local runtime baseline; deprecated cache-only entries are ignored
 

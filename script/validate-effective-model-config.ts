@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { spawnSync as childProcessSpawnSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
@@ -38,8 +39,13 @@ type SpawnSyncLike = (
     stdout: "pipe"
     stderr: "pipe"
     env: NodeJS.ProcessEnv
+    timeout: number
   },
 ) => SpawnSyncResultLike
+
+type SpawnSyncErrorLike = Error & {
+  code?: string
+}
 
 export function resolveModelCatalogRefreshCwd(
   configDir: string | undefined,
@@ -56,13 +62,32 @@ export function refreshModelCatalog(options?: {
   cwd?: string
   env?: NodeJS.ProcessEnv
   spawnSync?: SpawnSyncLike
+  timeoutMs?: number
 }): RefreshResult {
   const commands = [
     ["opencode", "models", "--refresh"],
     ["opencode", "models", "opencode", "--refresh"],
   ]
   const cwd = options?.cwd ?? resolveModelCatalogRefreshCwd(getOpenCodeConfigDir({ binary: "opencode" }))
-  const spawnSync = options?.spawnSync ?? ((command, spawnOptions) => Bun.spawnSync(command, spawnOptions))
+  const timeoutMs = options?.timeoutMs ?? 15_000
+  const spawnSync = options?.spawnSync ?? ((command, spawnOptions) => {
+    const result = childProcessSpawnSync(command[0] ?? "", command.slice(1), {
+      cwd: spawnOptions.cwd,
+      env: spawnOptions.env,
+      stdio: "pipe",
+      timeout: spawnOptions.timeout,
+      killSignal: "SIGKILL",
+      encoding: "utf8",
+    })
+
+    return {
+      exitCode: result.status,
+      stdout: { toString: () => result.stdout ?? "" },
+      stderr: { toString: () => result.stderr ?? "" },
+      error: result.error as SpawnSyncErrorLike | undefined,
+      signal: result.signal ?? undefined,
+    }
+  })
 
   for (const command of commands) {
     const result = spawnSync(command, {
@@ -70,13 +95,23 @@ export function refreshModelCatalog(options?: {
       stdout: "pipe",
       stderr: "pipe",
       env: options?.env ?? process.env,
+      timeout: timeoutMs,
     })
+    const error = result.error as SpawnSyncErrorLike | undefined
+    const timeoutCode = error?.code ?? (result.signal ? "SIGNAL" : undefined)
+    if (timeoutCode === "ETIMEDOUT" || result.signal) {
+      return {
+        refreshed: false,
+        warning: `Failed to refresh model catalog via '${command.join(" ")}': timed out after ${timeoutMs}ms`,
+      }
+    }
+
     if (result.exitCode !== 0) {
       const stderr = result.stderr.toString("utf-8").trim()
       const stdout = result.stdout.toString("utf-8").trim()
       return {
         refreshed: false,
-        warning: `Failed to refresh model catalog via '${command.join(" ")}': ${stderr || stdout || "unknown error"}`,
+        warning: `Failed to refresh model catalog via '${command.join(" ")}': ${stderr || stdout || error?.message || "unknown error"}`,
       }
     }
   }

@@ -99,6 +99,32 @@ describe("BackgroundManager failure notifications", () => {
     await manager.shutdown()
   })
 
+  it("keeps the parent execution agent on active-task status prompts", async () => {
+    const { manager, promptAsync } = createManagerWithPromptSpy()
+    const runningTask = createTask({
+      id: "task-running-parent-agent",
+      status: "running",
+      startedAt: new Date(Date.now() - 5_000),
+      completedAt: undefined,
+      error: undefined,
+      parentAgent: "Sisyphus Junior (Focused Executor)",
+    })
+
+    const taskMap = (manager as unknown as { tasks: Map<string, BackgroundTask> }).tasks
+    taskMap.set(runningTask.id, runningTask)
+
+    await (manager as unknown as {
+      maybeNotifyParentActiveTasks: (parentSessionID: string, force?: boolean) => Promise<void>
+    }).maybeNotifyParentActiveTasks(runningTask.parentSessionID, true)
+
+    expect(promptAsync).toHaveBeenCalledTimes(1)
+
+    const firstCall = (promptAsync.mock.calls as Array<Array<{ body: Record<string, unknown> }>>)[0]
+    expect(firstCall?.[0]?.body.agent).toBe("Sisyphus Junior (Focused Executor)")
+
+    await manager.shutdown()
+  })
+
   it("suppresses duplicate active-task chat updates within the throttle window", async () => {
     const { manager, promptAsync } = createManagerWithPromptSpy()
     const runningTask = createTask({

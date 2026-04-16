@@ -9,6 +9,7 @@ import { getSessionAgent } from "../../features/claude-code-session-state"
 import { getMessageDir } from "./message-dir"
 import { getSessionTools } from "../../shared/session-tools-store"
 import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
+import { resolveParentAgent } from "../../shared/parent-agent-resolution"
 
 export async function executeBackground(
   args: CallOmoAgentArgs,
@@ -33,7 +34,12 @@ export async function executeBackground(
     )
 
     const sessionAgent = getSessionAgent(toolContext.sessionID)
-    const parentAgent = toolContext.agent ?? sessionAgent ?? firstMessageAgent ?? prevMessage?.agent
+    const parentAgent = resolveParentAgent({
+      sessionAgent,
+      toolAgent: toolContext.agent,
+      firstMessageAgent,
+      previousMessageAgent: prevMessage?.agent,
+    })
     
     log("[call_omo_agent] parentAgent resolution", {
       sessionID: toolContext.sessionID,

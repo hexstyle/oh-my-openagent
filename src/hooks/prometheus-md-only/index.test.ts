@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { randomUUID } from "node:crypto"
 import { SYSTEM_DIRECTIVE_PREFIX } from "../../shared/system-directive"
-import { clearSessionAgent } from "../../features/claude-code-session-state"
+import { clearSessionAgent, updateSessionAgent } from "../../features/claude-code-session-state"
 // Force stable (JSON) mode for tests that rely on message file storage
 mock.module("../../shared/opencode-storage-detection", () => ({
   isSqliteBackend: () => false,
@@ -508,6 +508,41 @@ describe("prometheus-md-only", () => {
       await expect(
         hook["tool.execute.before"](input, output)
       ).resolves.toBeUndefined()
+    })
+
+    test("should not inject planning warning when stale in-memory Prometheus conflicts with execution boulder agent", async () => {
+      // given - stale in-memory prometheus after /plan
+      updateSessionAgent(TEST_SESSION_ID, "prometheus")
+
+      // given - atlas execution boulder from /start-work
+      writeFileSync(BOULDER_FILE, JSON.stringify({
+        active_plan: "/test/plan.md",
+        started_at: new Date().toISOString(),
+        session_ids: [TEST_SESSION_ID],
+        plan_name: "test-plan",
+        agent: "atlas"
+      }))
+
+      const hook = createPrometheusMdOnlyHook({
+        client: {},
+        directory: BOULDER_DIR,
+      } as never)
+
+      const input = {
+        tool: "task",
+        sessionID: TEST_SESSION_ID,
+        callID: "call-1",
+      }
+      const output = {
+        args: { prompt: "Implement the failing tests" },
+      }
+
+      // when
+      await hook["tool.execute.before"](input, output)
+
+      // then - execution boulder must override stale Prometheus memory
+      expect(output.args.prompt).toBe("Implement the failing tests")
+      expect(output.args.prompt).not.toContain(SYSTEM_DIRECTIVE_PREFIX)
     })
 
     test("should use prometheus from boulder state when set", async () => {

@@ -23,11 +23,11 @@ describe("validate-effective-model-config model catalog refresh", () => {
 
   test("runs both refresh commands from the neutral config cwd", () => {
     const configDir = getOpenCodeConfigDir({ binary: "opencode" })
-    const calls: Array<{ command: string[]; cwd: string }> = []
+    const calls: Array<{ command: string[]; cwd: string; timeout: number }> = []
 
     const result = refreshModelCatalog({
       spawnSync: (command, options) => {
-        calls.push({ command, cwd: options.cwd })
+        calls.push({ command, cwd: options.cwd, timeout: options.timeout })
         return {
           exitCode: 0,
           stdout: { toString: () => "" },
@@ -43,5 +43,25 @@ describe("validate-effective-model-config model catalog refresh", () => {
       "opencode models opencode --refresh",
     ])
     expect(calls.every((call) => call.cwd === configDir)).toBe(true)
+    expect(calls.every((call) => call.timeout === 15000)).toBe(true)
+  })
+
+  test("returns a warning instead of hanging forever when refresh times out", () => {
+    const result = refreshModelCatalog({
+      timeoutMs: 1234,
+      spawnSync: (_command, _options) => ({
+        exitCode: null,
+        stdout: { toString: () => "" },
+        stderr: { toString: () => "" },
+        signal: "SIGTERM",
+        error: Object.assign(new Error("spawnSync opencode ETIMEDOUT"), { code: "ETIMEDOUT" }),
+      }),
+    })
+
+    expect(result.refreshed).toBe(false)
+    if (result.refreshed) {
+      throw new Error("Expected refresh warning")
+    }
+    expect(result.warning).toContain("timed out after 1234ms")
   })
 })

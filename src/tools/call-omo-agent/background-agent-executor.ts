@@ -8,6 +8,7 @@ import type { ToolContextWithMetadata } from "./tool-context-with-metadata"
 import { getMessageDir } from "./message-storage-directory"
 import { getSessionTools } from "../../shared/session-tools-store"
 import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
+import { resolveParentAgent } from "../../shared/parent-agent-resolution"
 
 export async function executeBackgroundAgent(
 	args: CallOmoAgentArgs,
@@ -24,8 +25,12 @@ export async function executeBackgroundAgent(
 		)
 
 		const sessionAgent = getSessionAgent(toolContext.sessionID)
-		const parentAgent =
-			toolContext.agent ?? sessionAgent ?? firstMessageAgent ?? prevMessage?.agent
+		const parentAgent = resolveParentAgent({
+			sessionAgent,
+			toolAgent: toolContext.agent,
+			firstMessageAgent,
+			previousMessageAgent: prevMessage?.agent,
+		})
 
 		log("[call_omo_agent] parentAgent resolution", {
 			sessionID: toolContext.sessionID,

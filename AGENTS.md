@@ -162,7 +162,7 @@ If you add or rename an agent, update:
 - Architect, reviewer, critic, planner, and controller-style roles prefer `anthropic/claude-opus-4-6` first.
 - Deep execution roles like `Hephaestus` and `Atlas`, plus `Librarian` and `Multimodal Looker`, prefer `openai/gpt-5.4`.
 - `Explore` is the only spark-primary speed lane.
-- `Sisyphus Junior` is the fast coding lane and must keep `openai/gpt-5.4` ahead of `openai/gpt-5.3-codex-spark`.
+- `Sisyphus Junior` is the fast coding lane and must keep `openai/gpt-5.4` ahead of `anthropic/claude-sonnet-4-6`, with `anthropic/claude-sonnet-4-6` ahead of `openai/gpt-5.3-codex-spark`.
 - Do not move planner/review/controller roles onto `spark` primary.
 - Managed host context caps must stay within live model metadata:
   - keep `openai/gpt-5.4`, `anthropic/claude-opus-4-6`, and `anthropic/claude-sonnet-4-6` at or below `200000`
@@ -216,6 +216,7 @@ Current policy:
   - keep its fallback path as `spark` -> free models
 - `Sisyphus Junior` is not `spark`-primary:
   - keep `gpt-5.4` ahead of `spark`
+  - keep `claude-sonnet-4-6` ahead of `spark`
   - keep `spark` ahead of free models
 - active `session.status` events (`busy`, `running`) must refresh the watchdog with the extended long-running timeout window
 - meaningful `message.part.updated` progress (`tool`, `tool_use`, `tool_result`, `compaction`, visible `text`, visible `reasoning`) must refresh the watchdog instead of clearing it

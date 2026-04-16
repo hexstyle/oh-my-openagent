@@ -5,6 +5,7 @@ import { resolveMessageContext } from "../../features/hook-message-injector"
 import { getSessionAgent } from "../../features/claude-code-session-state"
 import { log } from "../../shared/logger"
 import { getMessageDir } from "../../shared/opencode-message-dir"
+import { resolveParentAgent } from "../../shared/parent-agent-resolution"
 
 export async function resolveParentContext(
   ctx: ToolContextWithMetadata,
@@ -18,7 +19,12 @@ export async function resolveParentContext(
   )
 
   const sessionAgent = getSessionAgent(ctx.sessionID)
-  const parentAgent = ctx.agent ?? sessionAgent ?? firstMessageAgent ?? prevMessage?.agent
+  const parentAgent = resolveParentAgent({
+    sessionAgent,
+    toolAgent: ctx.agent,
+    firstMessageAgent,
+    previousMessageAgent: prevMessage?.agent,
+  })
 
   log("[task] parentAgent resolution", {
     sessionID: ctx.sessionID,

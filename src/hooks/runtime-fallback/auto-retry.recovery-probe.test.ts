@@ -1,20 +1,25 @@
-import { describe, expect, it } from "bun:test"
+import { afterEach, describe, expect, it } from "bun:test"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { randomUUID } from "node:crypto"
 
 import { createAutoRetryHelpers, didRecoveryProbeSucceed } from "./auto-retry"
 import { WATCHDOG_CONTINUATION_PROMPT } from "./constants"
 import { createFallbackState } from "./fallback-state"
 import type { HookDeps } from "./types"
 import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
+import { _resetForTesting, setSessionAgent } from "../../features/claude-code-session-state"
 
 function createDeps(args: {
   promptCalls: Array<unknown>
   probeModelAvailability: (args: { sessionID: string; model: string; directory: string }) => Promise<boolean>
   maxFullChainCycles?: number
   timeoutSeconds?: number
+  directory?: string
 }): HookDeps {
   return {
     ctx: {
-      directory: "/tmp/runtime-fallback-recovery-probe",
+      directory: args.directory ?? "/tmp/runtime-fallback-recovery-probe",
       client: {
         session: {
           abort: async () => undefined,
@@ -65,6 +70,10 @@ function createDeps(args: {
 }
 
 describe("runtime fallback recovery probe", () => {
+  afterEach(() => {
+    _resetForTesting()
+  })
+
   it("does not treat flare-style quota probe output as recovered when a later fallback prints OK", () => {
     const flareQuotaOutput = `
 ERROR 2026-04-14T13:57:25 service=llm error={"error":{"name":"AI_APICallError","data":{"message":"You're out of extra usage. Add more at claude.ai/settings/usage and keep going."}}}
@@ -202,6 +211,101 @@ OK
     ).body?.parts?.[0]?.text
     expect(retryText).toContain(OMO_INTERNAL_INITIATOR_MARKER)
     expect(retryText).toContain(WATCHDOG_CONTINUATION_PROMPT)
+  })
+
+  it("prefers boulder execution agent over stale in-memory prometheus during stalled-session nudges", async () => {
+    const promptCalls: Array<unknown> = []
+    const directory = join("/tmp", `runtime-fallback-boulder-agent-${randomUUID()}`)
+    const sessionID = "ses_runtime_fallback_boulder"
+
+    mkdirSync(join(directory, ".sisyphus"), { recursive: true })
+    writeFileSync(
+      join(directory, ".sisyphus", "boulder.json"),
+      JSON.stringify({
+        active_plan: "/tmp/test-plan.md",
+        started_at: new Date().toISOString(),
+        session_ids: [sessionID],
+        plan_name: "test-plan",
+        agent: "atlas",
+      }),
+    )
+    setSessionAgent(sessionID, "Prometheus (Plan Builder)")
+
+    const deps = createDeps({
+      promptCalls,
+      probeModelAvailability: async () => false,
+      timeoutSeconds: 30,
+      directory,
+    })
+    const state = createFallbackState("openai/gpt-5.4", [
+      "opencode/big-pickle",
+    ])
+
+    deps.sessionStates.set(sessionID, state)
+    deps.sessionLastAccess.set(sessionID, Date.now() - (15 * 60_000) - 1_000)
+
+    try {
+      const helpers = createAutoRetryHelpers(deps)
+      await helpers.recoverPreferredModels()
+
+      expect(promptCalls).toHaveLength(1)
+      expect(
+        (promptCalls[0] as { body?: { agent?: string } }).body?.agent,
+      ).toBe("Atlas (Plan Executor)")
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("re-resolves a stale scheduled timeout agent from boulder before dispatching fallback continuation", async () => {
+    const promptCalls: Array<unknown> = []
+    const directory = join("/tmp", `runtime-fallback-timeout-agent-${randomUUID()}`)
+    const sessionID = "ses_runtime_fallback_timeout_agent"
+
+    mkdirSync(join(directory, ".sisyphus"), { recursive: true })
+    writeFileSync(
+      join(directory, ".sisyphus", "boulder.json"),
+      JSON.stringify({
+        active_plan: "/tmp/test-plan.md",
+        started_at: new Date().toISOString(),
+        session_ids: [sessionID],
+        plan_name: "test-plan",
+        agent: "atlas",
+      }),
+    )
+
+    const deps = createDeps({
+      promptCalls,
+      probeModelAvailability: async () => false,
+      timeoutSeconds: 30,
+      directory,
+    })
+    deps.pluginConfig = {
+      fallback_models: ["openai/gpt-5.4"],
+    } as HookDeps["pluginConfig"]
+
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.4",
+    ])
+    deps.sessionStates.set(sessionID, state)
+
+    try {
+      const helpers = createAutoRetryHelpers(deps)
+      helpers.scheduleSessionFallbackTimeout(sessionID, {
+        resolvedAgent: "Prometheus (Plan Builder)",
+        source: "test.stale-timeout-agent",
+        timeoutMsOverride: 1,
+      })
+
+      await new Promise((resolve) => setTimeout(resolve, 25))
+
+      expect(promptCalls).toHaveLength(1)
+      expect(
+        (promptCalls[0] as { body?: { agent?: string } }).body?.agent,
+      ).toBe("Atlas (Plan Executor)")
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it("does not nudge a data_catalog session that already settled with session.idle", async () => {
