@@ -48,6 +48,7 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     transientRetryStartedAt: undefined,
     transientRetryDelayMs: undefined,
     pendingTransientRetry: false,
+    persistentTransientRetry: false,
     pendingFallbackModel: undefined,
     lastLimitErrorAt: undefined,
     lastMeaningfulProgressAt: undefined,
@@ -131,6 +132,7 @@ export function resetTransientRetryState(state: FallbackState): void {
   state.transientRetryStartedAt = undefined
   state.transientRetryDelayMs = undefined
   state.pendingTransientRetry = false
+  state.persistentTransientRetry = false
 }
 
 export function canKeepRetryingTransiently(
@@ -174,11 +176,13 @@ export function markTransientRetryDispatched(
   options?: {
     now?: number
     nextDelayMs?: number
+    persistent?: boolean
   },
 ): void {
   beginTransientRetryWindow(state, options?.now)
   state.transientRetryCount += 1
   state.pendingTransientRetry = true
+  state.persistentTransientRetry = options?.persistent ?? state.persistentTransientRetry ?? false
 
   if (typeof options?.nextDelayMs === "number") {
     state.transientRetryDelayMs = options.nextDelayMs

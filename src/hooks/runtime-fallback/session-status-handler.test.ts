@@ -60,7 +60,7 @@ function createDeps(): HookDeps {
 function createHelpers(
   abortCalls: string[],
   retryCalls: Array<{ sessionID: string; model: string; source: string }>,
-  sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; resolvedAgent?: string }>,
+  sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; persistent?: boolean; resolvedAgent?: string }>,
   scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry"; timeoutMsOverride?: number }>,
   retryCurrentModelResult = false,
 ): AutoRetryHelpers {
@@ -83,12 +83,18 @@ function createHelpers(
     autoRetryWithFallback: async (sessionID: string, model: string, _resolvedAgent: string | undefined, source: string) => {
       retryCalls.push({ sessionID, model, source })
     },
-    retryCurrentModel: async (sessionID: string, resolvedAgent: string | undefined, source: string, options?: { immediate?: boolean }) => {
+    retryCurrentModel: async (
+      sessionID: string,
+      resolvedAgent: string | undefined,
+      source: string,
+      options?: { immediate?: boolean; persistent?: boolean },
+    ) => {
       sameModelRetryCalls.push({
         sessionID,
         resolvedAgent,
         source,
         immediate: options?.immediate ?? false,
+        persistent: options?.persistent ?? false,
       })
       return retryCurrentModelResult
     },
@@ -123,7 +129,7 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
-    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; resolvedAgent?: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; persistent?: boolean; resolvedAgent?: string }> = []
     const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" }> = []
     const state = createFallbackState("anthropic/claude-opus-4-6")
     state.currentModel = "openai/gpt-5.4"
@@ -173,7 +179,7 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
-    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; resolvedAgent?: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; persistent?: boolean; resolvedAgent?: string }> = []
     const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" }> = []
     const state = createFallbackState("anthropic/claude-opus-4-6")
     state.currentModel = "openai/gpt-5.4"
@@ -217,7 +223,7 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
-    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; resolvedAgent?: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; persistent?: boolean; resolvedAgent?: string }> = []
     const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string }> = []
     const state = createFallbackState("anthropic/claude-opus-4-6")
     deps.sessionStates.set(sessionID, state)
@@ -259,7 +265,7 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
-    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; resolvedAgent?: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; persistent?: boolean; resolvedAgent?: string }> = []
     const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; timeoutMsOverride?: number }> = []
     const state = createFallbackState("openai/gpt-5.4")
     deps.sessionStates.set(sessionID, state)
@@ -299,7 +305,7 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
-    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; resolvedAgent?: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; persistent?: boolean; resolvedAgent?: string }> = []
     const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; timeoutMsOverride?: number }> = []
     const state = createFallbackState("openai/gpt-5.4")
     deps.sessionStates.set(sessionID, state)
@@ -347,7 +353,7 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
-    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; resolvedAgent?: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; persistent?: boolean; resolvedAgent?: string }> = []
     const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" }> = []
     const state = createFallbackState("anthropic/claude-opus-4-6")
     deps.sessionStates.set(sessionID, state)
@@ -374,6 +380,7 @@ describe("createSessionStatusHandler", () => {
         sessionID,
         source: "session.status.transient_same_model",
         immediate: false,
+        persistent: true,
         resolvedAgent: undefined,
       },
     ])
@@ -386,7 +393,7 @@ describe("createSessionStatusHandler", () => {
       sessionID,
       providerFamily: "claude",
       model: "anthropic/claude-opus-4-6",
-      action: "retry_same_model_delayed",
+      action: "retry_same_model_delayed_persistent",
       statusCode: 403,
     })
   })

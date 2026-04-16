@@ -84,12 +84,21 @@ function getWatchdogModelIdentity(model: string): string {
   return model.replace(/\([^()]+\)$/, "").trim()
 }
 
-function shouldOmitRetryAgent(targetModel: string, originalModel?: string): boolean {
+function shouldOmitRetryAgent(
+  targetModel: string,
+  originalModel?: string,
+  retryAgent?: string,
+): boolean {
   if (!originalModel) {
     return false
   }
 
-  return getWatchdogModelIdentity(targetModel) !== getWatchdogModelIdentity(originalModel)
+  if (getWatchdogModelIdentity(targetModel) === getWatchdogModelIdentity(originalModel)) {
+    return false
+  }
+
+  const normalizedAgent = normalizeAgentName(retryAgent)
+  return !normalizedAgent || normalizedAgent === "prometheus"
 }
 
 function isBoulderTrackedExecutionSession(sessionID: string, directory: string): boolean {
@@ -347,6 +356,22 @@ export function createAutoRetryHelpers(deps: HookDeps) {
       return
     }
 
+    const transitionMode = getRuntimeFallbackTransitionMode({
+      resolvedAgent: args.resolvedAgent,
+      currentModel: args.currentModel,
+      newModel: nextModel,
+    })
+    if (transitionMode === "scoped_handoff") {
+      log(`[${HOOK_NAME}] Skipping external watchdog because fallback requires scoped handoff`, {
+        sessionID: args.sessionID,
+        source: args.source,
+        currentModel: args.currentModel,
+        nextModel,
+        resolvedAgent: args.resolvedAgent,
+      })
+      return
+    }
+
     ensureExternalWatchdogDir()
 
     const now = Date.now()
@@ -376,7 +401,11 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     }
 
     const cliModel = splitWatchdogCliModel(nextModel)
-    const cliAgent = shouldOmitRetryAgent(nextModel, args.originalModel ?? args.currentModel)
+    const cliAgent = shouldOmitRetryAgent(
+      nextModel,
+      args.originalModel ?? args.currentModel,
+      args.resolvedAgent,
+    )
       ? ""
       : resolveExternalWatchdogAgent(args.resolvedAgent)
     const internalWatchdogPrompt = createInternalAgentTextPart(FALLBACK_CONTINUATION_PROMPT).text
@@ -759,10 +788,13 @@ fi
 
         if (mode === "transient_retry" && state.pendingTransientRetry) {
           await abortSessionRequest(sessionID, source)
+          const persistentTransientRetry = state.persistentTransientRetry ?? false
           state.pendingTransientRetry = false
 
-          if (canKeepRetryingTransiently(state, config)) {
-            scheduleTransientRetry(sessionID, resolvedAgent, `${source}.transient-timeout`)
+          if (persistentTransientRetry || canKeepRetryingTransiently(state, config)) {
+            scheduleTransientRetry(sessionID, resolvedAgent, `${source}.transient-timeout`, {
+              persistent: persistentTransientRetry,
+            })
             return
           }
         }
@@ -829,13 +861,18 @@ fi
     sessionID: string,
     resolvedAgent: string | undefined,
     source: string,
+    options?: {
+      persistent?: boolean
+    },
   ): void => {
     const state = sessionStates.get(sessionID)
     if (!state) {
       return
     }
 
-    if (!canKeepRetryingTransiently(state, config)) {
+    const persistent = options?.persistent ?? state.persistentTransientRetry ?? false
+
+    if (!persistent && !canKeepRetryingTransiently(state, config)) {
       log(`[${HOOK_NAME}] Transient retry window exhausted`, {
         sessionID,
         source,
@@ -857,6 +894,7 @@ fi
     beginTransientRetryWindow(state)
     const delayMs = getNextTransientRetryDelayMs(state, config)
     state.transientRetryDelayMs = delayMs
+    state.persistentTransientRetry = persistent
 
     log(`[${HOOK_NAME}] Scheduling delayed transient retry on current model`, {
       sessionID,
@@ -864,6 +902,7 @@ fi
       currentModel: state.currentModel,
       delayMs,
       transientRetryCount: state.transientRetryCount,
+      persistent,
     })
 
     const timer = setTimeout(async () => {
@@ -874,7 +913,8 @@ fi
         return
       }
 
-      if (!canKeepRetryingTransiently(latestState, config)) {
+      const latestPersistent = latestState.persistentTransientRetry ?? false
+      if (!latestPersistent && !canKeepRetryingTransiently(latestState, config)) {
         log(`[${HOOK_NAME}] Skipping delayed transient retry after retry window expired`, {
           sessionID,
           source,
@@ -883,7 +923,7 @@ fi
         return
       }
 
-      markTransientRetryDispatched(latestState)
+      markTransientRetryDispatched(latestState, { persistent: latestPersistent })
       await autoRetryWithFallback(sessionID, latestState.currentModel, resolvedAgent, `${source}.retry`, {
         transientRetry: true,
       })
@@ -948,7 +988,7 @@ fi
         })
         const preserveRetryAgent = isBoulderTrackedExecutionSession(sessionID, ctx.directory)
         const retryPromptAgent = (!preserveRetryAgent
-          && shouldOmitRetryAgent(newModel, state?.originalModel ?? newModel))
+          && shouldOmitRetryAgent(newModel, state?.originalModel ?? newModel, retryAgent))
           ? undefined
           : normalizeAgentForSessionPrompt(retryAgent)
 
@@ -1056,6 +1096,7 @@ fi
     source: string,
     options?: {
       immediate?: boolean
+      persistent?: boolean
     },
   ): Promise<boolean> => {
     const state = sessionStates.get(sessionID)
@@ -1064,8 +1105,9 @@ fi
     }
 
     const immediate = options?.immediate ?? true
+    const persistent = options?.persistent ?? false
 
-    if (!canKeepRetryingTransiently(state, config)) {
+    if (!persistent && !canKeepRetryingTransiently(state, config)) {
       log(`[${HOOK_NAME}] Transient retry window exhausted before retry dispatch`, {
         sessionID,
         source,
@@ -1074,13 +1116,16 @@ fi
       return false
     }
 
+    state.persistentTransientRetry = persistent
+
     if (immediate && state.transientRetryCount === 0) {
-      markTransientRetryDispatched(state)
+      markTransientRetryDispatched(state, { persistent })
       log(`[${HOOK_NAME}] Retrying current model immediately after transient error`, {
         sessionID,
         source,
         currentModel: state.currentModel,
         transientRetryCount: state.transientRetryCount,
+        persistent,
       })
 
       await autoRetryWithFallback(sessionID, state.currentModel, resolvedAgent, `${source}.retry`, {
@@ -1094,10 +1139,11 @@ fi
         sessionID,
         source,
         currentModel: state.currentModel,
+        persistent,
       })
     }
 
-    scheduleTransientRetry(sessionID, resolvedAgent, source)
+    scheduleTransientRetry(sessionID, resolvedAgent, source, { persistent })
     return true
   }
 

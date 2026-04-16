@@ -74,14 +74,14 @@ describe("runtime fallback policy", () => {
         { statusCode: 403, message: "Request not allowed" },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed")
+    ).toBe("retry_same_model_delayed_persistent")
 
     expect(
       getRuntimeFallbackAction(
         { message: "403 Forbidden" },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed")
+    ).toBe("retry_same_model_delayed_persistent")
 
     expect(
       getRuntimeFallbackAction(
@@ -94,7 +94,7 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed")
+    ).toBe("retry_same_model_delayed_persistent")
 
     expect(
       getRuntimeFallbackAction(
@@ -110,7 +110,7 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed")
+    ).toBe("retry_same_model_delayed_persistent")
 
     expect(
       getRuntimeFallbackAction(
@@ -119,7 +119,7 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed")
+    ).toBe("retry_same_model_delayed_persistent")
   })
 
   it("routes gateway/proxy-blocked 403 forbidden errors directly to fallback_chain", () => {
@@ -159,7 +159,18 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed")
+    ).toBe("retry_same_model_delayed_persistent")
+  })
+
+  it("treats plain local tool execution aborts as persistent delayed same-model retries", () => {
+    expect(
+      getRuntimeFallbackAction(
+        {
+          message: "Tool execution aborted",
+        },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("retry_same_model_delayed_persistent")
   })
 
   it("treats wrapped and remote compact 500 internal-server errors as immediate same-model retries", () => {

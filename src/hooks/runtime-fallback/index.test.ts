@@ -565,7 +565,7 @@ describe("runtime-fallback", () => {
         sessionID,
         providerFamily: "codex",
         model: "openai/gpt-5.4",
-        action: "retry_same_model_delayed",
+        action: "retry_same_model_delayed_persistent",
         statusCode: 403,
       })
     })
@@ -677,6 +677,73 @@ describe("runtime-fallback", () => {
             sessionID,
             error: {
               message: 'Forbidden: {"error":{"type":"forbidden","message":"Request not allowed"}}',
+            },
+          },
+        },
+      })
+
+      expect(promptCalls).toHaveLength(0)
+
+      await new Promise((resolve) => setTimeout(resolve, 20))
+
+      expect(promptCalls).toHaveLength(1)
+      expect(
+        (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
+      ).toEqual({
+        providerID: "openai",
+        modelID: "gpt-5.4",
+      })
+
+      const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
+      expect(fallbackLogs).toHaveLength(0)
+    })
+
+    test("request-not-allowed 403 keeps retrying the same model even after the normal transient window is disabled", async () => {
+      const promptCalls: Array<Record<string, unknown>> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
+            }),
+            promptAsync: async (input) => {
+              promptCalls.push(input as Record<string, unknown>)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({
+            notify_on_fallback: false,
+            transient_retry_window_seconds: 0,
+            transient_retry_initial_delay_seconds: 0.01,
+            transient_retry_max_delay_seconds: 0.05,
+          }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback([
+            "openai/gpt-5.4",
+            "openai/gpt-5.3-codex-spark",
+            "opencode/minimax-m2.5-free",
+          ]),
+        },
+      )
+      const sessionID = "test-session-request-not-allowed-persistent"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "openai/gpt-5.4" } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            error: {
+              statusCode: 403,
+              message: "Request not allowed",
             },
           },
         },
@@ -945,7 +1012,7 @@ describe("runtime-fallback", () => {
         sessionID,
         providerFamily: "claude",
         model: "anthropic/claude-opus-4-6",
-        action: "retry_same_model_delayed",
+        action: "retry_same_model_delayed_persistent",
         statusCode: 403,
       })
 
@@ -1194,9 +1261,9 @@ describe("runtime-fallback", () => {
       } | undefined
       expect(body?.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" })
 
-      // When we force a distinct fallback model, agent defaults must not pull the turn back
-      // onto the agent's configured primary model.
-      expect(body?.agent).toBeUndefined()
+      // Explore must stay explicitly pinned on same-session fallback; omitting agent lets
+      // OpenCode drift the turn back onto the default Prometheus lane.
+      expect(body?.agent).toBe("explore")
     })
 
     test("agent-not-found error without UnknownError name still routes to fallback_chain", async () => {

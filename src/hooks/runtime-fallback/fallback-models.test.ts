@@ -66,6 +66,28 @@ describe("runtime-fallback fallback-models", () => {
     expect(result).toEqual(["openai/gpt-5.2", "anthropic/claude-opus-4-6"])
   })
 
+  test("resolves agent-specific fallback_models from canonical display names", () => {
+    const pluginConfig = {
+      agents: {
+        atlas: {
+          fallback_models: ["anthropic/claude-sonnet-4-6", "openai/gpt-5.3-codex-spark"],
+        },
+      },
+      fallback_models: ["openai/gpt-5.4", "opencode/minimax-m2.5-free"],
+    } as any
+
+    const result = getFallbackModelsForSession(
+      "ses_runtime_fallback_display_name",
+      "Atlas (Plan Executor)",
+      pluginConfig,
+    )
+
+    expect(result).toEqual([
+      "anthropic/claude-sonnet-4-6",
+      "openai/gpt-5.3-codex-spark",
+    ])
+  })
+
   test("does not fall back to another agent chain when agent cannot be resolved", () => {
     //#given
     const pluginConfig = {

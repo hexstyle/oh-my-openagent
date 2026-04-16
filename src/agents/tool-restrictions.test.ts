@@ -54,7 +54,7 @@ describe("read-only agent tool restrictions", () => {
   })
 
   describe("Explore", () => {
-    test("denies all file-writing tools", () => {
+    test("keeps file-writing tools blocked via wildcard-deny allowlist", () => {
       // given
       const agent = createExploreAgent(TEST_MODEL)
 
@@ -62,9 +62,38 @@ describe("read-only agent tool restrictions", () => {
       const permission = agent.permission as Record<string, string>
 
       // then
+      expect(permission["*"]).toBe("deny")
       for (const tool of FILE_WRITE_TOOLS) {
-        expect(permission[tool]).toBe("deny")
+        expect(permission[tool] ?? permission["*"]).toBe("deny")
       }
+    })
+
+    test("allowlists only read-only code search tools", () => {
+      //#given
+      const agent = createExploreAgent(TEST_MODEL)
+
+      //#when
+      const permission = agent.permission as Record<string, string>
+
+      //#then
+      expect(permission).toMatchObject({
+        "*": "deny",
+        bash: "allow",
+        read: "allow",
+        grep: "allow",
+        glob: "allow",
+        ast_grep_search: "allow",
+        lsp_definition: "allow",
+        lsp_references: "allow",
+        lsp_hover: "allow",
+        lsp_symbols: "allow",
+        lsp_diagnostics: "allow",
+      })
+      expect(permission["task"]).toBeUndefined()
+      expect(permission["call_omo_agent"]).toBeUndefined()
+      expect(permission["session_search"]).toBeUndefined()
+      expect(permission["websearch_web_search_exa"]).toBeUndefined()
+      expect(permission["context7_query-docs"]).toBeUndefined()
     })
   })
 

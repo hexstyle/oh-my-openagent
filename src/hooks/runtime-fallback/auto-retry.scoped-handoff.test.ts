@@ -174,5 +174,8 @@ describe("runtime fallback scoped handoff", () => {
     expect(
       (promptCalls[0] as { path?: { id?: string } }).path?.id,
     ).toBe(sessionID)
+    expect(
+      (promptCalls[0] as { body?: { agent?: string } }).body?.agent,
+    ).toBe("explore")
   })
 })

@@ -875,6 +875,23 @@ describe("keyword-detector non-OMO agent skipping", () => {
     expect(textPart!.text).toContain("implement this")
   })
 
+  test("should skip keyword injection for Explore agent", async () => {
+    const collector = new ContextCollector()
+    const hook = createKeywordDetectorHook(createMockPluginInput(), collector)
+    const sessionID = "explore-session"
+    const output = {
+      message: {} as Record<string, unknown>,
+      parts: [{ type: "text", text: "find the main test entrypoints" }],
+    }
+
+    await hook["chat.message"]({ sessionID, agent: "explore" }, output)
+
+    const textPart = output.parts.find(p => p.type === "text")
+    expect(textPart).toBeDefined()
+    expect(textPart!.text).toBe("find the main test entrypoints")
+    expect(textPart!.text).not.toContain("[search-mode]")
+  })
+
   test("should skip keyword injection for agent names containing 'builder'", async () => {
     // given - keyword-detector hook with a builder-variant agent name
     const collector = new ContextCollector()

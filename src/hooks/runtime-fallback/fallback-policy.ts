@@ -10,6 +10,7 @@ import {
 export type RuntimeFallbackAction =
   | "retry_same_model"
   | "retry_same_model_delayed"
+  | "retry_same_model_delayed_persistent"
   | "fallback_chain"
   | "limit_fallback"
 export type RuntimeFallbackTier = "paid" | "spark" | "free"
@@ -31,6 +32,40 @@ const NETWORK_ERROR_PATTERNS = [
   /bad gateway/i,
   /overloaded/i,
 ]
+
+function isPlainLocalToolAbort(error: unknown): boolean {
+  const message = getErrorMessage(error)
+  if (!/tool execution aborted/i.test(message)) {
+    return false
+  }
+
+  const statusCode = extractStatusCode(error, [...LIMIT_STATUS_CODES, ...TRANSIENT_STATUS_CODES, 403])
+  if (statusCode !== undefined) {
+    return false
+  }
+
+  const serialized = (() => {
+    try {
+      return JSON.stringify(error).toLowerCase()
+    } catch {
+      return message
+    }
+  })()
+
+  return !(
+    /request not allowed|forbidden|quota|usage limit|payment required|internal server error|service unavailable/.test(serialized)
+  )
+}
+
+export function isSameModelRetryAction(action: RuntimeFallbackAction): boolean {
+  return action === "retry_same_model"
+    || action === "retry_same_model_delayed"
+    || action === "retry_same_model_delayed_persistent"
+}
+
+export function isPersistentSameModelRetryAction(action: RuntimeFallbackAction): boolean {
+  return action === "retry_same_model_delayed_persistent"
+}
 
 function dedupeModels(models: string[], currentModel?: string): string[] {
   const seen = new Set<string>()
@@ -71,7 +106,11 @@ export function getRuntimeFallbackAction(error: unknown, retryOnErrors: number[]
   }
 
   if (isTransientForbiddenError(error)) {
-    return "retry_same_model_delayed"
+    return "retry_same_model_delayed_persistent"
+  }
+
+  if (isPlainLocalToolAbort(error)) {
+    return "retry_same_model_delayed_persistent"
   }
 
   if (statusCode !== undefined && TRANSIENT_STATUS_CODES.has(statusCode)) {

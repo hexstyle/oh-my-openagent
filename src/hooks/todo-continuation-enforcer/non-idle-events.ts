@@ -6,12 +6,18 @@ import { COUNTDOWN_GRACE_PERIOD_MS, HOOK_NAME } from "./constants"
 import type { SessionStateStore } from "./session-state"
 
 export function handleNonIdleEvent(args: {
-  directory: string
+  directory?: string
   eventType: string
   properties: Record<string, unknown> | undefined
   sessionStateStore: SessionStateStore
 }): void {
   const { directory, eventType, properties, sessionStateStore } = args
+  const updateContinuationMarker = (sessionID: string) => {
+    if (!directory) {
+      return
+    }
+    setContinuationMarkerSource(directory, sessionID, "todo", "idle")
+  }
 
   if (eventType === "message.updated") {
     const info = properties?.info as Record<string, unknown> | undefined
@@ -41,7 +47,7 @@ export function handleNonIdleEvent(args: {
         state.transientRetryDetectedAt = undefined
       }
       sessionStateStore.cancelCountdown(sessionID)
-      setContinuationMarkerSource(directory, sessionID, "todo", "idle")
+      updateContinuationMarker(sessionID)
       return
     }
 
@@ -52,7 +58,7 @@ export function handleNonIdleEvent(args: {
         state.transientRetryDetectedAt = undefined
       }
       sessionStateStore.cancelCountdown(sessionID)
-      setContinuationMarkerSource(directory, sessionID, "todo", "idle")
+      updateContinuationMarker(sessionID)
       return
     }
 
@@ -84,7 +90,7 @@ export function handleNonIdleEvent(args: {
         state.transientRetryDetectedAt = undefined
       }
       sessionStateStore.cancelCountdown(sessionID)
-      setContinuationMarkerSource(directory, sessionID, "todo", "idle")
+      updateContinuationMarker(sessionID)
     }
     return
   }

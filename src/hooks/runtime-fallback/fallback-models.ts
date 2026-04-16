@@ -1,6 +1,6 @@
 import type { OhMyOpenCodeConfig } from "../../config"
 import type { FallbackModelObject } from "../../config/schema/fallback-models"
-import { agentPattern } from "./agent-resolver"
+import { agentPattern, normalizeAgentName } from "./agent-resolver"
 import { HOOK_NAME } from "./constants"
 import { log } from "../../shared/logger"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
@@ -79,7 +79,8 @@ function getRawFallbackModelsForSession(
   }
 
   const tryGetFallbackFromAgent = (agentName: string): (string | FallbackModelObject)[] | undefined => {
-    const agentConfig = pluginConfig.agents?.[agentName as keyof typeof pluginConfig.agents]
+    const normalizedAgentName = normalizeAgentName(agentName) ?? agentName
+    const agentConfig = pluginConfig.agents?.[normalizedAgentName as keyof typeof pluginConfig.agents]
     if (!agentConfig) return undefined
 
     if (agentConfig?.fallback_models) {

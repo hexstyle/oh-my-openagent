@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:te
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import * as childProcessModule from "node:child_process"
 
 import { createFallbackState } from "./fallback-state"
 import { createLoopDetector } from "./internal-continuation-loop-detector"
@@ -57,7 +58,7 @@ function createDeps(): HookDeps {
       session_timeout_ms: 60_000,
     },
     pluginConfig: {
-      fallback_models: ["openai/gpt-5.3-codex-spark"],
+      fallback_models: ["openai/gpt-5.4"],
     } as HookDeps["pluginConfig"],
     loopDetector: createLoopDetector(),
     sessionStates: new Map(),
@@ -89,6 +90,7 @@ describe("runtime fallback external watchdog process lifecycle", () => {
       tmpdir: () => TEST_TMP_DIR,
     }))
     mock.module("node:child_process", () => ({
+      ...childProcessModule,
       spawn: (...args: unknown[]) => {
         const pid = nextPid++
         livePids.add(pid)
@@ -128,18 +130,18 @@ describe("runtime fallback external watchdog process lifecycle", () => {
     const sessionID = "ses_external_watchdog_rearm"
 
     const deps = createDeps()
-    deps.sessionStates.set(sessionID, createFallbackState("openai/gpt-5.4"))
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
     createAutoRetryHelpers(deps).scheduleSessionFallbackTimeout(sessionID, {
-      resolvedAgent: "Atlas (Plan Executor)",
+      resolvedAgent: "Prometheus (Plan Builder)",
       source: "session.error",
     })
 
     expect(spawnCalls).toHaveLength(1)
 
     const depsAfterRestart = createDeps()
-    depsAfterRestart.sessionStates.set(sessionID, createFallbackState("openai/gpt-5.4"))
+    depsAfterRestart.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
     createAutoRetryHelpers(depsAfterRestart).scheduleSessionFallbackTimeout(sessionID, {
-      resolvedAgent: "Atlas (Plan Executor)",
+      resolvedAgent: "Prometheus (Plan Builder)",
       source: "session.error.restart",
     })
 
@@ -155,11 +157,11 @@ describe("runtime fallback external watchdog process lifecycle", () => {
     const pidFilePath = join(TEST_TMP_DIR, "oh-my-opencode-watchdogs", `${sessionID}.pid`)
 
     const deps = createDeps()
-    deps.sessionStates.set(sessionID, createFallbackState("openai/gpt-5.4"))
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
     const helpers = createAutoRetryHelpers(deps)
 
     helpers.scheduleSessionFallbackTimeout(sessionID, {
-      resolvedAgent: "Atlas (Plan Executor)",
+      resolvedAgent: "Prometheus (Plan Builder)",
       source: "session.error",
     })
 
@@ -193,10 +195,10 @@ describe("runtime fallback external watchdog process lifecycle", () => {
         }],
       },
     }
-    deps.sessionStates.set(sessionID, createFallbackState("openai/gpt-5.4"))
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
 
     createAutoRetryHelpers(deps).scheduleSessionFallbackTimeout(sessionID, {
-      resolvedAgent: "Atlas (Plan Executor)",
+      resolvedAgent: "Prometheus (Plan Builder)",
       source: "message.part.updated.progress",
     })
 
@@ -208,10 +210,10 @@ describe("runtime fallback external watchdog process lifecycle", () => {
     const sessionID = "ses_external_watchdog_internal_prompt"
 
     const deps = createDeps()
-    deps.sessionStates.set(sessionID, createFallbackState("openai/gpt-5.4"))
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
 
     createAutoRetryHelpers(deps).scheduleSessionFallbackTimeout(sessionID, {
-      resolvedAgent: "Atlas (Plan Executor)",
+      resolvedAgent: "Prometheus (Plan Builder)",
       source: "session.error",
     })
 
@@ -260,5 +262,31 @@ describe("runtime fallback external watchdog process lifecycle", () => {
     expect(command).toBe("bun")
     expect(childArgs?.[7]).toBe("openai/gpt-5.4")
     expect(childArgs?.[9]).toBe("")
+  })
+
+  it("does not arm an external watchdog when the next fallback requires scoped handoff", async () => {
+    const { createAutoRetryHelpers } = await import(`./auto-retry?external-watchdog-scoped-handoff-${Date.now()}-${Math.random()}`)
+    const sessionID = "ses_external_watchdog_scoped_handoff"
+
+    const deps = createDeps()
+    deps.pluginConfig = {
+      agents: {
+        atlas: {
+          model: "anthropic/claude-sonnet-4-6",
+          fallback_models: [
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5.3-codex-spark",
+          ],
+        },
+      },
+    } as HookDeps["pluginConfig"]
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-sonnet-4-6"))
+
+    createAutoRetryHelpers(deps).scheduleSessionFallbackTimeout(sessionID, {
+      resolvedAgent: "Atlas (Plan Executor)",
+      source: "message.updated.assistant",
+    })
+
+    expect(spawnCalls).toHaveLength(0)
   })
 })

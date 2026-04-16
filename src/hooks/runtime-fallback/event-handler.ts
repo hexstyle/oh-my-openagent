@@ -15,7 +15,12 @@ import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
 import { createSessionStatusHandler } from "./session-status-handler"
 import { extractEventModelString } from "./event-model"
 import { clearRecentCompletionState, markSessionRecentlyCompleted } from "./recent-completion-guard"
-import { getRuntimeFallbackAction, selectFallbackModelsForAction } from "./fallback-policy"
+import {
+  getRuntimeFallbackAction,
+  isPersistentSameModelRetryAction,
+  isSameModelRetryAction,
+  selectFallbackModelsForAction,
+} from "./fallback-policy"
 import { logTrackedProvider403 } from "./provider-403-diagnostics"
 
 export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
@@ -95,6 +100,9 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     const toolStatus = typeof part?.state === "object" && part.state
       ? (part.state as { status?: string }).status
       : undefined
+    const toolError = typeof part?.state === "object" && part.state
+      ? (part.state as { error?: string }).error
+      : undefined
     const partText = typeof part?.text === "string" ? part.text.trim() : ""
     const delta = typeof props?.delta === "string" ? props.delta : ""
     const field = typeof props?.field === "string" ? props.field : undefined
@@ -142,6 +150,29 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       source: `${source}.progress`,
       timeoutMsOverride,
     })
+
+    if (partType === "tool" && toolStatus === "error" && typeof toolError === "string" && toolError.trim().length > 0) {
+      const retryAction = getRuntimeFallbackAction({ message: toolError }, config.retry_on_errors)
+      if (isPersistentSameModelRetryAction(retryAction)) {
+        const retried = await helpers.retryCurrentModel(
+          sessionID,
+          resolvedAgent,
+          `${source}.tool-error`,
+          {
+            immediate: false,
+            persistent: true,
+          },
+        )
+        log(`[${HOOK_NAME}] Observed local tool abort during assistant progress`, {
+          sessionID,
+          source,
+          toolName,
+          resolvedAgent,
+          retried,
+          retryAction,
+        })
+      }
+    }
 
     if (sessionAwaitingFallbackResult.has(sessionID)) {
       sessionAwaitingFallbackResult.delete(sessionID)
@@ -508,17 +539,18 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       markLimitError(state)
     }
 
-    if (action === "retry_same_model" || action === "retry_same_model_delayed") {
+    if (isSameModelRetryAction(action)) {
       const retried = await helpers.retryCurrentModel(sessionID, resolvedAgent, "session.error", {
         immediate: action === "retry_same_model",
+        persistent: isPersistentSameModelRetryAction(action),
       })
-      if (retried) {
+      if (retried || isPersistentSameModelRetryAction(action)) {
         return
       }
     }
 
     const effectiveAction =
-      action === "retry_same_model" || action === "retry_same_model_delayed"
+      isSameModelRetryAction(action)
         ? "fallback_chain"
         : action
     const errorAwareFallbackModels = selectFallbackModelsForAction({

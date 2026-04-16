@@ -63,6 +63,7 @@ export interface FallbackState {
   transientRetryStartedAt?: number
   transientRetryDelayMs?: number
   pendingTransientRetry?: boolean
+  persistentTransientRetry?: boolean
   pendingFallbackModel?: string
   /** Timestamp of the last quota / rate-limit signal for this session. Used to
    *  route `MessageAbortedError` events and watchdog timeouts through the

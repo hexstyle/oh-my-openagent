@@ -12,6 +12,7 @@ import {
   subagentSessions,
 } from "../../features/claude-code-session-state"
 import type { ContextCollector } from "../../features/context-injector"
+import { getAgentConfigKey } from "../../shared/agent-display-names"
 
 function isKeywordMessageAlreadyInjected(
   promptText: string,
@@ -55,6 +56,14 @@ export function createKeywordDetectorHook(ctx: PluginInput, _collector?: Context
       // Skip all keyword injection for non-OMO agents (e.g., OpenCode-Builder, Plan)
       if (isNonOmoAgent(currentAgent)) {
         log(`[keyword-detector] Skipping keyword injection for non-OMO agent`, { sessionID: input.sessionID, agent: currentAgent })
+        return
+      }
+
+      if (typeof currentAgent === "string" && getAgentConfigKey(currentAgent) === "explore") {
+        log(`[keyword-detector] Skipping keyword injection for explore agent`, {
+          sessionID: input.sessionID,
+          agent: currentAgent,
+        })
         return
       }
 

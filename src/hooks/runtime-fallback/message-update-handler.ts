@@ -8,7 +8,12 @@ import { getFallbackModelsForSession } from "./fallback-models"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
 import { extractEventModelString } from "./event-model"
-import { getRuntimeFallbackAction, selectFallbackModelsForAction } from "./fallback-policy"
+import {
+  getRuntimeFallbackAction,
+  isPersistentSameModelRetryAction,
+  isSameModelRetryAction,
+  selectFallbackModelsForAction,
+} from "./fallback-policy"
 import { logTrackedProvider403 } from "./provider-403-diagnostics"
 import {
   hasVisibleAssistantEventContent,
@@ -331,7 +336,10 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         ? getRuntimeFallbackAction(error, config.retry_on_errors)
         : undefined
 
-      if (retryAction === "retry_same_model_delayed" && sessionTransientRetryTimeouts.has(sessionID)) {
+      if (
+        isSameModelRetryAction(retryAction ?? "fallback_chain")
+        && sessionTransientRetryTimeouts.has(sessionID)
+      ) {
         log(`[${HOOK_NAME}] message.updated transient retry already scheduled; preserving existing timer`, {
           sessionID,
           model,
@@ -430,17 +438,18 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         action,
       })
 
-      if (action === "retry_same_model" || action === "retry_same_model_delayed") {
+      if (isSameModelRetryAction(action)) {
         const retried = await helpers.retryCurrentModel(sessionID, resolvedAgent, "message.updated", {
           immediate: action === "retry_same_model",
+          persistent: isPersistentSameModelRetryAction(action),
         })
-        if (retried) {
+        if (retried || isPersistentSameModelRetryAction(action)) {
           return
         }
       }
 
       const effectiveAction =
-        action === "retry_same_model" || action === "retry_same_model_delayed"
+        isSameModelRetryAction(action)
           ? "fallback_chain"
           : action
       const errorAwareFallbackModels = selectFallbackModelsForAction({

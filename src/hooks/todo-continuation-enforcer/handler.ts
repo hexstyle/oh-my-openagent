@@ -2,7 +2,7 @@ import type { PluginInput } from "@opencode-ai/plugin"
 
 import type { BackgroundManager } from "../../features/background-agent"
 import { DEFAULT_CONFIG as DEFAULT_RUNTIME_FALLBACK_CONFIG } from "../runtime-fallback/constants"
-import { getRuntimeFallbackAction } from "../runtime-fallback/fallback-policy"
+import { getRuntimeFallbackAction, isSameModelRetryAction } from "../runtime-fallback/fallback-policy"
 import {
   clearContinuationMarker,
   setContinuationMarkerSource,
@@ -48,7 +48,7 @@ export function createTodoContinuationHandler(args: {
         props?.error,
         DEFAULT_RUNTIME_FALLBACK_CONFIG.retry_on_errors,
       )
-      if (retryAction === "retry_same_model" || retryAction === "retry_same_model_delayed") {
+      if (isSameModelRetryAction(retryAction)) {
         const state = sessionStateStore.getState(sessionID)
         state.transientRetryDetectedAt = Date.now()
         log(`[${HOOK_NAME}] Runtime fallback transient retry detected via session.error`, {

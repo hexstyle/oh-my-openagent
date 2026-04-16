@@ -6,6 +6,13 @@ import { createEventHandler } from "./event-handler"
 
 type TestHelpers = AutoRetryHelpers & {
   __scheduleCallsForTest: Array<{ sessionID: string; source?: string; resolvedAgent?: string; timeoutMsOverride?: number }>
+  __retryCurrentModelCallsForTest: Array<{
+    sessionID: string
+    resolvedAgent?: string
+    source: string
+    immediate?: boolean
+    persistent?: boolean
+  }>
 }
 
 function createContext(): RuntimeFallbackPluginInput {
@@ -55,6 +62,13 @@ function createDeps(): HookDeps {
 
 function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[]): TestHelpers {
   const scheduleCalls: Array<{ sessionID: string; source?: string; resolvedAgent?: string; timeoutMsOverride?: number }> = []
+  const retryCurrentModelCalls: Array<{
+    sessionID: string
+    resolvedAgent?: string
+    source: string
+    immediate?: boolean
+    persistent?: boolean
+  }> = []
 
   return {
     abortSessionRequest: async (sessionID: string) => {
@@ -77,11 +91,21 @@ function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[
       deps.sessionFallbackTimeouts.set(sessionID, 1)
     },
     autoRetryWithFallback: async () => {},
-    retryCurrentModel: async () => false,
+    retryCurrentModel: async (sessionID, resolvedAgent, source, options) => {
+      retryCurrentModelCalls.push({
+        sessionID,
+        resolvedAgent,
+        source,
+        immediate: options?.immediate,
+        persistent: options?.persistent,
+      })
+      return false
+    },
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
     recoverPreferredModels: async () => {},
     __scheduleCallsForTest: scheduleCalls,
+    __retryCurrentModelCallsForTest: retryCurrentModelCalls,
   }
 }
 
@@ -318,5 +342,52 @@ describe("createEventHandler", () => {
         ])
       })
     }
+
+    it("#when a local tool abort progress part arrives #then the handler arms a persistent same-model retry", async () => {
+      const sessionID = "session-progress-local-tool-abort"
+      const deps = createDeps()
+      const abortCalls: string[] = []
+      const clearCalls: string[] = []
+      deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
+      const helpers = createHelpers(deps, abortCalls, clearCalls)
+      const handler = createEventHandler(deps, helpers)
+
+      await handler({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            info: { sessionID, role: "assistant", agent: "Prometheus (Plan Builder)" },
+            part: {
+              sessionID,
+              type: "tool",
+              tool: "question",
+              state: {
+                status: "error",
+                error: "Tool execution aborted",
+              },
+            },
+          },
+        },
+      })
+
+      expect(abortCalls).toEqual([])
+      expect(clearCalls).toEqual([])
+      expect(helpers.__scheduleCallsForTest).toEqual([
+        {
+          sessionID,
+          source: "message.part.updated.progress",
+          resolvedAgent: undefined,
+        },
+      ])
+      expect(helpers.__retryCurrentModelCallsForTest).toEqual([
+        {
+          sessionID,
+          resolvedAgent: undefined,
+          source: "message.part.updated.tool-error",
+          immediate: false,
+          persistent: true,
+        },
+      ])
+    })
   })
 })
