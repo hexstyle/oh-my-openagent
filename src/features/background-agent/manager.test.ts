@@ -4706,6 +4706,56 @@ describe("BackgroundManager.handleEvent - early session.idle deferral", () => {
 })
 
 describe("BackgroundManager.handleEvent - non-tool event lastUpdate", () => {
+  test("should capture pending tool heartbeat for stale-session protection", () => {
+    //#given - a running task with an old progress timestamp
+    const client = {
+      session: {
+        prompt: async () => ({}),
+        promptAsync: async () => ({}),
+        abort: async () => ({}),
+      },
+    }
+    const manager = new BackgroundManager({ client, directory: tmpdir() } as unknown as PluginInput)
+
+    const oldUpdate = new Date(Date.now() - 300_000)
+    const task: BackgroundTask = {
+      id: "task-tool-heartbeat-1",
+      sessionID: "session-tool-heartbeat-1",
+      parentSessionID: "parent-1",
+      parentMessageID: "msg-1",
+      description: "Tool heartbeat task",
+      prompt: "Write the final evidence file",
+      agent: "sisyphus-junior",
+      status: "running",
+      startedAt: new Date(Date.now() - 600_000),
+      progress: {
+        toolCalls: 1,
+        lastUpdate: oldUpdate,
+      },
+    }
+    getTaskMap(manager).set(task.id, task)
+
+    //#when - a pending write tool update arrives from the live OpenCode payload shape
+    manager.handleEvent({
+      type: "message.part.updated",
+      properties: {
+        info: { sessionID: task.sessionID },
+        part: {
+          id: "tool-write-1",
+          type: "tool",
+          tool: "write",
+          state: { status: "pending" },
+        },
+      },
+    })
+
+    //#then - the task records a fresh active-tool heartbeat for stale-session protection
+    expect(task.progress!.lastUpdate.getTime()).toBeGreaterThan(oldUpdate.getTime())
+    expect(task.progress!.lastTool).toBe("write")
+    expect(task.progress!.lastToolStateStatus).toBe("pending")
+    expect(task.progress!.lastToolStateAt).toBeDefined()
+  })
+
   test("should update lastUpdate on text-type message.part.updated event", () => {
     //#given - a running task with stale lastUpdate
     const client = {

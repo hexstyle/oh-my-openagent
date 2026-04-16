@@ -18,6 +18,7 @@ import { removeTaskToastTracking } from "./remove-task-toast-tracking"
 import { isActiveSessionStatus } from "./session-status-classifier"
 
 const MIN_SESSION_GONE_POLLS = 3
+const ACTIVE_TOOL_PART_STATUSES = new Set(["running", "pending"])
 const TERMINAL_TASK_STATUSES = new Set<BackgroundTask["status"]>([
   "completed",
   "error",
@@ -99,6 +100,16 @@ export function pruneStaleTasksAndNotifications(args: {
 
 export type SessionStatusMap = Record<string, { type: string }>
 
+function hasRecentActiveToolHeartbeat(task: BackgroundTask, now: number, staleTimeoutMs: number): boolean {
+  const progress = task.progress
+  if (!progress?.lastToolStateStatus || !ACTIVE_TOOL_PART_STATUSES.has(progress.lastToolStateStatus)) {
+    return false
+  }
+
+  const heartbeatAt = progress.lastToolStateAt?.getTime() ?? progress.lastUpdate.getTime()
+  return now - heartbeatAt <= staleTimeoutMs
+}
+
 async function verifySessionExists(client: OpencodeClient, sessionID: string): Promise<boolean> {
   try {
     const result = await client.session.get({ path: { id: sessionID } })
@@ -151,11 +162,16 @@ export async function checkAndInterruptStaleTasks(args: {
     }
 
     const sessionGone = sessionMissing && (task.consecutiveMissedPolls ?? 0) >= MIN_SESSION_GONE_POLLS
+    const protectRecentActiveTool = sessionGone && hasRecentActiveToolHeartbeat(task, now, staleTimeoutMs)
 
     if (!task.progress?.lastUpdate) {
       if (sessionIsRunning) continue
       if (sessionMissing && !sessionGone) continue
-      const effectiveTimeout = sessionGone ? sessionGoneTimeoutMs : messageStalenessMs
+      const effectiveTimeout = protectRecentActiveTool
+        ? messageStalenessMs
+        : sessionGone
+          ? sessionGoneTimeoutMs
+          : messageStalenessMs
       if (runtime <= effectiveTimeout) continue
 
       if (sessionGone && await verifySessionExists(client, sessionID)) {
@@ -192,7 +208,11 @@ export async function checkAndInterruptStaleTasks(args: {
     if (runtime < MIN_RUNTIME_BEFORE_STALE_MS) continue
 
     const timeSinceLastUpdate = now - task.progress.lastUpdate.getTime()
-    const effectiveStaleTimeout = sessionGone ? sessionGoneTimeoutMs : staleTimeoutMs
+    const effectiveStaleTimeout = protectRecentActiveTool
+      ? staleTimeoutMs
+      : sessionGone
+        ? sessionGoneTimeoutMs
+        : staleTimeoutMs
     if (timeSinceLastUpdate <= effectiveStaleTimeout) continue
     if (task.status !== "running") continue
 

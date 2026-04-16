@@ -1256,6 +1256,11 @@ export class BackgroundManager {
       task.idleTodoStallPolls = 0
 
       if (partInfo?.type === "tool" || partInfo?.tool) {
+        if (partInfo.state?.status) {
+          task.progress.lastToolStateStatus = partInfo.state.status
+          task.progress.lastToolStateAt = new Date()
+        }
+
         const countedToolPartIDs = task.progress.countedToolPartIDs ?? new Set<string>()
         const shouldCountToolCall =
           !partInfo.id ||

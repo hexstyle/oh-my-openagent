@@ -375,6 +375,37 @@ describe("checkAndInterruptStaleTasks", () => {
     expect(task.error).toContain("session gone from status registry")
   })
 
+  it("should NOT cancel missing session when a tool heartbeat is still pending within normal stale timeout", async () => {
+    //#given — session disappeared from status map after a pending write heartbeat
+    const task = createRunningTask({
+      startedAt: new Date(Date.now() - 300_000),
+      progress: {
+        toolCalls: 3,
+        lastTool: "write",
+        lastToolStateStatus: "pending",
+        lastToolStateAt: new Date(Date.now() - 70_000),
+        lastUpdate: new Date(Date.now() - 70_000),
+      },
+      consecutiveMissedPolls: 2,
+    })
+
+    mockClient.session.get.mockRejectedValue(new Error("transient lookup failure"))
+
+    //#when — session is missing long enough for sessionGoneTimeout, but still inside normal stale timeout
+    await checkAndInterruptStaleTasks({
+      tasks: [task],
+      client: mockClient as never,
+      config: { staleTimeoutMs: 600_000, sessionGoneTimeoutMs: 60_000 },
+      concurrencyManager: mockConcurrencyManager as never,
+      notifyParentSession: mockNotify,
+      sessionStatuses: {},
+    })
+
+    //#then — keep the task alive instead of forcing the parent to redo the tail work
+    expect(task.status).toBe("running")
+    expect(task.error).toBeUndefined()
+  })
+
   it("should use session-gone timeout when session is missing from status map (no progress)", async () => {
     //#given — task started 2min ago, no progress, session completely gone
     const task = createRunningTask({
