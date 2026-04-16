@@ -227,6 +227,28 @@ describe("createEventHandler", () => {
         },
       },
       {
+        name: "pending task delegation parts",
+        properties: {
+          part: {
+            sessionID: "session-progress-task-pending",
+            type: "tool",
+            tool: "task",
+            state: { status: "pending" },
+          },
+        },
+      },
+      {
+        name: "pending omo delegation parts",
+        properties: {
+          part: {
+            sessionID: "session-progress-call-omo-pending",
+            type: "tool",
+            tool: "call_omo_agent",
+            state: { status: "pending" },
+          },
+        },
+      },
+      {
         name: "todowrite terminal parts",
         properties: {
           part: {
@@ -328,6 +350,10 @@ describe("createEventHandler", () => {
                 || (
                   type === "tool" && (
                     status === "running"
+                    || (
+                      status === "pending"
+                      && ["task", "call_omo_agent"].includes(toolName ?? "")
+                    )
                     || (
                       (status === "completed" || status === "error")
                       && ["write", "apply_patch", "todowrite"].includes(toolName ?? "")

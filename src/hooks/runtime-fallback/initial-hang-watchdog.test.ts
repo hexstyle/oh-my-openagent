@@ -27,6 +27,14 @@ describe("runtime-fallback initial hang watchdog", () => {
         git_env_prefix: "GIT_MASTER=1",
       },
       agents: {
+        atlas: {
+          model: "anthropic/claude-opus-4-6",
+          fallback_models: [
+            "anthropic/claude-opus-4-6",
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-4-6",
+          ],
+        },
         prometheus: {
           model: "anthropic/claude-opus-4-6",
           fallback_models: [
@@ -418,6 +426,109 @@ describe("runtime-fallback initial hang watchdog", () => {
 
     expect(abortCalls).toContain(sessionID)
     expect(retriedModels).toContain("openai/gpt-5.4")
+  })
+
+  test("does not abort Flare delegation while task tool is still pending", async () => {
+    const retriedModels: string[] = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-flare-task-pending"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "/start-work" }] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                retriedModels.push(`${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Atlas (Plan Executor)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Atlas (Plan Executor)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+          part: {
+            sessionID,
+            type: "tool",
+            tool: "task",
+            state: { status: "pending" },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(25)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toHaveLength(0)
+    expect(retriedModels).toHaveLength(0)
+
+    jest.advanceTimersByTime(60)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toContain(sessionID)
+    expect(retriedModels).toContain("openai/gpt-5.4")
+    expect(
+      logCalls.some((call) =>
+        call.msg.includes("Refreshed fallback timeout after assistant progress")
+        && (call.data as { toolName?: string; timeoutMsOverride?: number } | undefined)?.toolName === "task"
+        && (call.data as { toolName?: string; timeoutMsOverride?: number } | undefined)?.timeoutMsOverride === 80,
+      ),
+    ).toBe(true)
   })
 
   test("extends the quiet window when the session is still running but Anthropic has not produced a first token yet", async () => {

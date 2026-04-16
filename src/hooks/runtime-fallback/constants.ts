@@ -64,6 +64,7 @@ export const WATCHDOG_CONTINUATION_PROMPT = "Continue the current task from wher
 export const FALLBACK_CONTINUATION_PROMPT = "[runtime-fallback] Continue the current task from the existing session context on the new model. Do not restate the user request or redo completed work."
 export const LONG_RUNNING_PROGRESS_TIMEOUT_MULTIPLIER = 4
 export const ACTIVE_STATUS_MESSAGE_UPDATE_GRACE_MS = 5_000
+const LONG_RUNNING_PENDING_TOOL_NAMES = new Set(["task", "call_omo_agent"])
 const LONG_RUNNING_REGROUP_TOOL_NAMES = new Set(["write", "apply_patch", "todowrite"])
 const LONG_RUNNING_TERMINAL_TOOL_STATUSES = new Set(["completed", "error", "aborted", "interrupted"])
 
@@ -84,6 +85,10 @@ export function isLongRunningAssistantProgress(args: {
     || (
       args.partType === "tool" && (
         args.toolStatus === "running"
+        || (
+          args.toolStatus === "pending"
+          && LONG_RUNNING_PENDING_TOOL_NAMES.has(args.toolName ?? "")
+        )
         || (
           LONG_RUNNING_TERMINAL_TOOL_STATUSES.has(args.toolStatus ?? "")
           && LONG_RUNNING_REGROUP_TOOL_NAMES.has(args.toolName ?? "")
