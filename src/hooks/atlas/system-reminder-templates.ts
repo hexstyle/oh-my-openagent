@@ -34,6 +34,9 @@ You have an active work plan with incomplete tasks. Continue working.
 
 RULES:
 - **FIRST**: Read the plan file NOW. If the last completed task is still unchecked, mark it \`- [x]\` IMMEDIATELY before anything else
+- **NEXT SUBSTANTIVE ACTION**: Delegate the current top-level task via \`task(...)\` as soon as the plan, boulder state, and relevant notepad context are refreshed
+- Keep your own direct orchestration work minimal: plan/notepad/boulder refresh, verification, and delegation only
+- Do not spend multiple \`Read\`/\`Bash\` steps doing implementation research yourself before delegation; use \`task(subagent_type="explore"...)\` or the appropriate execution subagent instead
 - Proceed without asking for permission
 - Use the notepad at .sisyphus/notepads/{PLAN_NAME}/ to record learnings
 - Do not stop until all tasks are complete
@@ -209,6 +212,32 @@ task(
 \`\`\`
 
 DELEGATE. DON'T IMPLEMENT.
+
+---
+`
+
+export const ORCHESTRATOR_RESEARCH_LOOP_WARNING = `
+
+---
+
+${createSystemDirective(SystemDirectiveTypes.DELEGATION_REQUIRED)}
+
+**STOP. YOU ARE BURNING ORCHESTRATOR TOKENS ON DIRECT RESEARCH.**
+
+Current top-level task: $TASK_TITLE
+
+You have already spent multiple direct \`Read\`/\`Bash\` steps investigating this task without delegating it.
+
+Your next substantive action MUST be:
+\`\`\`
+task(
+  category="..." | subagent_type="...",
+  ...
+)
+\`\`\`
+
+Do NOT continue the current read/bash loop.
+Use \`task(subagent_type="explore", run_in_background=true, ...)\` for search and an execution subagent for implementation.
 
 ---
 `

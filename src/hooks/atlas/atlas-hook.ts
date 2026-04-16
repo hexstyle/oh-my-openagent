@@ -13,7 +13,7 @@ export function createAtlasHook(ctx: PluginInput, options?: AtlasHookOptions) {
   function getState(sessionID: string): SessionState {
     let state = sessions.get(sessionID)
     if (!state) {
-      state = { promptFailureCount: 0, stagnationCount: 0 }
+      state = { promptFailureCount: 0, stagnationCount: 0, directResearchToolCount: 0 }
       sessions.set(sessionID, state)
     }
     return state
@@ -21,7 +21,7 @@ export function createAtlasHook(ctx: PluginInput, options?: AtlasHookOptions) {
 
   return {
     handler: createAtlasEventHandler({ ctx, options, sessions, getState }),
-    "tool.execute.before": createToolExecuteBeforeHandler({ ctx, pendingFilePaths, pendingTaskRefs }),
+    "tool.execute.before": createToolExecuteBeforeHandler({ ctx, pendingFilePaths, pendingTaskRefs, getState }),
     "tool.execute.after": createToolExecuteAfterHandler({ ctx, pendingFilePaths, pendingTaskRefs, autoCommit, getState }),
   }
 }

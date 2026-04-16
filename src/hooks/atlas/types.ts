@@ -47,4 +47,6 @@ export interface SessionState {
   awaitingPostInjectionProgressCheck?: boolean
   lastInjectedPlanDigest?: string
   lastObservedPlanDigest?: string
+  directResearchToolCount?: number
+  lastDelegationReminderTaskKey?: string
 }

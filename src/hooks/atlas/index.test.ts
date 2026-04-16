@@ -461,6 +461,7 @@ describe("atlas hook", () => {
         ctx: createMockPluginInput(),
         pendingFilePaths,
         pendingTaskRefs,
+        getState: () => ({ promptFailureCount: 0, stagnationCount: 0, directResearchToolCount: 0 }),
       })
       const afterHandler = createToolExecuteAfterHandler({
         ctx: createMockPluginInput(),
@@ -785,6 +786,7 @@ session_id: ses_old_task_111
         ctx: createMockPluginInput(),
         pendingFilePaths,
         pendingTaskRefs,
+        getState: () => ({ promptFailureCount: 0, stagnationCount: 0, directResearchToolCount: 0 }),
       })
       const afterHandler = createToolExecuteAfterHandler({
         ctx: createMockPluginInput(),
@@ -831,6 +833,112 @@ session_id: ses_parallel_collision_222
       })
       const updatedState = readBoulderState(TEST_DIR)
       expect(updatedState?.task_sessions?.["todo:1"]).toBeUndefined()
+
+      cleanupMessageStorage(sessionID)
+    })
+
+    test("should inject a delegation reminder after repeated direct research tools without delegating the current top-level task", async () => {
+      // given
+      const sessionID = "session-direct-research-loop-test"
+      setupMessageStorage(sessionID, "atlas")
+
+      const planPath = join(TEST_DIR, "direct-research-loop-plan.md")
+      writeFileSync(planPath, `# Plan
+
+## TODOs
+- [ ] 1. Eliminate remaining hard waits
+`)
+
+      writeBoulderState(TEST_DIR, {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: ["session-1"],
+        plan_name: "direct-research-loop-plan",
+      })
+
+      const pendingFilePaths = new Map<string, string>()
+      const pendingTaskRefs = new Map<string, PendingTaskRef>()
+      const sessionStates = new Map<string, { promptFailureCount: number; stagnationCount: number; directResearchToolCount?: number; lastDelegationReminderTaskKey?: string }>()
+      const beforeHandler = createToolExecuteBeforeHandler({
+        ctx: createMockPluginInput(),
+        pendingFilePaths,
+        pendingTaskRefs,
+        getState: (id: string) => {
+          let state = sessionStates.get(id)
+          if (!state) {
+            state = { promptFailureCount: 0, stagnationCount: 0 }
+            sessionStates.set(id, state)
+          }
+          return state
+        },
+      })
+
+      const firstOutput = { args: { path: join(TEST_DIR, "foo.md") } as Record<string, unknown>, message: "" }
+      const secondOutput = { args: { command: "pwd" } as Record<string, unknown>, message: "" }
+      const thirdOutput = { args: { path: join(TEST_DIR, "bar.md") } as Record<string, unknown>, message: "" }
+
+      // when
+      await beforeHandler({ tool: "read", sessionID }, firstOutput)
+      await beforeHandler({ tool: "bash", sessionID }, secondOutput)
+      await beforeHandler({ tool: "read", sessionID }, thirdOutput)
+
+      // then
+      expect(firstOutput.message).toBe("")
+      expect(secondOutput.message).toBe("")
+      expect(thirdOutput.message.toLowerCase()).toContain("current top-level task")
+      expect(thirdOutput.message).toContain("task(")
+      expect(thirdOutput.message.toLowerCase()).toContain("read/bash")
+
+      cleanupMessageStorage(sessionID)
+    })
+
+    test("should match repeated direct research tools case-insensitively", async () => {
+      // given
+      const sessionID = "session-direct-research-loop-case-test"
+      setupMessageStorage(sessionID, "atlas")
+
+      const planPath = join(TEST_DIR, "direct-research-loop-case-plan.md")
+      writeFileSync(planPath, `# Plan
+
+## TODOs
+- [ ] 1. Eliminate remaining hard waits
+`)
+
+      writeBoulderState(TEST_DIR, {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: ["session-1"],
+        plan_name: "direct-research-loop-case-plan",
+      })
+
+      const pendingFilePaths = new Map<string, string>()
+      const pendingTaskRefs = new Map<string, PendingTaskRef>()
+      const sessionStates = new Map<string, { promptFailureCount: number; stagnationCount: number; directResearchToolCount?: number; lastDelegationReminderTaskKey?: string }>()
+      const beforeHandler = createToolExecuteBeforeHandler({
+        ctx: createMockPluginInput(),
+        pendingFilePaths,
+        pendingTaskRefs,
+        getState: (id: string) => {
+          let state = sessionStates.get(id)
+          if (!state) {
+            state = { promptFailureCount: 0, stagnationCount: 0 }
+            sessionStates.set(id, state)
+          }
+          return state
+        },
+      })
+
+      const firstOutput = { args: { path: join(TEST_DIR, "foo.md") } as Record<string, unknown>, message: "" }
+      const secondOutput = { args: { command: "pwd" } as Record<string, unknown>, message: "" }
+      const thirdOutput = { args: { path: join(TEST_DIR, "bar.md") } as Record<string, unknown>, message: "" }
+
+      // when
+      await beforeHandler({ tool: "Read", sessionID }, firstOutput)
+      await beforeHandler({ tool: "Bash", sessionID }, secondOutput)
+      await beforeHandler({ tool: "Read", sessionID }, thirdOutput)
+
+      // then
+      expect(thirdOutput.message.toLowerCase()).toContain("current top-level task")
 
       cleanupMessageStorage(sessionID)
     })

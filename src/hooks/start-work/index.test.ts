@@ -116,6 +116,37 @@ describe("start-work hook", () => {
       expect(output.parts[0].text).toContain("test-plan")
     })
 
+    test("should inject delegation-first guidance when resuming an active boulder session", async () => {
+      // given - existing boulder state with incomplete plan
+      const planPath = join(testDir, "test-plan.md")
+      writeFileSync(planPath, "# Plan\n- [ ] Task 1\n- [x] Task 2")
+
+      const state: BoulderState = {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: ["session-1"],
+        plan_name: "test-plan",
+      }
+      writeBoulderState(testDir, state)
+
+      const hook = createStartWorkHook(createMockPluginInput())
+      const output = {
+        parts: [{ type: "text", text: "<session-context></session-context>" }],
+      }
+
+      // when
+      await hook["chat.message"](
+        { sessionID: "session-123" },
+        output
+      )
+
+      // then - resume prompt should force Atlas back into delegation mode
+      const lowerText = output.parts[0].text.toLowerCase()
+      expect(lowerText).toContain("current top-level task")
+      expect(lowerText).toContain("task(")
+      expect(lowerText).toContain("do not spend multiple read/bash")
+    })
+
     test("should replace $SESSION_ID placeholder", async () => {
       // given - hook and message with placeholder
       const hook = createStartWorkHook(createMockPluginInput())

@@ -34,4 +34,24 @@ describe("BOULDER_CONTINUATION_PROMPT", () => {
       expect(checkboxPosition).toBeLessThan(proceedPosition)
     })
   })
+
+  describe("delegation-first orchestration rules", () => {
+    it("requires immediate delegation of the current top-level task after minimal context refresh", () => {
+      const rulesSection = BOULDER_CONTINUATION_PROMPT.split("RULES:")[1]!
+      const lowerRules = rulesSection.toLowerCase()
+
+      expect(lowerRules).toContain("current top-level task")
+      expect(lowerRules).toContain("task(")
+      expect(lowerRules).toMatch(/immediately|next substantive action/)
+    })
+
+    it("forbids long self-directed read/bash research loops before delegation", () => {
+      const rulesSection = BOULDER_CONTINUATION_PROMPT.split("RULES:")[1]!
+      const lowerRules = rulesSection.toLowerCase()
+
+      expect(lowerRules).toContain("do not spend multiple")
+      expect(lowerRules).toContain("`read`/`bash`")
+      expect(lowerRules).toContain("explore")
+    })
+  })
 })

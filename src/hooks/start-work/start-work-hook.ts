@@ -66,6 +66,18 @@ function resolveWorktreeContext(
   }
 }
 
+function createDelegationKickoffBlock(): string {
+  return `
+## Delegation Kickoff
+
+After you refresh the plan, boulder state, and relevant notepad context, your next substantive action MUST be \`task(...)\` for the current top-level task.
+
+- Focus on the current top-level task first
+- Keep your own direct orchestration work minimal: plan/notepad/boulder refresh, verification, delegation
+- Do not spend multiple Read/Bash research loops investigating implementation details yourself before delegation
+- Use \`task(subagent_type="explore", run_in_background=true, ...)\` for codebase search and the appropriate execution subagent for implementation`
+}
+
 export function createStartWorkHook(ctx: PluginInput) {
   return {
     "chat.message": async (input: StartWorkHookInput, output: StartWorkHookOutput): Promise<void> => {
@@ -95,6 +107,7 @@ export function createStartWorkHook(ctx: PluginInput) {
 
       const { planName: explicitPlanName, explicitWorktreePath } = parseUserRequest(promptText)
       const { worktreePath, block: worktreeBlock } = resolveWorktreeContext(explicitWorktreePath)
+      const delegationKickoffBlock = createDelegationKickoffBlock()
 
       let contextInfo = ""
 
@@ -128,7 +141,8 @@ All ${progress.total} tasks are done. Create a new plan with: /plan "your task"`
 **Started**: ${timestamp}
 ${worktreeBlock}
 
-boulder.json has been created. Read the plan and begin execution.`
+boulder.json has been created. Read the plan and begin execution.
+${delegationKickoffBlock}`
           }
         } else {
           const incompletePlans = allPlans.filter((p) => !getPlanProgress(p).isComplete)
@@ -190,7 +204,8 @@ No incomplete plans available. Create a new plan with: /plan "your task"`
 ${worktreeDisplay}
 
 The current session (${sessionId}) has been added to session_ids.
-Read the plan file and continue from the first unchecked task.`
+Read the plan file and continue from the first unchecked task.
+${delegationKickoffBlock}`
         } else {
           contextInfo = `
 ## Previous Work Complete
@@ -236,7 +251,8 @@ All ${plans.length} plan(s) are complete. Create a new plan with: /plan "your ta
 **Started**: ${timestamp}
 ${worktreeBlock}
 
-boulder.json has been created. Read the plan and begin execution.`
+boulder.json has been created. Read the plan and begin execution.
+${delegationKickoffBlock}`
         } else {
           const planList = incompletePlans
             .map((p, i) => {
