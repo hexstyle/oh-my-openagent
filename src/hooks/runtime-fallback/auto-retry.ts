@@ -51,6 +51,7 @@ import { readBoulderState } from "../../features/boulder-state"
 import {
   RUNTIME_FALLBACK_SCOPED_HANDOFF_TITLE_PREFIX,
 } from "../../shared/runtime-fallback-session-titles"
+import { markRecentRuntimeFallbackContinuationDispatch } from "../../shared/recent-runtime-fallback-continuation"
 
 const SESSION_TTL_MS = 30 * 60 * 1000
 const EXTERNAL_WATCHDOG_RESPAWN_MS = 10_000
@@ -844,10 +845,16 @@ fi
 
         const result = prepareFallback(sessionID, state, fallbackModels, config)
         if (result.success && result.newModel) {
+          const transitionMode = getRuntimeFallbackTransitionMode({
+            resolvedAgent,
+            currentModel: result.previousModel,
+            newModel: result.newModel,
+          })
           await autoRetryWithFallback(sessionID, result.newModel, resolvedAgent, source, {
             previousModel: result.previousModel,
+            abortCurrentSessionFirst: !hadInFlightRetry && transitionMode === "same_session",
           })
-          if (!hadInFlightRetry) {
+          if (!hadInFlightRetry && transitionMode !== "same_session") {
             await abortSessionRequest(sessionID, source)
           }
           return
@@ -952,6 +959,7 @@ fi
       transientRetry?: boolean
       continuationPrompt?: string
       previousModel?: string
+      abortCurrentSessionFirst?: boolean
     },
   ): Promise<boolean> => {
     if (sessionRetryInFlight.has(sessionID)) {
@@ -1069,6 +1077,12 @@ fi
         mode: args?.transientRetry ? "transient_retry" : "fallback",
         timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
       })
+
+      if (args?.abortCurrentSessionFirst) {
+        await abortSessionRequest(sessionID, `${source}.pre-dispatch`)
+      }
+
+      markRecentRuntimeFallbackContinuationDispatch(sessionID)
 
       await ctx.client.session.promptAsync({
         path: { id: sessionID },

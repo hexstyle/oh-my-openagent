@@ -4,6 +4,7 @@ import { getSessionAgent } from "../../features/claude-code-session-state"
 import { log } from "../../shared/logger"
 import { getAgentConfigKey } from "../../shared/agent-display-names"
 import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
+import { wasRecentRuntimeFallbackContinuationDispatched } from "../../shared/recent-runtime-fallback-continuation"
 import { isLatestStoredInternalContinuation } from "../runtime-fallback/internal-continuation-loop-detector"
 
 import { ABORT_WINDOW_MS, CONTINUATION_COOLDOWN_MS, DEFAULT_SKIP_AGENTS, FAILURE_RESET_WINDOW_MS, HOOK_NAME, MAX_CONSECUTIVE_FAILURES, TRANSIENT_RETRY_GUARD_MS } from "./constants"
@@ -65,6 +66,13 @@ export async function handleSessionIdle(args: {
       return
     }
     state.transientRetryDetectedAt = undefined
+  }
+
+  if (wasRecentRuntimeFallbackContinuationDispatched(sessionID)) {
+    log(`[${HOOK_NAME}] Skipped: recent runtime fallback continuation dispatch still settling`, {
+      sessionID,
+    })
+    return
   }
 
   const backgroundTasks = inspectParentSessionTasks({

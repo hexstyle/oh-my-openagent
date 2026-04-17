@@ -12,6 +12,10 @@ import type { BoulderState } from "../../features/boulder-state"
 import { _resetForTesting, registerAgentName, subagentSessions, updateSessionAgent } from "../../features/claude-code-session-state"
 import type { PendingTaskRef } from "./types"
 import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
+import {
+  markRecentRuntimeFallbackContinuationDispatch,
+  resetRecentRuntimeFallbackContinuationDispatchesForTests,
+} from "../../shared/recent-runtime-fallback-continuation"
 import { WATCHDOG_CONTINUATION_PROMPT } from "../runtime-fallback/constants"
 
 const TEST_STORAGE_ROOT = join(tmpdir(), `atlas-message-storage-${randomUUID()}`)
@@ -98,6 +102,7 @@ describe("atlas hook", () => {
 
   beforeEach(() => {
     _resetForTesting()
+    resetRecentRuntimeFallbackContinuationDispatchesForTests()
     registerAgentName("atlas")
     registerAgentName("sisyphus")
     TEST_DIR = join(tmpdir(), `atlas-test-${randomUUID()}`)
@@ -113,6 +118,7 @@ describe("atlas hook", () => {
 
   afterEach(() => {
     _resetForTesting()
+    resetRecentRuntimeFallbackContinuationDispatchesForTests()
     clearBoulderState(TEST_DIR)
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true })
@@ -1841,6 +1847,51 @@ session_id: ses_untrusted_999
             },
           },
         })
+
+        await hook.handler({
+          event: {
+            type: "session.idle",
+            properties: { sessionID: MAIN_SESSION_ID },
+          },
+        })
+
+        expect(mockInput._promptMock).not.toHaveBeenCalled()
+
+        now += 6000
+        await hook.handler({
+          event: {
+            type: "session.idle",
+            properties: { sessionID: MAIN_SESSION_ID },
+          },
+        })
+
+        expect(mockInput._promptMock).toHaveBeenCalledTimes(1)
+      } finally {
+        Date.now = originalDateNow
+      }
+    })
+
+    test("should not inject boulder continuation while a recent runtime-fallback continuation dispatch is still settling", async () => {
+      const originalDateNow = Date.now
+
+      try {
+        let now = 0
+        Date.now = () => now
+
+        const planPath = join(TEST_DIR, "recent-runtime-fallback-plan.md")
+        writeFileSync(planPath, "# Plan\n- [ ] Task 1")
+
+        writeBoulderState(TEST_DIR, {
+          active_plan: planPath,
+          started_at: "2026-01-02T10:00:00Z",
+          session_ids: [MAIN_SESSION_ID],
+          plan_name: "recent-runtime-fallback-plan",
+        })
+
+        const mockInput = createMockPluginInput()
+        const hook = createAtlasHook(mockInput)
+
+        markRecentRuntimeFallbackContinuationDispatch(MAIN_SESSION_ID)
 
         await hook.handler({
           event: {

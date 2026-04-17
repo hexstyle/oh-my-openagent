@@ -11,6 +11,7 @@ import { inspectParentSessionTasks } from "../../features/background-agent/paren
 import { getAgentConfigKey } from "../../shared/agent-display-names"
 import { log } from "../../shared/logger"
 import { normalizeSDKResponse } from "../../shared"
+import { wasRecentRuntimeFallbackContinuationDispatched } from "../../shared/recent-runtime-fallback-continuation"
 import { isLatestStoredInternalContinuation } from "../runtime-fallback/internal-continuation-loop-detector"
 import { injectBoulderContinuation } from "./boulder-continuation-injector"
 import { HOOK_NAME } from "./hook-name"
@@ -141,6 +142,13 @@ async function injectContinuation(input: {
   agent?: string
   worktreePath?: string
 }): Promise<void> {
+  if (wasRecentRuntimeFallbackContinuationDispatched(input.sessionID)) {
+    log(`[${HOOK_NAME}] Skipped: recent runtime-fallback continuation dispatch still settling`, {
+      sessionID: input.sessionID,
+    })
+    return
+  }
+
   if (await hasLatestStoredInternalContinuation({
     ctx: input.ctx,
     sessionID: input.sessionID,

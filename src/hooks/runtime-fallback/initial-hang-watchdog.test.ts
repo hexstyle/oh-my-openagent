@@ -146,6 +146,90 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(logCalls.some((call) => call.msg.includes("Session fallback timeout reached"))).toBe(true)
   })
 
+  test("aborts the stale initial request before dispatching a timeout-driven same-session fallback", async () => {
+    const callOrder: string[] = []
+    const sessionID = "ses-initial-hang-abort-before-retry"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+                { info: { role: "assistant" }, parts: [] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                callOrder.push(`prompt:${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              callOrder.push(`abort:${args.path.id}`)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(25)
+    await Promise.resolve()
+
+    expect(callOrder).toEqual([
+      `abort:${sessionID}`,
+      "prompt:openai/gpt-5.4",
+    ])
+  })
+
   test("extends the initial quiet window for an Anthropic user turn before the first token arrives", async () => {
     const retriedModels: string[] = []
     const abortCalls: string[] = []
@@ -1398,11 +1482,9 @@ describe("runtime-fallback initial hang watchdog", () => {
     })
   }
 
-  test("queues the timeout fallback retry before aborting the stalled request", async () => {
-    const retryModels: string[] = []
-    const abortCalls: string[] = []
+  test("dispatches the timeout fallback retry after aborting the stalled request", async () => {
+    const callOrder: string[] = []
     const sessionID = "ses-timeout-queue-before-abort"
-    let abortCompleted = false
 
     const hook = createRuntimeFallbackHook(
       {
@@ -1419,18 +1501,14 @@ describe("runtime-fallback initial hang watchdog", () => {
             promptAsync: async (args: {
               body?: { model?: { providerID?: string; modelID?: string } }
             }) => {
-              if (abortCompleted) {
-                throw new Error("follow-up retry was scheduled after abort completed")
-              }
               const model = args.body?.model
               if (model?.providerID && model?.modelID) {
-                retryModels.push(`${model.providerID}/${model.modelID}`)
+                callOrder.push(`prompt:${model.providerID}/${model.modelID}`)
               }
               return {}
             },
             abort: async (args: { path: { id: string } }) => {
-              abortCalls.push(args.path.id)
-              abortCompleted = true
+              callOrder.push(`abort:${args.path.id}`)
               return {}
             },
           },
@@ -1481,8 +1559,10 @@ describe("runtime-fallback initial hang watchdog", () => {
     jest.advanceTimersByTime(25)
     await Promise.resolve()
 
-    expect(abortCalls).toContain(sessionID)
-    expect(retryModels).toContain("openai/gpt-5.4")
+    expect(callOrder).toEqual([
+      `abort:${sessionID}`,
+      "prompt:openai/gpt-5.4",
+    ])
   })
 
   test("omits the agent when timeout fallback switches Prometheus off its primary model", async () => {

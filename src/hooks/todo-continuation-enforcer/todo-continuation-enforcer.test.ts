@@ -8,6 +8,10 @@ import type { BackgroundManager } from "../../features/background-agent"
 import { readContinuationMarker } from "../../features/run-continuation-state"
 import { setMainSession, subagentSessions, _resetForTesting } from "../../features/claude-code-session-state"
 import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
+import {
+  markRecentRuntimeFallbackContinuationDispatch,
+  resetRecentRuntimeFallbackContinuationDispatchesForTests,
+} from "../../shared/recent-runtime-fallback-continuation"
 import { createTodoContinuationEnforcer } from "."
 import { WATCHDOG_CONTINUATION_PROMPT } from "../runtime-fallback/constants"
 import {
@@ -256,6 +260,7 @@ describe("todo-continuation-enforcer", () => {
   beforeEach(() => {
     fakeTimers = createFakeTimers()
     _resetForTesting()
+    resetRecentRuntimeFallbackContinuationDispatchesForTests()
     promptCalls = []
     toastCalls = []
     mockMessages = []
@@ -265,6 +270,7 @@ describe("todo-continuation-enforcer", () => {
   afterEach(() => {
     fakeTimers.restore()
     _resetForTesting()
+    resetRecentRuntimeFallbackContinuationDispatchesForTests()
     while (tempDirs.length > 0) {
       const directory = tempDirs.pop()
       if (directory) {
@@ -635,6 +641,30 @@ describe("todo-continuation-enforcer", () => {
     await fakeTimers.advanceBy(2500)
 
     expect(promptCalls).toHaveLength(0)
+  })
+
+  test("should not start a todo continuation countdown while a recent runtime-fallback continuation dispatch is still settling", async () => {
+    const sessionID = "main-recent-runtime-fallback-dispatch"
+    setMainSession(sessionID)
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    markRecentRuntimeFallbackContinuationDispatch(sessionID)
+
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await fakeTimers.advanceBy(2500)
+    expect(promptCalls).toHaveLength(0)
+
+    await fakeTimers.advanceClockBy(6000)
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await fakeTimers.advanceBy(2500)
+    expect(promptCalls).toHaveLength(1)
   })
 
   test("should not start a todo continuation countdown when the latest text-bearing message is an internal continuation", async () => {

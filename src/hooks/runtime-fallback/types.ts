@@ -86,13 +86,21 @@ export interface FallbackState {
   stoppedAt?: number
 }
 
-export interface FallbackResult {
-  success: boolean
-  newModel?: string
-  previousModel?: string
-  error?: string
-  maxAttemptsReached?: boolean
-}
+export type FallbackResult =
+  | {
+      success: true
+      newModel: string
+      previousModel: string
+      error?: undefined
+      maxAttemptsReached?: false
+    }
+  | {
+      success: false
+      newModel?: undefined
+      previousModel?: undefined
+      error: string
+      maxAttemptsReached?: boolean
+    }
 
 export interface RuntimeFallbackOptions {
   config?: RuntimeFallbackConfig
