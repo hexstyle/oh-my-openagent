@@ -6,6 +6,7 @@ import { storeToolMetadata } from "../../features/tool-metadata-store"
 import { subagentSessions, syncSubagentSessions, setSessionAgent } from "../../features/claude-code-session-state"
 import { log } from "../../shared/logger"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
+import { removeSessionId } from "../../features/boulder-state"
 import { formatDuration } from "./time-formatter"
 import { formatDetailedError } from "./error-formatting"
 import { syncTaskDeps, type SyncTaskDeps } from "./sync-task-deps"
@@ -220,6 +221,7 @@ session_id: ${sessionID}
     })
   } finally {
     if (syncSessionID) {
+      removeSessionId(directory, syncSessionID)
       subagentSessions.delete(syncSessionID)
       syncSubagentSessions.delete(syncSessionID)
       clearSessionFallbackChain(syncSessionID)

@@ -223,6 +223,28 @@ export function appendSessionId(directory: string, sessionId: string): BoulderSt
   return state
 }
 
+export function removeSessionId(directory: string, sessionId: string): BoulderState | null {
+  const state = readBoulderState(directory)
+  if (!state) return null
+
+  if (!Array.isArray(state.session_ids) || state.session_ids.length === 0) {
+    return state
+  }
+
+  if (!state.session_ids.includes(sessionId)) {
+    return state
+  }
+
+  const originalSessionIds = [...state.session_ids]
+  state.session_ids = state.session_ids.filter((id) => id !== sessionId)
+  if (writeBoulderState(directory, state)) {
+    return state
+  }
+
+  state.session_ids = originalSessionIds
+  return null
+}
+
 export function clearBoulderState(directory: string): boolean {
   const filePath = getBoulderFilePath(directory)
 

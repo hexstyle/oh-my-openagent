@@ -283,6 +283,69 @@ describe("executeSyncTask - cleanup on error paths", () => {
     expect(deleteCalls[0]).toBe("ses_test_12345678")
   })
 
+  test("removes sync session from boulder session_ids during cleanup", async () => {
+    const { mkdtempSync, rmSync } = require("node:fs")
+    const { tmpdir } = require("node:os")
+    const { join } = require("node:path")
+    const { writeBoulderState, readBoulderState } = require("../../features/boulder-state")
+
+    const testDirectory = mkdtempSync(join(tmpdir(), "sync-task-boulder-"))
+
+    try {
+      writeBoulderState(testDirectory, {
+        active_plan: "/plan.md",
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: ["parent-session", "ses_test_12345678"],
+        plan_name: "plan",
+      })
+
+      const mockClient = {
+        session: {
+          create: async () => ({ data: { id: "ses_test_12345678" } }),
+        },
+      }
+
+      const { executeSyncTask } = require("./sync-task")
+
+      const deps = {
+        createSyncSession: async () => ({ ok: true, sessionID: "ses_test_12345678" }),
+        sendSyncPrompt: async () => null,
+        pollSyncSession: async () => null,
+        fetchSyncResult: async () => ({ ok: true as const, textContent: "Result" }),
+      }
+
+      const mockCtx = {
+        sessionID: "parent-session",
+        callID: "call-123",
+        metadata: () => {},
+      }
+
+      const mockExecutorCtx = {
+        client: mockClient,
+        directory: testDirectory,
+        onSyncSessionCreated: null,
+      }
+
+      const args = {
+        prompt: "test prompt",
+        description: "test task",
+        category: "test",
+        load_skills: [],
+        run_in_background: false,
+        command: null,
+      }
+
+      const result = await executeSyncTask(args, mockCtx, mockExecutorCtx, {
+        sessionID: "parent-session",
+      }, "test-agent", undefined, undefined, undefined, undefined, deps)
+
+      expect(result).toContain("Task completed")
+      expect(readBoulderState(testDirectory)?.session_ids).toEqual(["parent-session"])
+    } finally {
+      rmSync(testDirectory, { recursive: true, force: true })
+    }
+  })
+
   test("retries sendSyncPrompt on fallback chain before failing sync delegation", async () => {
     const mockClient = {
       session: {

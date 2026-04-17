@@ -1,7 +1,7 @@
 import type { PluginInput } from "@opencode-ai/plugin"
 import { appendSessionId, getPlanProgress, readBoulderState } from "../../features/boulder-state"
 import type { BoulderState, PlanProgress } from "../../features/boulder-state"
-import { subagentSessions } from "../../features/claude-code-session-state"
+import { subagentSessions, syncSubagentSessions } from "../../features/claude-code-session-state"
 import { isSessionInBoulderLineage } from "./boulder-session-lineage"
 
 export async function resolveActiveBoulderSession(input: {
@@ -15,6 +15,10 @@ export async function resolveActiveBoulderSession(input: {
 } | null> {
   const boulderState = readBoulderState(input.directory)
   if (!boulderState) {
+    return null
+  }
+
+  if (syncSubagentSessions.has(input.sessionID)) {
     return null
   }
 

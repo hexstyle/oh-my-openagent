@@ -6,7 +6,13 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { clearBoulderState, readBoulderState, writeBoulderState } from "../../features/boulder-state"
 import type { BoulderState } from "../../features/boulder-state"
-import { _resetForTesting, registerAgentName, setSessionAgent, subagentSessions } from "../../features/claude-code-session-state"
+import {
+  _resetForTesting,
+  registerAgentName,
+  setSessionAgent,
+  subagentSessions,
+  syncSubagentSessions,
+} from "../../features/claude-code-session-state"
 
 const { createAtlasHook } = await import("./index")
 
@@ -67,6 +73,7 @@ describe("atlas hook idle-event session lineage", () => {
     registerAgentName("atlas")
     registerAgentName("sisyphus")
     subagentSessions.clear()
+    syncSubagentSessions.clear()
   })
 
   afterEach(() => {
@@ -143,6 +150,54 @@ describe("atlas hook idle-event session lineage", () => {
     })
 
     assert.equal(readBoulderState(testDirectory)?.session_ids.includes(subagentSessionID), true)
+    assert.equal(promptCalls.length, 0)
+  })
+
+  it("does not append or inject for sync subagent sessions in boulder lineage", async () => {
+    const subagentSessionID = "sync-subagent-session"
+
+    writeIncompleteBoulder({ agent: "atlas" })
+    subagentSessions.add(subagentSessionID)
+    syncSubagentSessions.add(subagentSessionID)
+    setSessionAgent(subagentSessionID, "atlas")
+
+    const hook = createHook({
+      [subagentSessionID]: MAIN_SESSION_ID,
+    })
+
+    await hook.handler({
+      event: {
+        type: "session.idle",
+        properties: { sessionID: subagentSessionID },
+      },
+    })
+
+    assert.equal(readBoulderState(testDirectory)?.session_ids.includes(subagentSessionID), false)
+    assert.equal(promptCalls.length, 0)
+  })
+
+  it("does not inject continuation for already-tracked sync subagent sessions", async () => {
+    const subagentSessionID = "tracked-sync-subagent-session"
+
+    writeIncompleteBoulder({
+      agent: "atlas",
+      session_ids: [MAIN_SESSION_ID, subagentSessionID],
+    })
+    subagentSessions.add(subagentSessionID)
+    syncSubagentSessions.add(subagentSessionID)
+    setSessionAgent(subagentSessionID, "atlas")
+
+    const hook = createHook({
+      [subagentSessionID]: MAIN_SESSION_ID,
+    })
+
+    await hook.handler({
+      event: {
+        type: "session.idle",
+        properties: { sessionID: subagentSessionID },
+      },
+    })
+
     assert.equal(promptCalls.length, 0)
   })
 

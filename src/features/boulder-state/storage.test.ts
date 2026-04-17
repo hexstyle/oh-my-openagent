@@ -6,6 +6,7 @@ import {
   readBoulderState,
   writeBoulderState,
   appendSessionId,
+  removeSessionId,
   clearBoulderState,
   getBoulderWorktreePath,
   getPlanProgress,
@@ -269,6 +270,38 @@ describe("boulder-state", () => {
       //#then - should not crash and should contain the new session
       expect(result).not.toBeNull()
       expect(result!.session_ids).toContain("ses-new")
+    })
+  })
+
+  describe("removeSessionId", () => {
+    test("should remove an existing session id from state", () => {
+      const state: BoulderState = {
+        active_plan: "/plan.md",
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: ["session-1", "session-2"],
+        plan_name: "plan",
+      }
+      writeBoulderState(TEST_DIR, state)
+
+      const result = removeSessionId(TEST_DIR, "session-2")
+
+      expect(result).not.toBeNull()
+      expect(result?.session_ids).toEqual(["session-1"])
+    })
+
+    test("should leave state unchanged when session id is absent", () => {
+      const state: BoulderState = {
+        active_plan: "/plan.md",
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: ["session-1"],
+        plan_name: "plan",
+      }
+      writeBoulderState(TEST_DIR, state)
+
+      const result = removeSessionId(TEST_DIR, "missing-session")
+
+      expect(result).not.toBeNull()
+      expect(result?.session_ids).toEqual(["session-1"])
     })
   })
 
