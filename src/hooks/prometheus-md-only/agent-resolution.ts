@@ -1,4 +1,5 @@
 import type { PluginInput } from "@opencode-ai/plugin"
+import type { BoulderState } from "../../features/boulder-state/types"
 
 import { findNearestMessageWithFields, findFirstMessageWithAgent } from "../../features/hook-message-injector"
 import {
@@ -14,6 +15,64 @@ type OpencodeClient = PluginInput["client"]
 
 function isCompactionAgent(agent: string): boolean {
   return agent.toLowerCase() === "compaction"
+}
+
+function getTaskSessionAgent(
+  boulderState: BoulderState | null,
+  sessionID: string,
+): string | undefined {
+  const taskSessions = boulderState?.task_sessions
+  if (!taskSessions) {
+    return undefined
+  }
+
+  for (const taskSession of Object.values(taskSessions)) {
+    if (
+      taskSession?.session_id === sessionID
+      && typeof taskSession.agent === "string"
+      && !isCompactionAgent(taskSession.agent)
+    ) {
+      return taskSession.agent
+    }
+  }
+
+  return undefined
+}
+
+function parseSubagentAgentFromTitle(title: string | undefined): string | undefined {
+  if (!title) {
+    return undefined
+  }
+
+  const match = title.match(/\(@(.+)\s+subagent\)$/)
+  const subagent = match?.[1]?.trim()
+  if (!subagent || isCompactionAgent(subagent)) {
+    return undefined
+  }
+
+  return subagent
+}
+
+async function getSubagentAgentFromSessionTitle(
+  sessionID: string,
+  directory: string,
+  client?: OpencodeClient,
+): Promise<string | undefined> {
+  if (typeof client?.session?.get !== "function") {
+    return undefined
+  }
+
+  try {
+    const sessionInfo = await client.session.get({
+      path: { id: sessionID },
+      query: { directory },
+    })
+    return parseSubagentAgentFromTitle(
+      typeof sessionInfo?.data?.title === "string" ? sessionInfo.data.title : undefined,
+    )
+  } catch {
+    return undefined
+  }
 }
 
 async function getAgentFromMessageFiles(
@@ -59,10 +118,21 @@ export async function getAgentFromSession(
   directory: string,
   client?: OpencodeClient
 ): Promise<string | undefined> {
-  // Boulder is authoritative for tracked execution sessions started via /start-work.
   const boulderState = readBoulderState(directory)
-  if (boulderState?.session_ids?.includes(sessionID) && boulderState.agent) {
-    return boulderState.agent
+  const taskSessionAgent = getTaskSessionAgent(boulderState, sessionID)
+  if (taskSessionAgent) {
+    return taskSessionAgent
+  }
+
+  if (boulderState?.session_ids?.includes(sessionID)) {
+    const subagentTitleAgent = await getSubagentAgentFromSessionTitle(sessionID, directory, client)
+    if (subagentTitleAgent) {
+      return subagentTitleAgent
+    }
+
+    if (boulderState.agent) {
+      return boulderState.agent
+    }
   }
 
   // Check in-memory for non-boulder sessions.
