@@ -269,6 +269,17 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         return
       }
 
+      const state = sessionStates.get(sessionID)
+      if (state?.lastMeaningfulProgressAt !== undefined) {
+        sessionRecentActiveStatusUntil?.delete(sessionID)
+        sessionSilentAssistantUpdateCounts?.delete(sessionID)
+        log(`[${HOOK_NAME}] Ignored silent assistant update after meaningful progress`, {
+          sessionID,
+          model,
+        })
+        return
+      }
+
       if (await shouldSuppressRecentCompletionReplay({
         ctx,
         sessionID,

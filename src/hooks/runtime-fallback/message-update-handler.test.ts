@@ -415,6 +415,38 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     ])
   })
 
+  it("#given prior meaningful progress #when an empty assistant update arrives #then watchdog is not re-armed again", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?silent-after-progress-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-silent-after-progress"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const deps = createDeps({
+      data: [
+        { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+      ],
+    })
+    const state = createFallbackState("openai/gpt-5.4")
+    state.lastMeaningfulProgressAt = Date.now()
+    deps.sessionStates.set(sessionID, state)
+    deps.sessionSilentAssistantUpdateCounts = new Map([[sessionID, 1]])
+    const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls))
+
+    await handler({
+      info: {
+        id: "msg-empty-after-progress",
+        sessionID,
+        role: "assistant",
+        agent: "Sisyphus Junior (Focused Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+      },
+    })
+
+    expect(scheduleCalls).toEqual([])
+    expect(deps.sessionSilentAssistantUpdateCounts?.has(sessionID)).toBe(false)
+  })
+
   it("#given a pending fallback model that itself fails #when message.updated receives the new model error #then fallback advances instead of deadlocking on pending state", async () => {
     const { createMessageUpdateHandler } = await import(`./message-update-handler?pending-model-fails-${Date.now()}-${Math.random()}`)
     const sessionID = "session-pending-fallback-model-fails"

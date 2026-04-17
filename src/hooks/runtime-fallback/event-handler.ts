@@ -106,6 +106,11 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     const partText = typeof part?.text === "string" ? part.text.trim() : ""
     const delta = typeof props?.delta === "string" ? props.delta : ""
     const field = typeof props?.field === "string" ? props.field : undefined
+    const state = sessionStates.get(sessionID)
+    const reasoningHasFreshWatchdogBudget =
+      partType === "reasoning"
+      && (partText.length > 0 || delta.trim().length > 0)
+      && state?.lastMeaningfulProgressAt === undefined
     const hasMeaningfulProgress =
       (field === "text" && delta.trim().length > 0) ||
       partType === "compaction" ||
@@ -115,13 +120,20 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       partType === "tool_result" ||
       partType === "tool-call" ||
       (partType === "text" && partText.length > 0) ||
-      (partType === "reasoning" && (partText.length > 0 || delta.trim().length > 0))
-
-    sessionLastAccess.set(sessionID, Date.now())
+      reasoningHasFreshWatchdogBudget
 
     if (!hasMeaningfulProgress) {
+      if (partType === "reasoning" && (partText.length > 0 || delta.trim().length > 0)) {
+        log(`[${HOOK_NAME}] Ignored repeated reasoning-only assistant progress for watchdog refresh`, {
+          sessionID,
+          source,
+          resolvedAgent: state?.resolvedAgent,
+        })
+      }
       return
     }
+
+    sessionLastAccess.set(sessionID, Date.now())
 
     const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
     const timeoutMsOverride = isLongRunningAssistantProgress({
@@ -132,7 +144,6 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       ? resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
       : undefined
 
-    const state = sessionStates.get(sessionID)
     const resolvedAgent = await helpers.resolveAgentForSessionFromContext(
       sessionID,
       eventAgent,

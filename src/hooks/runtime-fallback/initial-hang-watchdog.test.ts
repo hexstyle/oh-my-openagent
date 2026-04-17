@@ -1392,6 +1392,121 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(retriedModels).toContain("openai/gpt-5.4")
   })
 
+  test("does not keep extending the watchdog on repeated reasoning-only churn after a step starts", async () => {
+    const retriedModels: string[] = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-reasoning-churn-after-step-start"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                retriedModels.push(`${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(10)
+    await hook.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            sessionID,
+            type: "step-start",
+          },
+        },
+      },
+    })
+
+    for (let index = 0; index < 5; index += 1) {
+      jest.advanceTimersByTime(15)
+      await hook.event({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            part: {
+              sessionID,
+              type: "reasoning",
+              text: `still thinking ${index}`,
+            },
+          },
+        },
+      })
+    }
+
+    expect(abortCalls).toHaveLength(0)
+    expect(retriedModels).toHaveLength(0)
+
+    jest.advanceTimersByTime(15)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toContain(sessionID)
+    expect(retriedModels).toContain("openai/gpt-5.4")
+  })
+
   for (const toolName of ["write", "apply_patch"]) {
     test(`extends the quiet window for a long-running ${toolName} tool call`, async () => {
       const retriedModels: string[] = []
