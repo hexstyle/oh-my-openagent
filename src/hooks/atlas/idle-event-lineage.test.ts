@@ -182,4 +182,36 @@ describe("atlas hook idle-event session lineage", () => {
 
     assert.equal(promptCalls.length, 1)
   })
+
+  it("does not treat checked tasks with missing evidence as boulder complete during idle", async () => {
+    const planPath = join(testDirectory, ".sisyphus", "plans", "evidence-gated-plan.md")
+    mkdirSync(join(testDirectory, ".sisyphus", "plans"), { recursive: true })
+    writeFileSync(planPath, `# Plan
+
+## TODOs
+- [x] 24. Zero-missing QA rerun
+  - Evidence: .sisyphus/evidence/task-24-zero-missing.txt
+`)
+
+    const state: BoulderState = {
+      active_plan: planPath,
+      started_at: "2026-01-02T10:00:00Z",
+      session_ids: [MAIN_SESSION_ID],
+      plan_name: "evidence-gated-plan",
+      agent: "atlas",
+    }
+    writeBoulderState(testDirectory, state)
+    setSessionAgent(MAIN_SESSION_ID, "atlas")
+
+    const hook = createHook()
+
+    await hook.handler({
+      event: {
+        type: "session.idle",
+        properties: { sessionID: MAIN_SESSION_ID },
+      },
+    })
+
+    assert.equal(promptCalls.length, 1)
+  })
 })

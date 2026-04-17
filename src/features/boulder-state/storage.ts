@@ -5,7 +5,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs"
-import { dirname, join, basename } from "node:path"
+import { dirname, join, basename, resolve } from "node:path"
 import type { BoulderState, PlanProgress, TaskSessionState } from "./types"
 import { BOULDER_DIR, BOULDER_FILE, PROMETHEUS_PLANS_DIR } from "./constants"
 
@@ -16,6 +16,110 @@ const SECOND_LEVEL_HEADING_PATTERN = /^##\s+/
 const CHECKBOX_PATTERN = /^(\s*)[-*]\s*\[([xX\s])\]\s+.+$/
 
 type PlanSection = "todo" | "final-wave" | "other"
+type ParsedPlanTask = {
+  checked: boolean
+  evidenceRefs: string[]
+}
+
+const EVIDENCE_REF_PATTERN = /\.sisyphus\/evidence\/[^\s`")]+\/?/g
+
+function inferPlanRoot(planPath: string): string {
+  const marker = `${join(".sisyphus", "")}`.replace(/\\/g, "/")
+  const normalizedPlanPath = planPath.replace(/\\/g, "/")
+  const markerIndex = normalizedPlanPath.lastIndexOf(`/${marker}/`)
+  if (markerIndex === -1) {
+    return dirname(planPath)
+  }
+
+  return normalizedPlanPath.slice(0, markerIndex)
+}
+
+function extractEvidenceRefs(line: string): string[] {
+  return [...line.matchAll(EVIDENCE_REF_PATTERN)]
+    .map((match) => match[0]?.replace(/[),.;:]+$/g, "") ?? "")
+    .filter((value) => value.length > 0)
+}
+
+function hasRequiredEvidence(planRoot: string, task: ParsedPlanTask): boolean {
+  if (task.evidenceRefs.length === 0) {
+    return true
+  }
+
+  return [...new Set(task.evidenceRefs)].every((ref) => {
+    const absolutePath = resolve(planRoot, ref)
+    if (!existsSync(absolutePath)) {
+      return false
+    }
+
+    if (ref.endsWith("/")) {
+      try {
+        return readdirSync(absolutePath).length > 0
+      } catch {
+        return false
+      }
+    }
+
+    return true
+  })
+}
+
+function parsePlanTasks(planPath: string): {
+  structuredTasks: ParsedPlanTask[]
+  fallbackTasks: ParsedPlanTask[]
+} {
+  const content = readFileSync(planPath, "utf-8")
+  const lines = content.split(/\r?\n/)
+  let section: PlanSection = "other"
+  const structuredTasks: ParsedPlanTask[] = []
+  const fallbackTasks: ParsedPlanTask[] = []
+  let currentStructuredTask: ParsedPlanTask | null = null
+  let currentFallbackTask: ParsedPlanTask | null = null
+
+  for (const line of lines) {
+    if (SECOND_LEVEL_HEADING_PATTERN.test(line)) {
+      section = TODO_HEADING_PATTERN.test(line)
+        ? "todo"
+        : FINAL_VERIFICATION_HEADING_PATTERN.test(line)
+          ? "final-wave"
+          : "other"
+      currentStructuredTask = null
+      currentFallbackTask = null
+    }
+
+    const checkboxMatch = line.match(CHECKBOX_PATTERN)
+    if (checkboxMatch) {
+      const indent = checkboxMatch[1].length
+      const checked = checkboxMatch[2].trim().toLowerCase() === "x"
+
+      if (indent === 0) {
+        currentFallbackTask = { checked, evidenceRefs: [] }
+        fallbackTasks.push(currentFallbackTask)
+
+        if (section === "todo" || section === "final-wave") {
+          currentStructuredTask = { checked, evidenceRefs: [] }
+          structuredTasks.push(currentStructuredTask)
+        } else {
+          currentStructuredTask = null
+        }
+      }
+    }
+
+    const refs = extractEvidenceRefs(line)
+    if (refs.length === 0) {
+      continue
+    }
+
+    if (currentStructuredTask) {
+      currentStructuredTask.evidenceRefs.push(...refs)
+    }
+
+    if (currentFallbackTask && currentFallbackTask !== currentStructuredTask) {
+      currentFallbackTask.evidenceRefs.push(...refs)
+    }
+  }
+
+  return { structuredTasks, fallbackTasks }
+}
 
 export function getBoulderFilePath(directory: string): string {
   return join(directory, BOULDER_DIR, BOULDER_FILE)
@@ -242,50 +346,11 @@ export function getPlanProgress(planPath: string): PlanProgress {
   }
 
   try {
-    const content = readFileSync(planPath, "utf-8")
-    const lines = content.split(/\r?\n/)
-    let section: PlanSection = "other"
-    let structuredTotal = 0
-    let structuredCompleted = 0
-    let fallbackTotal = 0
-    let fallbackCompleted = 0
-
-    for (const line of lines) {
-      if (SECOND_LEVEL_HEADING_PATTERN.test(line)) {
-        section = TODO_HEADING_PATTERN.test(line)
-          ? "todo"
-          : FINAL_VERIFICATION_HEADING_PATTERN.test(line)
-            ? "final-wave"
-            : "other"
-      }
-
-      const checkboxMatch = line.match(CHECKBOX_PATTERN)
-      if (!checkboxMatch) {
-        continue
-      }
-
-      const indent = checkboxMatch[1].length
-      const checked = checkboxMatch[2].trim().toLowerCase() === "x"
-
-      if (indent === 0) {
-        fallbackTotal += 1
-        if (checked) {
-          fallbackCompleted += 1
-        }
-      }
-
-      if (indent !== 0 || (section !== "todo" && section !== "final-wave")) {
-        continue
-      }
-
-      structuredTotal += 1
-      if (checked) {
-        structuredCompleted += 1
-      }
-    }
-
-    const total = structuredTotal > 0 ? structuredTotal : fallbackTotal
-    const completed = structuredTotal > 0 ? structuredCompleted : fallbackCompleted
+    const { structuredTasks, fallbackTasks } = parsePlanTasks(planPath)
+    const tasks = structuredTasks.length > 0 ? structuredTasks : fallbackTasks
+    const planRoot = inferPlanRoot(planPath)
+    const total = tasks.length
+    const completed = tasks.filter((task) => task.checked && hasRequiredEvidence(planRoot, task)).length
 
     return {
       total,

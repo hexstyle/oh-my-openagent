@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test"
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { tmpdir } from "node:os"
 import {
   readBoulderState,
@@ -540,6 +540,82 @@ describe("boulder-state", () => {
       // then
       expect(progress.total).toBe(2)
       expect(progress.completed).toBe(2)
+      expect(progress.isComplete).toBe(true)
+    })
+
+    test("should treat checked tasks with missing evidence files as incomplete", () => {
+      const planPath = join(SISYPHUS_DIR, "plans", "evidence-file-plan.md")
+      mkdirSync(dirname(planPath), { recursive: true })
+      writeFileSync(planPath, `# Plan
+
+## TODOs
+- [x] 23. Full suite performance audit under PERF_FAIL_MS=3000
+  - QA: \`PERF_FAIL_MS=3000 ...\`. Evidence: .sisyphus/evidence/task-23-perf-audit.txt
+`)
+
+      const progress = getPlanProgress(planPath)
+
+      expect(progress.total).toBe(1)
+      expect(progress.completed).toBe(0)
+      expect(progress.isComplete).toBe(false)
+    })
+
+    test("should treat checked tasks with present evidence files as complete", () => {
+      const planPath = join(SISYPHUS_DIR, "plans", "evidence-present-plan.md")
+      const evidencePath = join(TEST_DIR, ".sisyphus", "evidence", "task-23-perf-audit.txt")
+      mkdirSync(dirname(planPath), { recursive: true })
+      mkdirSync(dirname(evidencePath), { recursive: true })
+      writeFileSync(evidencePath, "perf audit ok")
+      writeFileSync(planPath, `# Plan
+
+## TODOs
+- [x] 23. Full suite performance audit under PERF_FAIL_MS=3000
+  - QA: \`PERF_FAIL_MS=3000 ...\`. Evidence: .sisyphus/evidence/task-23-perf-audit.txt
+`)
+
+      const progress = getPlanProgress(planPath)
+
+      expect(progress.total).toBe(1)
+      expect(progress.completed).toBe(1)
+      expect(progress.isComplete).toBe(true)
+    })
+
+    test("should treat checked tasks with empty evidence directories as incomplete", () => {
+      const planPath = join(SISYPHUS_DIR, "plans", "evidence-dir-plan.md")
+      const evidenceDir = join(TEST_DIR, ".sisyphus", "evidence", "final-qa")
+      mkdirSync(dirname(planPath), { recursive: true })
+      mkdirSync(evidenceDir, { recursive: true })
+      writeFileSync(planPath, `# Plan
+
+## Final Verification Wave
+- [x] F3. Real Manual QA
+  - Execute every task QA scenario, capture evidence in .sisyphus/evidence/final-qa/, verify cross-category behavior.
+`)
+
+      const progress = getPlanProgress(planPath)
+
+      expect(progress.total).toBe(1)
+      expect(progress.completed).toBe(0)
+      expect(progress.isComplete).toBe(false)
+    })
+
+    test("should treat checked tasks with populated evidence directories as complete", () => {
+      const planPath = join(SISYPHUS_DIR, "plans", "evidence-dir-populated-plan.md")
+      const evidenceDir = join(TEST_DIR, ".sisyphus", "evidence", "final-qa")
+      mkdirSync(dirname(planPath), { recursive: true })
+      mkdirSync(evidenceDir, { recursive: true })
+      writeFileSync(join(evidenceDir, "smoke.txt"), "ok")
+      writeFileSync(planPath, `# Plan
+
+## Final Verification Wave
+- [x] F3. Real Manual QA
+  - Execute every task QA scenario, capture evidence in .sisyphus/evidence/final-qa/, verify cross-category behavior.
+`)
+
+      const progress = getPlanProgress(planPath)
+
+      expect(progress.total).toBe(1)
+      expect(progress.completed).toBe(1)
       expect(progress.isComplete).toBe(true)
     })
 
