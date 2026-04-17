@@ -10,6 +10,7 @@ import {
 } from "./internal-continuation-loop-detector"
 
 const WATCHDOG_CONTINUATION_PROMPT = "Continue the current task from where you left off. The previous request appears stalled. Resume from the existing context, do not redo completed work, and continue."
+const GENERIC_CONTINUATION_PROMPT = "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed."
 
 describe("isInternalInitiatorMessage", () => {
   it("#given parts containing the internal initiator marker #then returns true", () => {
@@ -26,6 +27,12 @@ describe("isInternalInitiatorMessage", () => {
 
   it("#given the quoted watchdog continuation prompt captured from opencode run #then returns true", () => {
     const parts = [{ type: "text", text: `"${WATCHDOG_CONTINUATION_PROMPT}"\n` }]
+
+    expect(isInternalInitiatorMessage(parts)).toBe(true)
+  })
+
+  it("#given the generic follow-up continuation prompt emitted by opencode core #then returns true", () => {
+    const parts = [{ type: "text", text: GENERIC_CONTINUATION_PROMPT }]
 
     expect(isInternalInitiatorMessage(parts)).toBe(true)
   })
@@ -86,6 +93,12 @@ describe("isInternalContinuationMessage", () => {
     }]
 
     expect(isInternalContinuationMessage(parts)).toBe(false)
+  })
+
+  it("#given the generic follow-up continuation prompt without marker #then returns true", () => {
+    const parts = [{ type: "text", text: GENERIC_CONTINUATION_PROMPT }]
+
+    expect(isInternalContinuationMessage(parts)).toBe(true)
   })
 })
 

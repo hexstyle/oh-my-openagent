@@ -50,6 +50,9 @@ function normalizeInternalPromptText(text: string): string {
 const NORMALIZED_WATCHDOG_CONTINUATION_PROMPT = normalizeInternalPromptText(
   WATCHDOG_CONTINUATION_PROMPT,
 )
+const NORMALIZED_GENERIC_CONTINUATION_PROMPT = normalizeInternalPromptText(
+  "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed.",
+)
 const BOULDER_CONTINUATION_DIRECTIVE = createSystemDirective(SystemDirectiveTypes.BOULDER_CONTINUATION)
 const TODO_CONTINUATION_DIRECTIVE = createSystemDirective(SystemDirectiveTypes.TODO_CONTINUATION)
 
@@ -68,6 +71,7 @@ export function isInternalInitiatorMessage(
 
       return part.text.includes(OMO_INTERNAL_INITIATOR_MARKER)
         || normalizeInternalPromptText(part.text) === NORMALIZED_WATCHDOG_CONTINUATION_PROMPT
+        || normalizeInternalPromptText(part.text) === NORMALIZED_GENERIC_CONTINUATION_PROMPT
     },
   )
 }
@@ -86,6 +90,7 @@ export function isInternalContinuationMessage(
       const isSystemReminder = textWithoutMarker.trimStart().startsWith("<system-reminder>")
 
       return normalizedText === NORMALIZED_WATCHDOG_CONTINUATION_PROMPT
+        || normalizedText === NORMALIZED_GENERIC_CONTINUATION_PROMPT
         || (part.text.includes(OMO_INTERNAL_INITIATOR_MARKER) && !isSystemReminder)
         || textWithoutMarker.includes(BOULDER_CONTINUATION_DIRECTIVE)
         || textWithoutMarker.includes(TODO_CONTINUATION_DIRECTIVE)

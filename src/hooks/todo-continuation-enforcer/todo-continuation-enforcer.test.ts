@@ -22,6 +22,8 @@ import {
   MAX_STAGNATION_COUNT,
 } from "./constants"
 
+const GENERIC_CONTINUATION_PROMPT = "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed."
+
 type TimerCallback = (...args: any[]) => void
 
 interface FakeTimers {
@@ -665,6 +667,31 @@ describe("todo-continuation-enforcer", () => {
 
     await fakeTimers.advanceBy(2500)
     expect(promptCalls).toHaveLength(1)
+  })
+
+  test("should not start a todo continuation countdown when the latest stored user message is the generic follow-up continuation prompt", async () => {
+    const sessionID = "main-latest-generic-continuation-user"
+    setMainSession(sessionID)
+    mockMessages = [
+      {
+        info: { id: "msg-1", role: "assistant" },
+        parts: [{ type: "text", text: "Earlier visible progress" }],
+      },
+      {
+        info: { id: "msg-2", role: "user" },
+        parts: [{ type: "text", text: GENERIC_CONTINUATION_PROMPT }],
+      },
+    ]
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await fakeTimers.advanceBy(2500)
+
+    expect(promptCalls).toHaveLength(0)
   })
 
   test("should not start a todo continuation countdown when the latest text-bearing message is an internal continuation", async () => {

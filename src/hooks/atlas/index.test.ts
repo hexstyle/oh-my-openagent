@@ -21,6 +21,7 @@ import { WATCHDOG_CONTINUATION_PROMPT } from "../runtime-fallback/constants"
 const TEST_STORAGE_ROOT = join(tmpdir(), `atlas-message-storage-${randomUUID()}`)
 const TEST_MESSAGE_STORAGE = join(TEST_STORAGE_ROOT, "message")
 const TEST_PART_STORAGE = join(TEST_STORAGE_ROOT, "part")
+const GENERIC_CONTINUATION_PROMPT = "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed."
 
 mock.module("../../features/hook-message-injector/constants", () => ({
   OPENCODE_STORAGE: TEST_STORAGE_ROOT,
@@ -1973,6 +1974,43 @@ session_id: ses_untrusted_999
           {
             info: { role: "user" },
             parts: [{ type: "text", text: `"${WATCHDOG_CONTINUATION_PROMPT}"\n` }],
+          },
+        ],
+      }))
+
+      const mockInput = createMockPluginInput({ sessionMessagesMock })
+      const hook = createAtlasHook(mockInput)
+
+      await hook.handler({
+        event: {
+          type: "session.idle",
+          properties: { sessionID: MAIN_SESSION_ID },
+        },
+      })
+
+      expect(mockInput._promptMock).not.toHaveBeenCalled()
+    })
+
+    test("should not inject boulder continuation when the latest stored user message is the generic follow-up continuation prompt", async () => {
+      const planPath = join(TEST_DIR, "stored-generic-follow-up-continuation-plan.md")
+      writeFileSync(planPath, "# Plan\n- [ ] Task 1")
+
+      writeBoulderState(TEST_DIR, {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: [MAIN_SESSION_ID],
+        plan_name: "stored-generic-follow-up-continuation-plan",
+      })
+
+      const sessionMessagesMock = mock(async () => ({
+        data: [
+          {
+            info: { role: "assistant" },
+            parts: [{ type: "text", text: "Earlier visible progress" }],
+          },
+          {
+            info: { role: "user" },
+            parts: [{ type: "text", text: GENERIC_CONTINUATION_PROMPT }],
           },
         ],
       }))
