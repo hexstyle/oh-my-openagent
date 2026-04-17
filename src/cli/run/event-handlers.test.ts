@@ -1,7 +1,7 @@
 const { describe, it, expect, spyOn } = require("bun:test")
 import type { RunContext } from "./types"
 import { createEventState } from "./events"
-import { handleSessionStatus, handleMessagePartUpdated, handleMessageUpdated, handleTuiToast } from "./event-handlers"
+import { handleSessionError, handleSessionStatus, handleMessagePartUpdated, handleMessageUpdated, handleTuiToast } from "./event-handlers"
 
 const createMockContext = (sessionID: string = "test-session"): RunContext => ({
   sessionID,
@@ -90,6 +90,33 @@ describe("handleSessionStatus", () => {
 
     //#then - state.mainSessionIdle === true
     expect(state.mainSessionIdle).toBe(true)
+  })
+})
+
+describe("handleSessionError", () => {
+  it("increments error sequence for repeated main-session errors", () => {
+    //#given
+    const ctx = createMockContext("test-session")
+    const state = createEventState()
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {})
+    const payload = {
+      type: "session.error",
+      properties: {
+        sessionID: "test-session",
+        error: { message: "Request not allowed" },
+      },
+    }
+
+    //#when
+    handleSessionError(ctx, payload as any, state)
+    handleSessionError(ctx, payload as any, state)
+
+    //#then
+    expect(state.mainSessionError).toBe(true)
+    expect(state.lastError).toContain("Request not allowed")
+    expect(state.errorSequence).toBe(2)
+    expect(typeof state.lastErrorTimestamp).toBe("number")
+    errorSpy.mockRestore()
   })
 })
 

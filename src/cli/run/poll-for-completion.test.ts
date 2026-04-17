@@ -270,6 +270,56 @@ describe("pollForCompletion", () => {
     expect(statusCalls).toBeGreaterThanOrEqual(5)
   })
 
+  it("restarts delayed retry grace when a new transient 403 arrives during recovery", async () => {
+    //#given - first delayed-retry error fires, recovery retries, then a second 403 arrives and must reset grace
+    let statusCalls = 0
+    const ctx = createMockContext({
+      statuses: {},
+    })
+    ;(ctx.client.session as any).status = mock(async () => {
+      statusCalls += 1
+      if (statusCalls < 9) {
+        return { data: {} }
+      }
+      return {
+        data: {
+          "test-session": {
+            type: statusCalls === 9 ? "busy" : "idle",
+          },
+        },
+      }
+    })
+
+    const eventState = createEventState()
+    eventState.mainSessionIdle = true
+    eventState.mainSessionError = true
+    eventState.lastError = "Forbidden: Request not allowed"
+    eventState.errorSequence = 1
+    eventState.lastErrorTimestamp = Date.now()
+    eventState.hasReceivedMeaningfulWork = true
+    const abortController = new AbortController()
+
+    setTimeout(() => {
+      eventState.mainSessionError = true
+      eventState.lastError = "Forbidden: Request not allowed"
+      eventState.errorSequence = 2
+      eventState.lastErrorTimestamp = Date.now()
+    }, 35)
+
+    //#when
+    const result = await pollForCompletion(ctx, eventState, abortController, {
+      pollIntervalMs: 10,
+      requiredConsecutive: 1,
+      minStabilizationMs: 10,
+      delayedRetryErrorGraceMs: 40,
+    })
+
+    //#then - the second transient 403 should restart grace instead of inheriting the first window and failing
+    expect(result).toBe(0)
+    expect(eventState.mainSessionError).toBe(false)
+    expect(statusCalls).toBeGreaterThanOrEqual(9)
+  })
+
   it("returns 130 when aborted", async () => {
     //#given
     const ctx = createMockContext()

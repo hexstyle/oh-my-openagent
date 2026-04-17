@@ -46,6 +46,7 @@ export async function pollForCompletion(
   let consecutiveCompleteChecks = 0
   let errorCycleCount = 0
   let errorGraceStartedAt: number | null = null
+  let errorGraceSequence = -1
   let firstWorkTimestamp: number | null = null
   let secondaryTimeoutChecked = false
   const pollStartTimestamp = Date.now()
@@ -97,10 +98,17 @@ export async function pollForCompletion(
     }
 
     if (eventState.mainSessionError) {
+      if (eventState.errorSequence !== errorGraceSequence) {
+        errorGraceSequence = eventState.errorSequence
+        errorGraceStartedAt = eventState.lastErrorTimestamp ?? Date.now()
+        errorCycleCount = 0
+      }
+
       if (mainSessionStatus === "busy" || mainSessionStatus === "retry") {
         eventState.mainSessionError = false
         errorCycleCount = 0
         errorGraceStartedAt = null
+        errorGraceSequence = -1
       } else {
         const errorAction = getRuntimeFallbackAction(
           { message: eventState.lastError ?? "" },
@@ -136,6 +144,7 @@ export async function pollForCompletion(
       // Reset error counter when error clears (recovery succeeded)
       errorCycleCount = 0
       errorGraceStartedAt = null
+      errorGraceSequence = -1
     }
 
     if (mainSessionStatus === "busy" || mainSessionStatus === "retry") {

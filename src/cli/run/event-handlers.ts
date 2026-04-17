@@ -95,6 +95,8 @@ export function handleSessionError(ctx: RunContext, payload: EventPayload, state
   if (getSessionId(props) === ctx.sessionID) {
     state.mainSessionError = true
     state.lastError = serializeError(props?.error)
+    state.errorSequence += 1
+    state.lastErrorTimestamp = Date.now()
     console.error(pc.red(`\n[session.error] ${state.lastError}`))
   }
 }
@@ -329,6 +331,8 @@ export function handleTuiToast(_ctx: RunContext, payload: EventPayload, state: E
     if (message) {
       state.mainSessionError = true
       state.lastError = `${title}${message}`
+      state.errorSequence += 1
+      state.lastErrorTimestamp = Date.now()
     }
   }
 }

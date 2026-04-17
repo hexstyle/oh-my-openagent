@@ -2,6 +2,10 @@ export interface EventState {
   mainSessionIdle: boolean
   mainSessionError: boolean
   lastError: string | null
+  /** Monotonic counter of main-session error events */
+  errorSequence: number
+  /** Timestamp of the latest main-session error event */
+  lastErrorTimestamp: number | null
   lastOutput: string
   lastPartText: string
   currentTool: string | null
@@ -52,6 +56,8 @@ export function createEventState(): EventState {
     mainSessionIdle: false,
     mainSessionError: false,
     lastError: null,
+    errorSequence: 0,
+    lastErrorTimestamp: null,
     lastOutput: "",
     lastPartText: "",
     currentTool: null,
