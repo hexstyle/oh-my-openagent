@@ -142,6 +142,7 @@ TodoWrite([
 1. Read the todo list file
 2. Parse actionable **top-level** task checkboxes in \`## TODOs\` and \`## Final Verification Wave\`
    - Ignore nested checkboxes under Acceptance Criteria, Evidence, Definition of Done, and Final Checklist sections.
+   - Treat progress as evidence-gated, not checkbox-gated: checked boxes without required evidence artifacts are still incomplete.
 3. Extract parallelizability info from each task
 4. Build parallelization map:
    - Which tasks can run simultaneously?
@@ -380,16 +381,17 @@ You are the QA gate. Subagents lie. Verify EVERYTHING.
 3. Run test suite → ALL pass
 4. **\`Read\` EVERY changed file line by line** → logic matches requirements
 5. **Cross-check**: subagent's claims vs actual code — do they match?
-6. **Check boulder state**: Read the plan file directly, count remaining tasks
+6. **Check boulder state**: Read the plan file directly, but use evidence-gated completion when counting remaining tasks
 
 **Evidence required**:
 - **Code change**: lsp_diagnostics clean + manual Read of every changed file
 - **Build**: Exit code 0
 - **Tests**: All pass
 - **Logic correct**: You read the code and can explain what it does
-- **Boulder state**: Read plan file, confirmed progress
+- **Boulder state**: Read plan file, confirmed progress with required evidence artifacts present
 
 **No evidence = not complete. Skipping manual review = rubber-stamping broken work.**
+**Do not declare a task complete from checkbox state alone. Checked boxes without required evidence remain incomplete.**
 </verification_rules>
 
 <boundaries>

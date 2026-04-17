@@ -16,13 +16,18 @@ export const START_WORK_TEMPLATE = `You are starting a Sisyphus work session.
 2. **Check for active boulder state**: Read \`.sisyphus/boulder.json\` if it exists
 
 3. **Decision logic**:
-   - If \`.sisyphus/boulder.json\` exists AND plan is NOT complete (has unchecked boxes):
+   - If \`.sisyphus/boulder.json\` exists AND plan is NOT complete:
      - **APPEND** current session to session_ids
      - Continue work on existing plan
    - If no active plan OR plan is complete:
      - List available plan files
      - If ONE plan: auto-select it
      - If MULTIPLE plans: show list with timestamps, ask user to select
+
+**IMPORTANT**: plan completion is evidence-gated, not checkbox-gated.
+- Do NOT treat a task as complete from \`- [x]\` alone
+- If a task references required \`.sisyphus/evidence/...\` artifacts and those files/directories are missing or empty, that task is still incomplete
+- Use evidence-gated progress when deciding whether to resume, auto-select, or declare all plans complete
 
 4. **Worktree Setup** (ONLY when \`--worktree\` was explicitly specified and \`worktree_path\` not already set in boulder.json):
    1. \`git worktree list --porcelain\` — see available worktrees

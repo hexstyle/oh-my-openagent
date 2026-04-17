@@ -78,6 +78,17 @@ After you refresh the plan, boulder state, and relevant notepad context, your ne
 - Use \`task(subagent_type="explore", run_in_background=true, ...)\` for codebase search and the appropriate execution subagent for implementation`
 }
 
+function createEvidenceGateBlock(): string {
+  return `
+## Evidence-Gated Progress
+
+- Plan completion is NOT determined by checkbox state alone
+- A checked task with required evidence paths is still INCOMPLETE until those files/directories actually exist
+- If a QA/Evidence line references \`.sisyphus/evidence/...\` and that artifact is missing or empty, keep treating the task as remaining work
+- Checked boxes without required evidence remain incomplete
+- Do not announce "all complete" from raw \`- [x]\` counts alone`
+}
+
 export function createStartWorkHook(ctx: PluginInput) {
   return {
     "chat.message": async (input: StartWorkHookInput, output: StartWorkHookOutput): Promise<void> => {
@@ -108,6 +119,7 @@ export function createStartWorkHook(ctx: PluginInput) {
       const { planName: explicitPlanName, explicitWorktreePath } = parseUserRequest(promptText)
       const { worktreePath, block: worktreeBlock } = resolveWorktreeContext(explicitWorktreePath)
       const delegationKickoffBlock = createDelegationKickoffBlock()
+      const evidenceGateBlock = createEvidenceGateBlock()
 
       let contextInfo = ""
 
@@ -140,6 +152,7 @@ All ${progress.total} tasks are done. Create a new plan with: /plan "your task"`
 **Session ID**: ${sessionId}
 **Started**: ${timestamp}
 ${worktreeBlock}
+${evidenceGateBlock}
 
 boulder.json has been created. Read the plan and begin execution.
 ${delegationKickoffBlock}`
@@ -202,6 +215,7 @@ No incomplete plans available. Create a new plan with: /plan "your task"`
 **Sessions**: ${existingState.session_ids.length + 1} (current session appended)
 **Started**: ${existingState.started_at}
 ${worktreeDisplay}
+${evidenceGateBlock}
 
 The current session (${sessionId}) has been added to session_ids.
 Read the plan file and continue from the first unchecked task.
@@ -250,6 +264,7 @@ All ${plans.length} plan(s) are complete. Create a new plan with: /plan "your ta
 **Session ID**: ${sessionId}
 **Started**: ${timestamp}
 ${worktreeBlock}
+${evidenceGateBlock}
 
 boulder.json has been created. Read the plan and begin execution.
 ${delegationKickoffBlock}`

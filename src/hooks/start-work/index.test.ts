@@ -147,6 +147,39 @@ describe("start-work hook", () => {
       expect(lowerText).toContain("do not spend multiple read/bash")
     })
 
+    test("should resume when checked tasks are still missing required evidence", async () => {
+      const planPath = join(testDir, ".sisyphus", "plans", "evidence-gated-plan.md")
+      mkdirSync(join(testDir, ".sisyphus", "plans"), { recursive: true })
+      writeFileSync(planPath, `# Plan
+
+## TODOs
+- [x] 24. Final mapping closure
+  - QA: \`grep -n 'MISSING' .sisyphus/evidence/selenium-assertion-inventory.md\`. Evidence: .sisyphus/evidence/task-24-zero-missing.txt
+`)
+
+      const state: BoulderState = {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: ["session-1"],
+        plan_name: "evidence-gated-plan",
+      }
+      writeBoulderState(testDir, state)
+
+      const hook = createStartWorkHook(createMockPluginInput())
+      const output = {
+        parts: [{ type: "text", text: "<session-context></session-context>" }],
+      }
+
+      await hook["chat.message"](
+        { sessionID: "session-123" },
+        output
+      )
+
+      expect(output.parts[0].text).toContain("RESUMING")
+      expect(output.parts[0].text).toContain("0/1 tasks completed")
+      expect(output.parts[0].text).toContain("Checked boxes without required evidence remain incomplete")
+    })
+
     test("should replace $SESSION_ID placeholder", async () => {
       // given - hook and message with placeholder
       const hook = createStartWorkHook(createMockPluginInput())
