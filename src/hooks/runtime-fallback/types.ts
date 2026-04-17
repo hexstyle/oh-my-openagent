@@ -19,6 +19,10 @@ export interface RuntimeFallbackPluginInput {
         body: Record<string, unknown>
         query: { directory: string }
       }) => Promise<{ data?: { id?: string }; error?: unknown }>
+      children?: (input: {
+        path: { id: string }
+        query: { directory: string }
+      }) => Promise<unknown>
       get?: (input: { path: { id: string } }) => Promise<{ data?: { directory?: string } }>
       abort: (input: { path: { id: string } }) => Promise<unknown>
       messages: (input: { path: { id: string }; query: { directory: string } }) => Promise<unknown>
@@ -29,6 +33,9 @@ export interface RuntimeFallbackPluginInput {
           model: { providerID: string; modelID: string }
           parts: Array<{ type: "text"; text: string }>
         }
+        query: { directory: string }
+      }) => Promise<unknown>
+      status?: (input: {
         query: { directory: string }
       }) => Promise<unknown>
     }

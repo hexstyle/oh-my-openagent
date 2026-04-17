@@ -52,6 +52,7 @@ import {
   RUNTIME_FALLBACK_SCOPED_HANDOFF_TITLE_PREFIX,
 } from "../../shared/runtime-fallback-session-titles"
 import { markRecentRuntimeFallbackContinuationDispatch } from "../../shared/recent-runtime-fallback-continuation"
+import { normalizeSDKResponse } from "../../shared/normalize-sdk-response"
 
 const SESSION_TTL_MS = 30 * 60 * 1000
 const EXTERNAL_WATCHDOG_RESPAWN_MS = 10_000
@@ -77,6 +78,14 @@ const RECOVERY_PROBE_FAILURE_PATTERNS = [
   /\bpayment required\b/i,
   /continue the current task from where you left off/i,
 ]
+
+type RuntimeFallbackSessionStatus = {
+  type?: string
+}
+
+type RuntimeFallbackChildSession = {
+  id?: string
+}
 
 declare function setTimeout(callback: () => void | Promise<void>, delay?: number): RuntimeFallbackTimeout
 declare function clearTimeout(timeout: RuntimeFallbackTimeout): void
@@ -228,6 +237,10 @@ function terminateChildProcessTree(
     child.kill(signal)
   } catch {
   }
+}
+
+function isBlockingDescendantSessionStatus(type: string | undefined): boolean {
+  return type === "busy" || type === "retry" || type === "running"
 }
 
 export function createAutoRetryHelpers(deps: HookDeps) {
@@ -643,6 +656,76 @@ fi
     logScope: HOOK_NAME,
   })
 
+  const inspectDescendantSessions = async (sessionID: string): Promise<{
+    available: boolean
+    activeSessionIDs: string[]
+  }> => {
+    const sessionApi = ctx.client.session
+    if (typeof sessionApi.status !== "function" || typeof sessionApi.children !== "function") {
+      return {
+        available: false,
+        activeSessionIDs: [],
+      }
+    }
+
+    try {
+      const statusesResponse = await sessionApi.status({
+        query: { directory: ctx.directory },
+      })
+      const statuses = normalizeSDKResponse(
+        statusesResponse,
+        {} as Record<string, RuntimeFallbackSessionStatus>,
+      )
+      const visited = new Set<string>()
+      const activeSessionIDs = new Set<string>()
+
+      const visitChildren = async (parentSessionID: string): Promise<void> => {
+        if (visited.has(parentSessionID)) {
+          return
+        }
+        visited.add(parentSessionID)
+
+        const childrenResponse = await sessionApi.children!({
+          path: { id: parentSessionID },
+          query: { directory: ctx.directory },
+        })
+        const children = normalizeSDKResponse(
+          childrenResponse,
+          [] as RuntimeFallbackChildSession[],
+        )
+
+        for (const child of children) {
+          const childSessionID = typeof child?.id === "string" ? child.id : undefined
+          if (!childSessionID) {
+            continue
+          }
+
+          if (isBlockingDescendantSessionStatus(statuses[childSessionID]?.type)) {
+            activeSessionIDs.add(childSessionID)
+          }
+
+          await visitChildren(childSessionID)
+        }
+      }
+
+      await visitChildren(sessionID)
+
+      return {
+        available: true,
+        activeSessionIDs: [...activeSessionIDs],
+      }
+    } catch (error) {
+      log(`[${HOOK_NAME}] Failed to inspect descendant sessions`, {
+        sessionID,
+        error: String(error),
+      })
+      return {
+        available: false,
+        activeSessionIDs: [],
+      }
+    }
+  }
+
   const isRecoveredAutoResumeEligible = (sessionID: string): boolean => {
     if (!sessionAwaitingFallbackResult.has(sessionID)) {
       return true
@@ -794,6 +877,23 @@ fi
             source,
             resolvedAgent,
             activeBackgroundTaskCount: backgroundTasks.tasks.length,
+          })
+          return
+        }
+
+        const descendantSessions = await inspectDescendantSessions(sessionID)
+        if (descendantSessions.activeSessionIDs.length > 0) {
+          sessionLastAccess.set(sessionID, Date.now())
+          scheduleSessionFallbackTimeout(sessionID, {
+            resolvedAgent,
+            source: `${source}.descendant-sessions-active`,
+            timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
+          })
+          log(`[${HOOK_NAME}] Deferred session fallback timeout while descendant sessions are active`, {
+            sessionID,
+            source,
+            resolvedAgent,
+            activeDescendantSessionIDs: descendantSessions.activeSessionIDs,
           })
           return
         }

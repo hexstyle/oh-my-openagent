@@ -512,6 +512,111 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(retriedModels).toContain("openai/gpt-5.4")
   })
 
+  test("defers fallback while Flare child sessions are still busy even without active background task records", async () => {
+    const retriedModels: string[] = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-flare-active-child-session"
+    const childSessionID = "ses-flare-child-session"
+    let childStatus: "busy" | "idle" = "busy"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            children: async (args: { path: { id: string } }) =>
+              args.path.id === sessionID
+                ? { data: [{ id: childSessionID }] }
+                : { data: [] },
+            status: async () => ({
+              data: {
+                [sessionID]: { type: "idle" },
+                [childSessionID]: { type: childStatus },
+              },
+            }),
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+                { info: { role: "assistant" }, parts: [] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                retriedModels.push(`${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Atlas (Plan Executor)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Atlas (Plan Executor)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(25)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toHaveLength(0)
+    expect(retriedModels).toHaveLength(0)
+    expect(logCalls.some((call) => call.msg.includes("descendant sessions are active"))).toBe(true)
+
+    childStatus = "idle"
+    jest.advanceTimersByTime(90)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toContain(sessionID)
+    expect(retriedModels).toContain("openai/gpt-5.4")
+  })
+
   test("does not abort Flare delegation while task tool is still pending", async () => {
     const retriedModels: string[] = []
     const abortCalls: string[] = []
