@@ -80,7 +80,7 @@ if (( RESET )); then
   for ext in jsonc json; do
     candidate="$CONFIG_DIR/oh-my-openagent.local.$ext"
     if [[ -f "$candidate" ]]; then
-      LOCAL_OVERRIDE_BACKUP="$(mktemp "${TMPDIR:-/tmp}/oh-my-openagent.local.XXXXXX.$ext")"
+      LOCAL_OVERRIDE_BACKUP="$(mktemp "${TMPDIR:-/tmp}/oh-my-openagent.local.backup.XXXXXX")"
       cp "$candidate" "$LOCAL_OVERRIDE_BACKUP"
       LOCAL_OVERRIDE_RESTORE_NAME="oh-my-openagent.local.$ext"
       say "Preserving local model override config"

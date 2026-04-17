@@ -3,7 +3,7 @@ import type { AutoRetryHelpers } from "./auto-retry"
 import { HOOK_NAME, resolveLongRunningProgressTimeoutMs } from "./constants"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, extractAutoRetrySignal, containsErrorContent } from "./error-classifier"
-import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, markLimitError } from "./fallback-state"
+import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, markLimitError, markSessionError } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
@@ -208,6 +208,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
           stateForUser.stoppedAt = undefined
         }
         stateForUser.lastActiveStatusRefreshAt = undefined
+        stateForUser.lastErrorAt = undefined
         stateForUser.lastMeaningfulProgressAt = undefined
         stateForUser.lastTerminalIdleAt = undefined
       }
@@ -405,18 +406,29 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         sessionLastAccess.set(sessionID, Date.now())
 
         if (state.pendingFallbackModel) {
+          const pendingFallbackFailed = Boolean(
+            model
+            && hasSameModelIdentity(model, state.pendingFallbackModel),
+          )
           if (retrySignal && timeoutEnabled) {
             log(`[${HOOK_NAME}] Clearing pending fallback due to provider auto-retry signal`, {
               sessionID,
               pendingFallbackModel: state.pendingFallbackModel,
             })
             state.pendingFallbackModel = undefined
+          } else if (pendingFallbackFailed) {
+            log(`[${HOOK_NAME}] Clearing pending fallback because the pending model itself failed`, {
+              sessionID,
+              pendingFallbackModel: state.pendingFallbackModel,
+              failedModel: model,
+            })
+            state.pendingFallbackModel = undefined
           } else {
-          log(`[${HOOK_NAME}] message.updated fallback skipped (pending fallback in progress)`, {
-            sessionID,
-            pendingFallbackModel: state.pendingFallbackModel,
-          })
-          return
+            log(`[${HOOK_NAME}] message.updated fallback skipped (pending fallback in progress)`, {
+              sessionID,
+              pendingFallbackModel: state.pendingFallbackModel,
+            })
+            return
           }
         }
       }
@@ -424,6 +436,8 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       if (resolvedAgent) {
         state.resolvedAgent = resolvedAgent
       }
+
+      markSessionError(state)
 
       if (action === "limit_fallback") {
         markLimitError(state)

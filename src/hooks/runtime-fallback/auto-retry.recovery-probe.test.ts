@@ -332,6 +332,38 @@ OK
     expect(promptCalls).toHaveLength(0)
   })
 
+  it("nudges a stalled session even when session.idle happened after an error tail", async () => {
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({
+      promptCalls,
+      probeModelAvailability: async () => false,
+      timeoutSeconds: 30,
+    })
+    const sessionID = "ses_flare_idle_after_error"
+    const state = createFallbackState("openai/gpt-5.3-codex-spark", [
+      "opencode/big-pickle",
+    ])
+    const progressAt = Date.now() - (20 * 60_000)
+    const errorAt = progressAt + 60_000
+
+    state.lastMeaningfulProgressAt = progressAt
+    ;(state as { lastErrorAt?: number }).lastErrorAt = errorAt
+    state.lastTerminalIdleAt = errorAt + 1_000
+    deps.sessionStates.set(sessionID, state)
+    deps.sessionLastAccess.set(sessionID, Date.now() - (16 * 60_000))
+
+    const helpers = createAutoRetryHelpers(deps)
+    await helpers.recoverPreferredModels()
+
+    expect(promptCalls).toHaveLength(1)
+    expect(
+      (promptCalls[0] as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+    ).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.3-codex-spark",
+    })
+  })
+
   it("nudges a stale fallback session even after passive preferred-model recovery changes the target model", async () => {
     const promptCalls: Array<unknown> = []
     const deps = createDeps({

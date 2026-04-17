@@ -72,6 +72,9 @@ export interface FallbackState {
   /** Timestamp of the last real assistant/tool progress that should allow
    *  the active session.status path to extend the watchdog once more. */
   lastMeaningfulProgressAt?: number
+  /** Timestamp of the last assistant/session error. Used to distinguish
+   *  a clean terminal idle from an idle event that merely followed an abort. */
+  lastErrorAt?: number
   /** Timestamp of the last time an active session.status pulse extended the
    *  watchdog without any newer assistant/tool progress. */
   lastActiveStatusRefreshAt?: number

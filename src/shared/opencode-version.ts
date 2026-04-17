@@ -24,6 +24,13 @@ export const OPENCODE_SQLITE_VERSION = "1.1.53"
 const NOT_CACHED = Symbol("NOT_CACHED")
 let cachedVersion: string | null | typeof NOT_CACHED = NOT_CACHED
 
+function isRuntimeServeProcess(argv: string[] = process.argv): boolean {
+  const normalized = argv.map((value) => value.toLowerCase())
+  const hasServeArg = normalized.includes("serve")
+  const hasOpencodeBinary = normalized.some((value) => value.includes("opencode"))
+  return hasServeArg && hasOpencodeBinary
+}
+
 export function parseVersion(version: string): number[] {
   const cleaned = version.replace(/^v/, "").split("-")[0]
   return cleaned.split(".").map((n) => parseInt(n, 10) || 0)
@@ -47,6 +54,11 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 {
 export function getOpenCodeVersion(): string | null {
   if (cachedVersion !== NOT_CACHED) {
     return cachedVersion
+  }
+
+  if (isRuntimeServeProcess()) {
+    cachedVersion = null
+    return null
   }
 
   try {

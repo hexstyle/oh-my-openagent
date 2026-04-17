@@ -41,6 +41,7 @@ import { getTaskToastManager } from "../task-toast-manager"
 import { formatDuration } from "./duration-formatter"
 import {
   isAbortedSessionError,
+  isGenericAbortedSessionError,
   extractErrorName,
   extractErrorMessage,
   getSessionErrorMessage,
@@ -1357,6 +1358,16 @@ export class BackgroundManager {
       // For quota/limit errors: switch to fallback model instead of failing
       if (this.tryFallbackSwitch(task, errorInfo, "session.error.quota")) return
 
+      if (isGenericAbortedSessionError(props?.error)) {
+        log("[background-agent] Ignoring generic aborted session.error while awaiting follow-up session state:", {
+          taskId: task.id,
+          sessionID,
+          errorName,
+          errorMessage,
+        })
+        return
+      }
+
       const errorMsg = errorMessage ?? "Session error"
       void this.failTask(task, errorMsg, "session.error")
     }
@@ -2016,6 +2027,7 @@ export class BackgroundManager {
 
     // Atomically mark as completed to prevent race conditions
     task.status = "completed"
+    task.error = undefined
     task.completedAt = new Date()
     this.taskHistory.record(task.parentSessionID, { id: task.id, sessionID: task.sessionID, agent: task.agent, description: task.description, status: "completed", category: task.category, startedAt: task.startedAt, completedAt: task.completedAt })
 

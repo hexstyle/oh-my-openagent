@@ -7,7 +7,7 @@ import {
 } from "./constants"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError } from "./error-classifier"
-import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, resetTransientRetryState, markLimitError, markSessionStopped, isRecentLimitError } from "./fallback-state"
+import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, resetTransientRetryState, markLimitError, markSessionStopped, isRecentLimitError, markSessionError } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
@@ -109,6 +109,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     const hasMeaningfulProgress =
       (field === "text" && delta.trim().length > 0) ||
       partType === "compaction" ||
+      partType === "step-start" ||
       partType === "tool" ||
       partType === "tool_use" ||
       partType === "tool_result" ||
@@ -524,6 +525,8 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     if (resolvedAgent) {
       state.resolvedAgent = resolvedAgent
     }
+
+    markSessionError(state)
 
     const action = getRuntimeFallbackAction(effectiveError, config.retry_on_errors)
     logTrackedProvider403({

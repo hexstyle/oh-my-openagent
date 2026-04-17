@@ -80,6 +80,7 @@ export function isLongRunningAssistantProgress(args: {
 }): boolean {
   return (
     args.partType === "compaction"
+    || args.partType === "step-start"
     || args.partType === "tool_use"
     || args.partType === "tool-call"
     || (

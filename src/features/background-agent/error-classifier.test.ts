@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test"
 import {
   isRecord,
   isAbortedSessionError,
+  isGenericAbortedSessionError,
   getErrorText,
   extractErrorName,
   extractErrorMessage,
@@ -105,6 +106,23 @@ describe("isAbortedSessionError", () => {
     test("returns false for object without message", () => {
       expect(isAbortedSessionError({ code: "ABORTED" })).toBe(false)
     })
+  })
+})
+
+describe("isGenericAbortedSessionError", () => {
+  test("returns true for bare MessageAbortedError wrappers", () => {
+    expect(isGenericAbortedSessionError({
+      name: "MessageAbortedError",
+      message: "Aborted",
+    })).toBe(true)
+  })
+
+  test("returns false when an aborted wrapper contains a more specific nested cause", () => {
+    expect(isGenericAbortedSessionError({
+      name: "MessageAbortedError",
+      message: "Aborted",
+      cause: { message: "Forbidden: request was blocked by a gateway or proxy" },
+    })).toBe(false)
   })
 })
 
@@ -213,6 +231,14 @@ describe("extractErrorMessage", () => {
     })
   })
 
+  test("unwraps nested cause when direct message is a generic aborted wrapper", () => {
+    expect(extractErrorMessage({
+      name: "MessageAbortedError",
+      message: "Aborted",
+      cause: { message: "Forbidden: request was blocked by a gateway or proxy" },
+    })).toBe("Forbidden: request was blocked by a gateway or proxy")
+  })
+
   describe("#given Error instance", () => {
     test("returns error message", () => {
       expect(extractErrorMessage(new Error("test error"))).toBe("test error")
@@ -311,6 +337,18 @@ describe("extractErrorMessage", () => {
       const result = extractErrorMessage(circular)
       expect(result).toBe("[object Object]")
     })
+  })
+})
+
+describe("getSessionErrorMessage", () => {
+  test("unwraps nested cause when session.error uses a generic aborted wrapper", () => {
+    expect(getSessionErrorMessage({
+      error: {
+        name: "MessageAbortedError",
+        message: "Aborted",
+        cause: { message: "The usage limit has been reached [retrying in 27s attempt #6]" },
+      },
+    })).toBe("The usage limit has been reached [retrying in 27s attempt #6]")
   })
 })
 

@@ -99,6 +99,20 @@ describe("runtime-fallback", () => {
     }
   }
 
+  async function waitFor(check: () => boolean, timeoutMs = 120, intervalMs = 5): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (check()) {
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    }
+
+    if (!check()) {
+      throw new Error(`Timed out after ${timeoutMs}ms waiting for condition`)
+    }
+  }
+
   describe("session.error handling", () => {
     test("should detect retryable error with status code 429", async () => {
       const hook = createRuntimeFallbackHook(createMockPluginInput(), { config: createMockConfig() })
@@ -315,7 +329,7 @@ describe("runtime-fallback", () => {
       expect(skipLog).toBeUndefined()
     })
 
-    test("should continue fallback chain when fallback model is not found", async () => {
+    test("should defer fallback-chain advance while a pending fallback request is still in progress", async () => {
       const hook = createRuntimeFallbackHook(createMockPluginInput(), {
         config: createMockConfig({ notify_on_fallback: false }),
         pluginConfig: createMockPluginConfigWithCategoryFallback([
@@ -361,8 +375,11 @@ describe("runtime-fallback", () => {
       })
 
       const fallbackLogs = logCalls.filter((c) => c.msg.includes("Preparing fallback"))
-      expect(fallbackLogs.length).toBeGreaterThanOrEqual(2)
-      expect(fallbackLogs[1]?.data).toMatchObject({ from: "anthropic/claude-opus-4.6", to: "openai/gpt-5.4" })
+      expect(fallbackLogs.length).toBe(1)
+      expect(fallbackLogs[0]?.data).toMatchObject({ from: "google/gemini-2.5-pro", to: "anthropic/claude-opus-4.6" })
+
+      const pendingSkipLog = logCalls.find((c) => c.msg.includes("session.error skipped (pending fallback in progress)"))
+      expect(pendingSkipLog).toBeDefined()
 
       const nonRetryLog = logCalls.find(
         (c) => c.msg.includes("Error not retryable") && (c.data as { sessionID?: string } | undefined)?.sessionID === sessionID
@@ -370,7 +387,7 @@ describe("runtime-fallback", () => {
       expect(nonRetryLog).toBeUndefined()
     })
 
-    test("should continue fallback chain when ProviderModelNotFoundError occurs", async () => {
+    test("should defer ProviderModelNotFoundError chain advance while the prior fallback is still pending", async () => {
       const hook = createRuntimeFallbackHook(createMockPluginInput(), {
         config: createMockConfig({ notify_on_fallback: false }),
         pluginConfig: createMockPluginConfigWithCategoryFallback([
@@ -420,8 +437,10 @@ describe("runtime-fallback", () => {
       })
 
       const fallbackLogs = logCalls.filter((c) => c.msg.includes("Preparing fallback"))
-      expect(fallbackLogs.length).toBeGreaterThanOrEqual(2)
-      expect(fallbackLogs[1]?.data).toMatchObject({ from: "anthropic/claude-opus-4.6", to: "openai/gpt-5.4" })
+      expect(fallbackLogs.length).toBe(1)
+      expect(fallbackLogs[0]?.data).toMatchObject({ from: "google/gemini-2.5-pro", to: "anthropic/claude-opus-4.6" })
+      const pendingSkipLog = logCalls.find((c) => c.msg.includes("session.error skipped (pending fallback in progress)"))
+      expect(pendingSkipLog).toBeDefined()
     })
 
     test("opaque UnknownError schedules delayed same-model retry instead of immediate promptAsync storm", async () => {
@@ -1188,7 +1207,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 45))
+      await waitFor(() => promptCalls.length === 1)
 
       expect(promptCalls).toHaveLength(1)
       expect(
@@ -1457,7 +1476,7 @@ describe("runtime-fallback", () => {
       expect(body?.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" })
     })
 
-    test("gateway/proxy-blocked 403 in message.updated assistant error falls back immediately to the next model", async () => {
+    test("gateway/proxy-blocked 403 in message.updated assistant error schedules a delayed same-model retry", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(
         createMockPluginInput({
@@ -1517,17 +1536,31 @@ describe("runtime-fallback", () => {
         },
       })
 
+      expect(promptCalls).toHaveLength(0)
+
+      const provider403Log = logCalls.find((call) => call.msg.includes("Observed tracked provider 403"))
+      expect(provider403Log?.data).toMatchObject({
+        sessionID,
+        providerFamily: "codex",
+        model: "openai/gpt-5.4",
+        action: "retry_same_model_delayed_persistent",
+        statusCode: 403,
+      })
+
+      await waitFor(() => promptCalls.length === 1)
+
       expect(promptCalls).toHaveLength(1)
       const body = promptCalls[0]?.body as { model?: { providerID?: string; modelID?: string } } | undefined
-      expect(body?.model).toEqual({ providerID: "anthropic", modelID: "claude-opus-4-6" })
-
-      await new Promise((resolve) => setTimeout(resolve, 45))
-      expect(promptCalls).toHaveLength(1)
+      expect(body?.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" })
 
       const delayedRetryLog = logCalls.find((call) =>
         call.msg.includes("Scheduling delayed transient retry on current model"),
       )
-      expect(delayedRetryLog).toBeUndefined()
+      expect(delayedRetryLog?.data).toMatchObject({
+        sessionID,
+        currentModel: "openai/gpt-5.4",
+        persistent: true,
+      })
     })
 
     test("should bootstrap session.error fallback from session category model and preserve variant", async () => {
@@ -1650,14 +1683,8 @@ describe("runtime-fallback", () => {
           properties: {
             sessionID,
             error: {
-              name: "APIError",
-              data: {
-                statusCode: 403,
-                message:
-                  "Forbidden: request was blocked by a gateway or proxy. You may not have permission to access this resource.",
-                responseBody:
-                  "<html><body><p>Unable to load site</p><span>Please try again later.</span></body></html>",
-              },
+              name: "ProviderModelNotFoundError",
+              message: "Model not found",
             },
           },
         },
@@ -1707,15 +1734,9 @@ describe("runtime-fallback", () => {
         },
       })
 
-      const gatewayBlockedError = {
-        name: "APIError",
-        data: {
-          statusCode: 403,
-          message:
-            "Forbidden: request was blocked by a gateway or proxy. You may not have permission to access this resource.",
-          responseBody:
-            "<html><body><p>Unable to load site</p><span>Please try again later.</span></body></html>",
-        },
+      const modelNotFoundError = {
+        name: "ProviderModelNotFoundError",
+        message: "Model not found",
       }
 
       await hook.event({
@@ -1724,7 +1745,7 @@ describe("runtime-fallback", () => {
           properties: {
             sessionID,
             model: "openai/gpt-5.4",
-            error: gatewayBlockedError,
+            error: modelNotFoundError,
           },
         },
       })
@@ -1735,7 +1756,7 @@ describe("runtime-fallback", () => {
           properties: {
             sessionID,
             model: "openai/gpt-5.4",
-            error: gatewayBlockedError,
+            error: modelNotFoundError,
           },
         },
       })
@@ -1780,15 +1801,9 @@ describe("runtime-fallback", () => {
       const sessionID = "test-session-fallback-user-no-parts-race"
       SessionCategoryRegistry.register(sessionID, "test")
 
-      const gatewayBlockedError = {
-        name: "APIError",
-        data: {
-          statusCode: 403,
-          message:
-            "Forbidden: request was blocked by a gateway or proxy. You may not have permission to access this resource.",
-          responseBody:
-            "<html><body><p>Unable to load site</p><span>Please try again later.</span></body></html>",
-        },
+      const modelNotFoundError = {
+        name: "ProviderModelNotFoundError",
+        message: "Model not found",
       }
 
       await hook.event({
@@ -1806,7 +1821,7 @@ describe("runtime-fallback", () => {
               sessionID,
               role: "assistant",
               model: "openai/gpt-5.4",
-              error: gatewayBlockedError,
+              error: modelNotFoundError,
             },
           },
         },
@@ -1839,7 +1854,7 @@ describe("runtime-fallback", () => {
           properties: {
             sessionID,
             model: "openai/gpt-5.4",
-            error: gatewayBlockedError,
+            error: modelNotFoundError,
           },
         },
       })
@@ -1879,15 +1894,9 @@ describe("runtime-fallback", () => {
       const sessionID = "test-session-message-updated-then-session-error-without-model"
       SessionCategoryRegistry.register(sessionID, "test")
 
-      const gatewayBlockedError = {
-        name: "APIError",
-        data: {
-          statusCode: 403,
-          message:
-            "Forbidden: request was blocked by a gateway or proxy. You may not have permission to access this resource.",
-          responseBody:
-            "<html><body><p>Unable to load site</p><span>Please try again later.</span></body></html>",
-        },
+      const modelNotFoundError = {
+        name: "ProviderModelNotFoundError",
+        message: "Model not found",
       }
 
       await hook.event({
@@ -1905,7 +1914,7 @@ describe("runtime-fallback", () => {
               sessionID,
               role: "assistant",
               model: "openai/gpt-5.4",
-              error: gatewayBlockedError,
+              error: modelNotFoundError,
             },
           },
         },
@@ -1916,7 +1925,7 @@ describe("runtime-fallback", () => {
           type: "session.error",
           properties: {
             sessionID,
-            error: gatewayBlockedError,
+            error: modelNotFoundError,
           },
         },
       })
@@ -2779,6 +2788,84 @@ describe("runtime-fallback", () => {
       void sessionErrorPromise
     })
 
+    test("should advance fallback when the pending fallback model itself fails in message.updated", async () => {
+      const retriedModels: string[] = []
+
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
+            }),
+            promptAsync: async (args: unknown) => {
+              const model = (args as { body?: { model?: { providerID?: string; modelID?: string } } })?.body?.model
+              if (model?.providerID && model?.modelID) {
+                retriedModels.push(`${model.providerID}/${model.modelID}`)
+              }
+
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({ notify_on_fallback: false }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback([
+            "openai/gpt-5.4",
+            "openai/gpt-5.3-codex-spark",
+            "opencode/nemotron-3-super-free",
+          ]),
+        }
+      )
+
+      const sessionID = "test-message-updated-pending-model-fails"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "openai/gpt-5.4" } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            error: { statusCode: 429, message: "Rate limit exceeded" },
+          },
+        },
+      })
+
+      expect(retriedModels).toEqual(["openai/gpt-5.3-codex-spark"])
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              sessionID,
+              role: "assistant",
+              agent: "compaction",
+              model: "openai/gpt-5.3-codex-spark",
+              error: {
+                name: "AI_APICallError",
+                data: {
+                  statusCode: 429,
+                  message: "usage_limit_reached",
+                },
+              },
+            },
+          },
+        },
+      })
+
+      expect(retriedModels).toEqual([
+        "openai/gpt-5.3-codex-spark",
+        "opencode/nemotron-3-super-free",
+      ])
+    })
+
     test("should advance fallback after session timeout when Copilot retry emits no retryable events", async () => {
       const retriedModels: string[] = []
       const abortCalls: Array<{ path?: { id?: string } }> = []
@@ -2840,7 +2927,10 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      await waitFor(() =>
+        retriedModels.includes("anthropic/claude-opus-4-6")
+        && abortCalls.some((call) => call.path?.id === sessionID),
+      )
 
       expect(retriedModels).toContain("github-copilot/claude-opus-4.6")
       expect(retriedModels).toContain("anthropic/claude-opus-4-6")
@@ -2918,7 +3008,7 @@ describe("runtime-fallback", () => {
         output
       )
 
-      await new Promise((resolve) => setTimeout(resolve, 140))
+      await waitFor(() => retriedModels.includes("anthropic/claude-opus-4-6"))
 
       expect(retriedModels).toContain("github-copilot/claude-opus-4.6")
       expect(retriedModels).toContain("anthropic/claude-opus-4-6")
@@ -2991,7 +3081,10 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 140))
+      await waitFor(() =>
+        retriedModels.includes("anthropic/claude-opus-4-6")
+        && abortCalls.some((call) => call.path?.id === sessionID),
+      )
 
       expect(abortCalls.some((call) => call.path?.id === sessionID)).toBe(true)
       expect(retriedModels).toContain("github-copilot/claude-opus-4.6")
@@ -3065,7 +3158,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      await new Promise((resolve) => setTimeout(resolve, 20))
 
       expect(retriedModels).toHaveLength(1)
     })
@@ -3163,7 +3256,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      await new Promise((resolve) => setTimeout(resolve, 20))
 
       expect(retriedModels).toEqual(["github-copilot/claude-opus-4.6"])
     })
@@ -3239,7 +3332,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 120))
+      await waitFor(() => retriedModels.includes("openai/gpt-5.3-codex"))
 
       expect(retriedModels).toContain("openai/gpt-5.3-codex")
     })
@@ -3314,7 +3407,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 120))
+      await waitFor(() => retriedModels.includes("anthropic/claude-opus-4-6"))
 
       expect(retriedModels).toContain("anthropic/claude-opus-4-6")
     })
@@ -3390,7 +3483,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 120))
+      await waitFor(() => retriedModels.includes("openai/gpt-5.3-codex"))
 
       expect(retriedModels).toContain("openai/gpt-5.3-codex")
     })
@@ -3466,7 +3559,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 120))
+      await waitFor(() => retriedModels.includes("openai/gpt-5.3-codex"))
 
       expect(retriedModels).toContain("openai/gpt-5.3-codex")
     })
@@ -3536,7 +3629,7 @@ describe("runtime-fallback", () => {
         },
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 120))
+      await waitFor(() => retriedModels.includes("openai/gpt-5.3-codex"))
 
       expect(retriedModels).toContain("openai/gpt-5.3-codex")
     })
@@ -3977,7 +4070,7 @@ describe("runtime-fallback", () => {
       await hook.event({
         event: {
           type: "session.error",
-          properties: { sessionID, error: { statusCode: 429 } },
+          properties: { sessionID, model: "openai/gpt-5.4", error: { statusCode: 429 } },
         },
       })
 
@@ -3989,9 +4082,15 @@ describe("runtime-fallback", () => {
   describe("max attempts limit", () => {
     test("should stop after max_fallback_attempts", async () => {
       const hook = createRuntimeFallbackHook(createMockPluginInput(), {
-        config: createMockConfig({ max_fallback_attempts: 2 }),
+        config: createMockConfig({ max_fallback_attempts: 2, notify_on_fallback: false }),
+        pluginConfig: createMockPluginConfigWithCategoryFallback([
+          "openai/gpt-5.4",
+          "google/gemini-2.5-pro",
+          "anthropic/claude-sonnet-4-6",
+        ]),
       })
       const sessionID = "test-session-max"
+      SessionCategoryRegistry.register(sessionID, "test")
 
       await hook.event({
         event: {
@@ -4000,18 +4099,30 @@ describe("runtime-fallback", () => {
         },
       })
 
-      //#when - multiple errors occur exceeding max attempts
-      for (let i = 0; i < 5; i++) {
-        await hook.event({
-          event: {
-            type: "session.error",
-            properties: { sessionID, error: { statusCode: 429 } },
-          },
-        })
-      }
+      //#when - multiple pending models fail in sequence, exceeding max attempts
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: { sessionID, error: { statusCode: 429 } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: { sessionID, model: "openai/gpt-5.4", error: { statusCode: 429 } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: { sessionID, model: "google/gemini-2.5-pro", error: { statusCode: 429 } },
+        },
+      })
 
       //#then - should have stopped after max attempts
-      const maxLog = logCalls.find((c) => c.msg.includes("Max fallback attempts reached") || c.msg.includes("No fallback models"))
+      const maxLog = logCalls.find((c) => c.msg.includes("Max fallback attempts reached"))
       expect(maxLog).toBeDefined()
     })
   })
@@ -4085,7 +4196,7 @@ describe("runtime-fallback", () => {
       void firstErrorPromise
     })
 
-    test("consecutive session.errors advance chain normally when retry completes between them", async () => {
+    test("consecutive model-less session.errors do not advance the chain until the pending fallback resolves", async () => {
       //#given
       const hook = createRuntimeFallbackHook(createMockPluginInput(), {
         config: createMockConfig({ notify_on_fallback: false }),
@@ -4127,9 +4238,11 @@ describe("runtime-fallback", () => {
         },
       })
 
-      //#then - both should advance the chain (no skip)
+      //#then - the second error is ignored until the pending fallback resolves
       const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
-      expect(fallbackLogs.length).toBeGreaterThanOrEqual(2)
+      expect(fallbackLogs).toHaveLength(1)
+      const pendingSkipLog = logCalls.find((call) => call.msg.includes("session.error skipped (pending fallback in progress)"))
+      expect(pendingSkipLog).toBeDefined()
     })
 
     test("session.stop aborts when sessionAwaitingFallbackResult is set", async () => {
@@ -4194,9 +4307,25 @@ describe("runtime-fallback", () => {
       expect(abortCalls.some((call) => call.path?.id === sessionID)).toBe(true)
     })
 
-    test("pendingFallbackModel advances chain on subsequent error even when persisted", async () => {
+    test("pendingFallbackModel keeps subsequent model-less errors from advancing the chain while retry is pending", async () => {
       //#given
-      const hook = createRuntimeFallbackHook(createMockPluginInput(), {
+      const promptCalls: Array<unknown> = []
+      const hook = createRuntimeFallbackHook(createMockPluginInput({
+        session: {
+          messages: async () => ({
+            data: [
+              {
+                info: { role: "user" },
+                parts: [{ type: "text", text: "hello" }],
+              },
+            ],
+          }),
+          promptAsync: async (args: unknown) => {
+            promptCalls.push(args)
+            return {}
+          },
+        },
+      }), {
         config: createMockConfig({ notify_on_fallback: false }),
         pluginConfig: {
           git_master: {
@@ -4228,10 +4357,11 @@ describe("runtime-fallback", () => {
         },
       })
 
-      const autoRetryLog = logCalls.find((call) => call.msg.includes("No user message found for auto-retry"))
+      const autoRetryLog = logCalls.find((call) => call.msg.includes("Auto-retrying session"))
       expect(autoRetryLog).toBeDefined()
+      expect(promptCalls.length).toBeGreaterThanOrEqual(1)
 
-      //#when - second error fires after retry completed (retryInFlight cleared)
+      //#when - second error fires without model context while pending fallback is still unresolved
       await hook.event({
         event: {
           type: "session.error",
@@ -4239,9 +4369,11 @@ describe("runtime-fallback", () => {
         },
       })
 
-      //#then - chain advances normally (not skipped), consistent with consecutive errors test
+      //#then - the second error is ignored until the pending fallback resolves
       const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
-      expect(fallbackLogs.length).toBeGreaterThanOrEqual(2)
+      expect(fallbackLogs.length).toBe(1)
+      const pendingSkipLog = logCalls.find((call) => call.msg.includes("session.error skipped (pending fallback in progress)"))
+      expect(pendingSkipLog).toBeDefined()
     })
   })
 })

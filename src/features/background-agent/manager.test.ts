@@ -1356,6 +1356,30 @@ describe("BackgroundManager.tryCompleteTask", () => {
     expect(getPendingByParent(manager).get(task.parentSessionID)).toBeUndefined()
   })
 
+  test("should clear stale task.error when a previously interrupted task completes successfully", async () => {
+    // given
+    const task: BackgroundTask = {
+      id: "task-clears-stale-error",
+      sessionID: "session-clears-stale-error",
+      parentSessionID: "parent-clears-stale-error",
+      parentMessageID: "msg-1",
+      description: "task with stale error",
+      prompt: "test",
+      agent: "explore",
+      status: "running",
+      startedAt: new Date(),
+      error: "Aborted",
+    }
+
+    // when
+    const completed = await tryCompleteTaskForTest(manager, task)
+
+    // then
+    expect(completed).toBe(true)
+    expect(task.status).toBe("completed")
+    expect(task.error).toBeUndefined()
+  })
+
   test("should remove toast tracking before notifying completed task", async () => {
     // given
     const { removeTaskCalls, resetToastManager } = createToastRemoveTaskTracker()
@@ -4007,6 +4031,86 @@ describe("BackgroundManager.handleEvent - session.error", () => {
 
     //#then
     expect(handler).not.toThrow()
+
+    manager.shutdown()
+  })
+
+  test("ignores bare MessageAbortedError wrappers until follow-up session state arrives", async () => {
+    //#given
+    const manager = createBackgroundManager()
+    const sessionID = "ses_error_bare_aborted"
+    const task = createMockTask({
+      id: "task-bare-aborted",
+      sessionID,
+      parentSessionID: "parent-session",
+      parentMessageID: "msg-1",
+      description: "task with generic abort wrapper",
+      agent: "explore",
+      status: "running",
+    })
+    getTaskMap(manager).set(task.id, task)
+    getPendingByParent(manager).set(task.parentSessionID, new Set([task.id]))
+
+    //#when
+    manager.handleEvent({
+      type: "session.error",
+      properties: {
+        sessionID,
+        error: {
+          name: "MessageAbortedError",
+          message: "Aborted",
+        },
+      },
+    })
+
+    await flushBackgroundNotifications()
+
+    //#then
+    expect(task.status).toBe("running")
+    expect(task.error).toBeUndefined()
+    expect(getCompletionTimers(manager).has(task.id)).toBe(false)
+    expect(getPendingByParent(manager).get(task.parentSessionID)).toEqual(new Set([task.id]))
+
+    manager.shutdown()
+  })
+
+  test("unwraps aborted wrappers with nested provider causes and keeps the retry path alive", async () => {
+    //#given
+    const manager = createBackgroundManager()
+    stubProcessKey(manager)
+
+    const sessionID = "ses_error_aborted_with_cause"
+    const task = createRetryTask(manager, {
+      id: "task-aborted-with-cause",
+      sessionID,
+      description: "task that should retry after aborted wrapper",
+    })
+
+    //#when
+    manager.handleEvent({
+      type: "session.error",
+      properties: {
+        sessionID,
+        error: {
+          name: "MessageAbortedError",
+          message: "Aborted",
+          cause: {
+            statusCode: 502,
+            message:
+              "Bad Gateway: upstream provider temporarily unavailable",
+          },
+        },
+      },
+    })
+
+    //#then
+    expect(["pending", "running"]).toContain(task.status)
+    expect(task.transientRetryCount).toBe(1)
+    expect(task.error).toBeUndefined()
+    expect(task.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-opus-4-6-thinking",
+    })
 
     manager.shutdown()
   })

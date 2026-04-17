@@ -1,4 +1,5 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
+import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test"
+import * as childProcess from "child_process"
 import {
   parseVersion,
   compareVersions,
@@ -11,6 +12,12 @@ import {
 } from "./opencode-version"
 
 describe("opencode-version", () => {
+  const originalArgv = [...process.argv]
+
+  afterEach(() => {
+    process.argv = [...originalArgv]
+  })
+
   describe("parseVersion", () => {
     test("parses simple version", () => {
       // given a simple version string
@@ -131,6 +138,27 @@ describe("opencode-version", () => {
 
       // then returns null without executing command
       expect(result).toBe(null)
+    })
+
+    test("returns null without spawning opencode when running inside opencode serve", () => {
+      process.argv = [
+        "/opt/homebrew/opt/node/bin/node",
+        "/opt/homebrew/bin/opencode",
+        "serve",
+        "--hostname=127.0.0.1",
+        "--port=43392",
+      ]
+      const execSyncSpy = spyOn(childProcess, "execSync").mockImplementation(() => {
+        throw new Error("execSync should not be called inside opencode serve")
+      })
+
+      try {
+        const result = getOpenCodeVersion()
+        expect(result).toBe(null)
+        expect(execSyncSpy).not.toHaveBeenCalled()
+      } finally {
+        execSyncSpy.mockRestore()
+      }
     })
   })
 

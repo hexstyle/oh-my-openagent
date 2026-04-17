@@ -5,6 +5,14 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 const GENERIC_WRAPPER_MESSAGE_PATTERNS = [
   /^tool execution aborted$/i,
   /^forbidden$/i,
+  /^aborted$/i,
+  /^the operation was aborted$/i,
+]
+
+const GENERIC_ABORT_MESSAGE_PATTERNS = [
+  /^aborted$/i,
+  /^the operation was aborted$/i,
+  /^request aborted while waiting for input$/i,
 ]
 
 function isGenericWrapperMessage(message: string | undefined): boolean {
@@ -41,6 +49,33 @@ function getNestedErrorMessage(error: Record<string, unknown>): string | undefin
 export function isAbortedSessionError(error: unknown): boolean {
   const message = getErrorText(error)
   return message.toLowerCase().includes("aborted")
+}
+
+function getDirectMessage(error: unknown): string | undefined {
+  if (!error) return undefined
+  if (typeof error === "string") return error
+  if (error instanceof Error) return error.message
+  if (isRecord(error) && typeof error["message"] === "string") return error["message"]
+  return undefined
+}
+
+export function isGenericAbortedSessionError(error: unknown): boolean {
+  const errorName = extractErrorName(error)?.toLowerCase()
+  const directMessage = getDirectMessage(error)?.trim()
+  const extractedMessage = extractErrorMessage(error)?.trim()
+  const isGenericDirectMessage = typeof directMessage === "string"
+    && GENERIC_ABORT_MESSAGE_PATTERNS.some((pattern) => pattern.test(directMessage))
+  const isAbortedWrapperName = errorName === "messageabortederror" || errorName === "aborterror"
+
+  if (!isGenericDirectMessage && !isAbortedWrapperName) {
+    return false
+  }
+
+  if (!extractedMessage || extractedMessage === directMessage) {
+    return true
+  }
+
+  return GENERIC_ABORT_MESSAGE_PATTERNS.some((pattern) => pattern.test(extractedMessage))
 }
 
 export function getErrorText(error: unknown): string {

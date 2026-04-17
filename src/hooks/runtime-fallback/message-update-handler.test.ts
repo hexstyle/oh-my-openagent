@@ -82,6 +82,7 @@ function createDeps(messagesResponse: unknown): HookDeps {
 
 function createHelpers(
   scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }>,
+  overrides?: Partial<AutoRetryHelpers>,
 ): AutoRetryHelpers {
   return {
     abortSessionRequest: async () => {},
@@ -100,6 +101,7 @@ function createHelpers(
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
     recoverPreferredModels: async () => {},
+    ...overrides,
   }
 }
 
@@ -410,6 +412,65 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     expect(scheduleCalls).toEqual([
       { sessionID },
       { sessionID, timeoutMsOverride: 120_000 },
+    ])
+  })
+
+  it("#given a pending fallback model that itself fails #when message.updated receives the new model error #then fallback advances instead of deadlocking on pending state", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?pending-model-fails-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-pending-fallback-model-fails"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const autoRetryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const deps = createDeps({
+      data: [
+        { info: { role: "user" }, parts: [{ type: "text", text: "Continue the task." }] },
+      ],
+    })
+    deps.pluginConfig = {
+      ...deps.pluginConfig,
+      fallback_models: [
+        "openai/gpt-5.4",
+        "openai/gpt-5.3-codex-spark",
+        "opencode/nemotron-3-super-free",
+      ],
+    }
+    const state = createFallbackState("openai/gpt-5.4")
+    state.currentModel = "openai/gpt-5.3-codex-spark"
+    state.pendingFallbackModel = "openai/gpt-5.3-codex-spark"
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls, {
+      autoRetryWithFallback: async (retrySessionID, model, _resolvedAgent, source) => {
+        autoRetryCalls.push({
+          sessionID: retrySessionID,
+          model,
+          source,
+        })
+      },
+    }))
+
+    await handler({
+      info: {
+        id: "msg-pending-fallback-model-fails",
+        sessionID,
+        role: "assistant",
+        agent: "compaction",
+        model: "openai/gpt-5.3-codex-spark",
+        error: {
+          name: "AI_APICallError",
+          data: {
+            statusCode: 429,
+            message: "usage_limit_reached",
+          },
+        },
+      },
+    })
+
+    expect(autoRetryCalls).toEqual([
+      {
+        sessionID,
+        model: "opencode/nemotron-3-super-free",
+        source: "message.updated.limit_fallback",
+      },
     ])
   })
 })

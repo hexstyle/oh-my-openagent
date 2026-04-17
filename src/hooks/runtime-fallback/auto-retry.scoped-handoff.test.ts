@@ -8,6 +8,7 @@ import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-m
 function createDeps(args: {
   createCalls: Array<unknown>
   promptCalls: Array<unknown>
+  messagesResponse?: unknown
 }): HookDeps {
   return {
     ctx: {
@@ -31,6 +32,9 @@ function createDeps(args: {
                 parts: [{ type: "text", text: "Implement the current plan and keep the todo state intact." }],
               },
             ],
+            ...(typeof args.messagesResponse === "object" && args.messagesResponse !== null
+              ? args.messagesResponse as Record<string, unknown>
+              : {}),
           }),
           promptAsync: async (input) => {
             args.promptCalls.push(input)
@@ -177,5 +181,100 @@ describe("runtime fallback scoped handoff", () => {
     expect(
       (promptCalls[0] as { body?: { agent?: string } }).body?.agent,
     ).toBe("explore")
+  })
+
+  it("retries spark-to-free in the same session even when only internal continuation messages remain", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({
+      createCalls,
+      promptCalls,
+      messagesResponse: {
+        data: [
+          {
+            info: { role: "user" },
+            parts: [{
+              type: "text",
+              text: `${OMO_INTERNAL_INITIATOR_MARKER}\nContinue the current task from where you left off.`,
+            }],
+          },
+        ],
+      },
+    })
+    const sessionID = "ses_spark_free_internal_only"
+    const state = createFallbackState("openai/gpt-5.3-codex-spark", [
+      "opencode/nemotron-3-super-free",
+    ])
+
+    state.currentModel = "openai/gpt-5.3-codex-spark"
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    const dispatched = await helpers.autoRetryWithFallback(
+      sessionID,
+      "opencode/nemotron-3-super-free",
+      "Atlas (Plan Executor)",
+      "session.error.limit_fallback",
+      { previousModel: "openai/gpt-5.3-codex-spark" },
+    )
+
+    expect(dispatched).toBe(true)
+    expect(createCalls).toHaveLength(0)
+    expect(promptCalls).toHaveLength(1)
+    expect(
+      (promptCalls[0] as { path?: { id?: string } }).path?.id,
+    ).toBe(sessionID)
+    expect(
+      (promptCalls[0] as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+    ).toEqual({
+      providerID: "opencode",
+      modelID: "nemotron-3-super-free",
+    })
+  })
+
+  it("still creates a scoped fallback handoff when no reusable user brief is available", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({
+      createCalls,
+      promptCalls,
+      messagesResponse: {
+        data: [
+          {
+            info: { role: "user" },
+            parts: [{
+              type: "text",
+              text: `${OMO_INTERNAL_INITIATOR_MARKER}\nContinue the current task from where you left off.`,
+            }],
+          },
+        ],
+      },
+    })
+    const sessionID = "ses_scoped_no_brief"
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.3-codex-spark",
+    ])
+
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    const dispatched = await helpers.autoRetryWithFallback(
+      sessionID,
+      "openai/gpt-5.3-codex-spark",
+      "Prometheus (Plan Builder)",
+      "session.error.fallback_chain",
+      { previousModel: "anthropic/claude-opus-4-6" },
+    )
+
+    expect(dispatched).toBe(true)
+    expect(createCalls).toHaveLength(1)
+    expect(promptCalls).toHaveLength(1)
+    expect(
+      (promptCalls[0] as { path?: { id?: string } }).path?.id,
+    ).toBe("ses_scoped_child")
+    const retryText = (
+      promptCalls[0] as { body?: { parts?: Array<{ text?: string }> } }
+    ).body?.parts?.[0]?.text
+    expect(retryText).toContain("No reusable user brief was available from the parent session.")
   })
 })

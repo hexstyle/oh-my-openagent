@@ -621,9 +621,20 @@ fi
     invalidateExternalWatchdog(sessionID)
   }
 
-  const hasTerminalIdleMarker = (state: FallbackState): boolean =>
-    typeof state.lastTerminalIdleAt === "number"
-      && state.lastTerminalIdleAt >= (state.lastMeaningfulProgressAt ?? 0)
+  const hasTerminalIdleMarker = (state: FallbackState): boolean => {
+    if (typeof state.lastTerminalIdleAt !== "number") {
+      return false
+    }
+
+    const lastMeaningfulProgressAt = state.lastMeaningfulProgressAt ?? 0
+    const lastErrorAt = state.lastErrorAt ?? 0
+
+    if (lastErrorAt > lastMeaningfulProgressAt) {
+      return state.lastTerminalIdleAt < lastErrorAt
+    }
+
+    return state.lastTerminalIdleAt >= lastMeaningfulProgressAt
+  }
 
   const getBackgroundTaskInspection = (sessionID: string) => inspectParentSessionTasks({
     backgroundManager: options?.backgroundManager,
@@ -970,107 +981,109 @@ fi
         query: { directory: ctx.directory },
       })
       const lastUserRetryParts = getLastUserRetryParts(messagesResp)
-      if (lastUserRetryParts.length > 0) {
-        log(`[${HOOK_NAME}] Auto-retrying session (${source})`, {
+      if (lastUserRetryParts.length === 0) {
+        log(`[${HOOK_NAME}] No reusable user message found for auto-retry; continuing with internal fallback prompt (${source})`, {
           sessionID,
-          model: newModel,
         })
+      }
 
-        const retryAgent = await resolveAgentForSessionFromContext(
-          sessionID,
-          resolvedAgent ?? getSessionAgent(sessionID),
-        ) ?? resolvedAgent ?? getSessionAgent(sessionID)
-        const previousModel = args?.previousModel ?? state?.currentModel ?? newModel
-        const transitionMode = getRuntimeFallbackTransitionMode({
-          resolvedAgent: retryAgent,
-          currentModel: previousModel,
+      log(`[${HOOK_NAME}] Auto-retrying session (${source})`, {
+        sessionID,
+        model: newModel,
+      })
+
+      const retryAgent = await resolveAgentForSessionFromContext(
+        sessionID,
+        resolvedAgent ?? getSessionAgent(sessionID),
+      ) ?? resolvedAgent ?? getSessionAgent(sessionID)
+      const previousModel = args?.previousModel ?? state?.currentModel ?? newModel
+      const transitionMode = getRuntimeFallbackTransitionMode({
+        resolvedAgent: retryAgent,
+        currentModel: previousModel,
+        newModel,
+      })
+      const preserveRetryAgent = isBoulderTrackedExecutionSession(sessionID, ctx.directory)
+      const retryPromptAgent = (!preserveRetryAgent
+        && shouldOmitRetryAgent(newModel, state?.originalModel ?? newModel, retryAgent))
+        ? undefined
+        : normalizeAgentForSessionPrompt(retryAgent)
+
+      if (transitionMode === "scoped_handoff") {
+        const childSession = await createScopedFallbackSession({
+          parentSessionID: sessionID,
           newModel,
         })
-        const preserveRetryAgent = isBoulderTrackedExecutionSession(sessionID, ctx.directory)
-        const retryPromptAgent = (!preserveRetryAgent
-          && shouldOmitRetryAgent(newModel, state?.originalModel ?? newModel, retryAgent))
-          ? undefined
-          : normalizeAgentForSessionPrompt(retryAgent)
 
-        if (transitionMode === "scoped_handoff") {
-          const childSession = await createScopedFallbackSession({
-            parentSessionID: sessionID,
-            newModel,
-          })
-
-          if (childSession) {
-            log(`[${HOOK_NAME}] Auto-retrying via scoped fallback handoff`, {
-              sessionID,
-              childSessionID: childSession.sessionID,
-              from: previousModel,
-              to: newModel,
-              resolvedAgent: retryAgent,
-            })
-
-            await ctx.client.session.promptAsync({
-              path: { id: childSession.sessionID },
-              body: {
-                ...(retryPromptAgent ? { agent: retryPromptAgent } : {}),
-                ...retryModelPayload,
-                parts: [
-                  createInternalAgentTextPart(
-                    buildScopedFallbackHandoffPrompt({
-                      parentSessionID: sessionID,
-                      newModel,
-                      lastUserRetryParts,
-                    }),
-                  ),
-                ],
-              },
-              query: { directory: childSession.directory },
-            })
-
-            sessionAwaitingFallbackResult.delete(sessionID)
-            clearSessionFallbackTimeout(sessionID)
-            if (state?.pendingFallbackModel) {
-              state.pendingFallbackModel = undefined
-            }
-            if (state?.pendingTransientRetry) {
-              state.pendingTransientRetry = false
-            }
-            retryDispatched = true
-            return retryDispatched
-          }
-
-          log(`[${HOOK_NAME}] Scoped fallback handoff unavailable, falling back to same-session retry`, {
+        if (childSession) {
+          log(`[${HOOK_NAME}] Auto-retrying via scoped fallback handoff`, {
             sessionID,
+            childSessionID: childSession.sessionID,
             from: previousModel,
             to: newModel,
             resolvedAgent: retryAgent,
           })
+
+          await ctx.client.session.promptAsync({
+            path: { id: childSession.sessionID },
+            body: {
+              ...(retryPromptAgent ? { agent: retryPromptAgent } : {}),
+              ...retryModelPayload,
+              parts: [
+                createInternalAgentTextPart(
+                  buildScopedFallbackHandoffPrompt({
+                    parentSessionID: sessionID,
+                    newModel,
+                    lastUserRetryParts,
+                  }),
+                ),
+              ],
+            },
+            query: { directory: childSession.directory },
+          })
+
+          sessionAwaitingFallbackResult.delete(sessionID)
+          clearSessionFallbackTimeout(sessionID)
+          if (state?.pendingFallbackModel) {
+            state.pendingFallbackModel = undefined
+          }
+          if (state?.pendingTransientRetry) {
+            state.pendingTransientRetry = false
+          }
+          retryDispatched = true
+          return retryDispatched
         }
 
-        sessionAwaitingFallbackResult.add(sessionID)
-        const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
-        scheduleSessionFallbackTimeout(sessionID, {
+        log(`[${HOOK_NAME}] Scoped fallback handoff unavailable, falling back to same-session retry`, {
+          sessionID,
+          from: previousModel,
+          to: newModel,
           resolvedAgent: retryAgent,
-          source,
-          mode: args?.transientRetry ? "transient_retry" : "fallback",
-          timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
         })
-
-        await ctx.client.session.promptAsync({
-          path: { id: sessionID },
-          body: {
-            ...(retryPromptAgent ? { agent: retryPromptAgent } : {}),
-            ...retryModelPayload,
-            parts: [
-              createInternalAgentTextPart(
-                args?.continuationPrompt ?? FALLBACK_CONTINUATION_PROMPT,
-              ),
-            ],
-          },
-          query: { directory: ctx.directory },
-        })
-        retryDispatched = true
-      } else {
-        log(`[${HOOK_NAME}] No user message found for auto-retry (${source})`, { sessionID })
       }
+
+      sessionAwaitingFallbackResult.add(sessionID)
+      const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
+      scheduleSessionFallbackTimeout(sessionID, {
+        resolvedAgent: retryAgent,
+        source,
+        mode: args?.transientRetry ? "transient_retry" : "fallback",
+        timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
+      })
+
+      await ctx.client.session.promptAsync({
+        path: { id: sessionID },
+        body: {
+          ...(retryPromptAgent ? { agent: retryPromptAgent } : {}),
+          ...retryModelPayload,
+          parts: [
+            createInternalAgentTextPart(
+              args?.continuationPrompt ?? FALLBACK_CONTINUATION_PROMPT,
+            ),
+          ],
+        },
+        query: { directory: ctx.directory },
+      })
+      retryDispatched = true
     } catch (retryError) {
       log(`[${HOOK_NAME}] Auto-retry failed (${source})`, { sessionID, error: String(retryError) })
     } finally {

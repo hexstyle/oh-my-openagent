@@ -52,6 +52,7 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     pendingFallbackModel: undefined,
     lastLimitErrorAt: undefined,
     lastMeaningfulProgressAt: undefined,
+    lastErrorAt: undefined,
     lastActiveStatusRefreshAt: undefined,
     lastTerminalIdleAt: undefined,
     stoppedAt: undefined,
@@ -63,6 +64,10 @@ const STOP_INHIBIT_WINDOW_MS = 15_000
 
 export function markLimitError(state: FallbackState, now = Date.now()): void {
   state.lastLimitErrorAt = now
+}
+
+export function markSessionError(state: FallbackState, now = Date.now()): void {
+  state.lastErrorAt = now
 }
 
 export function isRecentLimitError(
@@ -106,12 +111,14 @@ export function markFallbackResponseSuccess(state: FallbackState): void {
   state.pendingFallbackModel = undefined
   state.attemptCount = 0
   state.fullChainCyclesCompleted = 0
+  state.lastErrorAt = undefined
   state.lastActiveStatusRefreshAt = undefined
   resetTransientRetryState(state)
 }
 
 export function markMeaningfulProgress(state: FallbackState, now = Date.now()): void {
   state.lastMeaningfulProgressAt = now
+  state.lastErrorAt = undefined
   state.lastActiveStatusRefreshAt = undefined
 }
 
