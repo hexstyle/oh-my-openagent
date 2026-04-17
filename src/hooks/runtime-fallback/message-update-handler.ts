@@ -233,11 +233,9 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
 
       if (currentEventHasVisibleResponse) {
         sessionLastAccess.set(sessionID, Date.now())
-        sessionRecentActiveStatusUntil?.delete(sessionID)
         sessionSilentAssistantUpdateCounts?.delete(sessionID)
         sessionAwaitingFallbackResult.delete(sessionID)
         sessionStatusRetryKeys.delete(sessionID)
-        helpers.clearSessionFallbackTimeout(sessionID)
         resetInternalContinuationLoopForVisibleAssistant(deps, sessionID)
         const state = sessionStates.get(sessionID)
         if (state) {
@@ -245,10 +243,29 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
           markMeaningfulProgress(state)
           markFallbackResponseSuccess(state)
         }
-        log(`[${HOOK_NAME}] Assistant response observed directly in message.updated; cleared fallback timeout`, {
-          sessionID,
-          model,
-        })
+
+        const timeoutMsOverride = resolveRecentActiveStatusTimeoutOverride(sessionID)
+        if (timeoutMsOverride !== undefined) {
+          await armActiveSessionWatchdog({
+            sessionID,
+            role,
+            source: "message.updated.assistant.visible-progress",
+            info,
+            timeoutMsOverride,
+          })
+          log(`[${HOOK_NAME}] Assistant response observed during active generation; preserved fallback timeout`, {
+            sessionID,
+            model,
+            timeoutMsOverride,
+          })
+        } else {
+          sessionRecentActiveStatusUntil?.delete(sessionID)
+          helpers.clearSessionFallbackTimeout(sessionID)
+          log(`[${HOOK_NAME}] Assistant response observed directly in message.updated; cleared fallback timeout`, {
+            sessionID,
+            model,
+          })
+        }
         return
       }
 
