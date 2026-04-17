@@ -50,28 +50,14 @@ export async function pollForCompletion(
       return 130
     }
 
-    // ERROR CHECK FIRST — errors must not be masked by other gates
-    if (eventState.mainSessionError) {
-      errorCycleCount++
-      if (errorCycleCount >= ERROR_GRACE_CYCLES) {
-        console.error(
-          pc.red(`\n\nSession ended with error: ${eventState.lastError}`)
-        )
-        console.error(
-          pc.yellow("Check if todos were completed before the error.")
-        )
-        return 1
-      }
-      // Continue polling during grace period to allow recovery
-      continue
-    } else {
-      // Reset error counter when error clears (recovery succeeded)
-      errorCycleCount = 0
-    }
+    let mainSessionStatus: "idle" | "busy" | "retry" | null = null
+    const shouldProbeStatusForErrorRecovery = eventState.mainSessionError
 
     // Watchdog: if no events received for N seconds, verify session status via API
-    let mainSessionStatus: "idle" | "busy" | "retry" | null = null
-    if (eventState.lastEventTimestamp !== null) {
+    if (
+      !shouldProbeStatusForErrorRecovery &&
+      eventState.lastEventTimestamp !== null
+    ) {
       const timeSinceLastEvent = Date.now() - eventState.lastEventTimestamp
       if (timeSinceLastEvent > eventWatchdogMs) {
         // Events stopped coming - verify actual session state
@@ -96,10 +82,36 @@ export async function pollForCompletion(
       }
     }
 
-    // Only call getMainSessionStatus if watchdog didn't already check
+    // Only call getMainSessionStatus if watchdog didn't already check.
+    // Errors are special: verify actual status immediately so transient
+    // abort/retry handoffs do not fail the run prematurely.
     if (mainSessionStatus === null) {
       mainSessionStatus = await getMainSessionStatus(ctx)
     }
+
+    if (eventState.mainSessionError) {
+      if (mainSessionStatus === "busy" || mainSessionStatus === "retry") {
+        eventState.mainSessionError = false
+        errorCycleCount = 0
+      } else {
+        errorCycleCount++
+        if (errorCycleCount >= ERROR_GRACE_CYCLES) {
+          console.error(
+            pc.red(`\n\nSession ended with error: ${eventState.lastError}`)
+          )
+          console.error(
+            pc.yellow("Check if todos were completed before the error.")
+          )
+          return 1
+        }
+        // Continue polling during grace period to allow recovery
+        continue
+      }
+    } else {
+      // Reset error counter when error clears (recovery succeeded)
+      errorCycleCount = 0
+    }
+
     if (mainSessionStatus === "busy" || mainSessionStatus === "retry") {
       eventState.mainSessionIdle = false
     } else if (mainSessionStatus === "idle") {

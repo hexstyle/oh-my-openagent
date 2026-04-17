@@ -192,6 +192,42 @@ describe("pollForCompletion", () => {
     expect(result).toBe(1)
   })
 
+  it("does not fail on transient session error when status has already recovered to busy", async () => {
+    //#given - recoverable abort surfaced as session.error, but session status already resumed
+    let statusCalls = 0
+    const ctx = createMockContext({
+      statuses: {},
+    })
+    ;(ctx.client.session as any).status = mock(async () => {
+      statusCalls += 1
+      return {
+        data: {
+          "test-session": {
+            type: statusCalls === 1 ? "busy" : "idle",
+          },
+        },
+      }
+    })
+
+    const eventState = createEventState()
+    eventState.mainSessionIdle = true
+    eventState.mainSessionError = true
+    eventState.lastError = "Aborted"
+    eventState.hasReceivedMeaningfulWork = true
+    const abortController = new AbortController()
+
+    //#when
+    const result = await pollForCompletion(ctx, eventState, abortController, {
+      pollIntervalMs: 10,
+      requiredConsecutive: 1,
+      minStabilizationMs: 10,
+    })
+
+    //#then - recovered busy status clears the transient error and run completes
+    expect(result).toBe(0)
+    expect(eventState.mainSessionError).toBe(false)
+  })
+
   it("returns 130 when aborted", async () => {
     //#given
     const ctx = createMockContext()
