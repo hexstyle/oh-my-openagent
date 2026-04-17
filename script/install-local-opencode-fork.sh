@@ -67,6 +67,23 @@ ensure_config_schema_link() {
   ln -sfn "$ROOT_DIR" "$CONFIG_DIR/node_modules/oh-my-openagent"
 }
 
+pin_config_schema_dependency() {
+  mkdir -p "$CONFIG_DIR"
+  bun --eval "
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { buildManagedConfigWorkspacePackage } from '$ROOT_DIR/src/shared/managed-opencode-runtime.ts';
+
+const packagePath = process.argv[1];
+const repoRoot = process.argv[2];
+const currentPackage = existsSync(packagePath)
+  ? JSON.parse(readFileSync(packagePath, 'utf8'))
+  : {};
+const nextPackage = buildManagedConfigWorkspacePackage(currentPackage, repoRoot);
+writeFileSync(packagePath, JSON.stringify(nextPackage, null, 2) + '\n');
+" "$CONFIG_DIR/package.json" "$ROOT_DIR"
+  (cd "$CONFIG_DIR" && npm install --silent)
+}
+
 CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
 CACHE_DIR="$HOME/.cache/opencode"
 DATA_DIR="$HOME/.local/share/opencode"
@@ -133,6 +150,10 @@ const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 config.plugin = JSON.parse(livePluginJson);
 fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 " "$CONFIG_DIR/opencode.json" "$LIVE_PLUGIN_JSON"
+
+say "Pinning config schema dependency to the local fork"
+pin_config_schema_dependency
+ensure_config_schema_link
 
 say "Importing Codex OAuth into OpenCode auth"
 bun --eval "import { syncCodexCliAuthToOpenCodeAuth } from '$ROOT_DIR/src/shared/codex-auth-bootstrap.ts'; syncCodexCliAuthToOpenCodeAuth();"

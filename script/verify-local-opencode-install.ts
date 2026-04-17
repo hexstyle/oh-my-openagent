@@ -8,6 +8,7 @@ import { createOpencodeClient, createOpencodeServer } from "@opencode-ai/sdk"
 import { loadEffectiveUserConfig } from "../src/custom-opencode/user-config-layers"
 import { getAgentDisplayName } from "../src/shared/agent-display-names"
 import {
+  getManagedConfigSchemaDependencySpec,
   getManagedLivePluginEntries,
   MANAGED_RUNTIME_PLUGIN_DEPENDENCIES,
 } from "../src/shared/managed-opencode-runtime"
@@ -427,11 +428,13 @@ async function main(): Promise<void> {
   const legacyPluginPath = join(configDir, "oh-my-opencode.json")
   const ignoredCanonicalJsoncPath = join(configDir, "oh-my-openagent.jsonc")
   const runtimePackagePath = join(cacheDir, "package.json")
+  const configWorkspacePackagePath = join(configDir, "package.json")
   const configSchemaLink = join(configDir, "node_modules", "oh-my-openagent")
 
   const liveHost = readJson(liveHostPath)
   const livePlugin = readJson(livePluginPath)
   const runtimePackage = readJson(runtimePackagePath)
+  const configWorkspacePackage = readJson(configWorkspacePackagePath)
   const authStore = existsSync(authPath) ? readJson(authPath) : {}
 
   assert(
@@ -461,6 +464,17 @@ async function main(): Promise<void> {
   assert(
     dependencies["oh-my-opencode"] === undefined,
     "Runtime package still contains a legacy oh-my-opencode dependency",
+  )
+
+  const configWorkspaceDependencies = configWorkspacePackage.dependencies as Record<string, string> | undefined
+  assert(configWorkspaceDependencies, `Config workspace package is missing dependencies in ${configWorkspacePackagePath}`)
+  assert(
+    configWorkspaceDependencies["oh-my-openagent"] === getManagedConfigSchemaDependencySpec(repoRoot),
+    "Config workspace package does not pin the local oh-my-openagent schema dependency",
+  )
+  assert(
+    configWorkspaceDependencies["oh-my-opencode"] === undefined,
+    "Config workspace package still contains the legacy oh-my-opencode alias",
   )
 
   assert(existsSync(configSchemaLink), `Missing config schema link: ${configSchemaLink}`)

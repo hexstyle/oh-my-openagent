@@ -156,6 +156,7 @@ describe("managed custom OpenCode config assets", () => {
         variant: "medium",
         reasoningEffort: "medium",
       },
+      "anthropic/claude-sonnet-4-6",
       "openai/gpt-5.3-codex-spark",
       "opencode/nemotron-3-super-free",
       "opencode/minimax-m2.5-free",

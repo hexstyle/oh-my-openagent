@@ -17,6 +17,28 @@ export const MANAGED_HOST_INSTRUCTION_ENTRIES = [
   "./node_modules/oh-my-openagent/assets/custom-opencode/instructions/non-interactive-shell.md",
 ] as const
 
+export function getManagedConfigSchemaDependencySpec(repoRoot: string): string {
+  return pathToFileURL(repoRoot).toString()
+}
+
+export function buildManagedConfigWorkspacePackage(
+  currentPackageJson: Record<string, unknown> | undefined,
+  repoRoot: string,
+): Record<string, unknown> {
+  const currentDependencies =
+    typeof currentPackageJson?.dependencies === "object" && currentPackageJson.dependencies !== null
+      ? { ...(currentPackageJson.dependencies as Record<string, unknown>) }
+      : {}
+
+  delete currentDependencies["oh-my-opencode"]
+  currentDependencies["oh-my-openagent"] = getManagedConfigSchemaDependencySpec(repoRoot)
+
+  return {
+    ...(currentPackageJson ?? {}),
+    dependencies: currentDependencies,
+  }
+}
+
 export function getManagedLivePluginEntries(repoRoot: string): string[] {
   return [
     pathToFileURL(repoRoot).toString(),
