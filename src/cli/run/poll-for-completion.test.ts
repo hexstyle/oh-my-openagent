@@ -228,6 +228,48 @@ describe("pollForCompletion", () => {
     expect(eventState.mainSessionError).toBe(false)
   })
 
+  it("waits out delayed same-model retry errors before failing the run", async () => {
+    //#given - gateway/proxy 403 is recoverable, but the retry does not flip session status immediately
+    let statusCalls = 0
+    const ctx = createMockContext({
+      statuses: {},
+    })
+    ;(ctx.client.session as any).status = mock(async () => {
+      statusCalls += 1
+      if (statusCalls < 5) {
+        return { data: {} }
+      }
+      return {
+        data: {
+          "test-session": {
+            type: statusCalls === 5 ? "busy" : "idle",
+          },
+        },
+      }
+    })
+
+    const eventState = createEventState()
+    eventState.mainSessionIdle = true
+    eventState.mainSessionError = true
+    eventState.lastError =
+      "Forbidden: request was blocked by a gateway or proxy. You may not have permission to access this resource."
+    eventState.hasReceivedMeaningfulWork = true
+    const abortController = new AbortController()
+
+    //#when
+    const result = await pollForCompletion(ctx, eventState, abortController, {
+      pollIntervalMs: 10,
+      requiredConsecutive: 1,
+      minStabilizationMs: 10,
+      delayedRetryErrorGraceMs: 60,
+    })
+
+    //#then - the poller should wait for the delayed retry handoff instead of failing after 3 short cycles
+    expect(result).toBe(0)
+    expect(eventState.mainSessionError).toBe(false)
+    expect(statusCalls).toBeGreaterThanOrEqual(5)
+  })
+
   it("returns 130 when aborted", async () => {
     //#given
     const ctx = createMockContext()

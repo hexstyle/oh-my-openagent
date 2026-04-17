@@ -3,6 +3,8 @@ import type { RunContext } from "./types"
 import type { EventState } from "./events"
 import { checkCompletionConditions } from "./completion"
 import { normalizeSDKResponse } from "../../shared"
+import { getRuntimeFallbackAction } from "../../hooks/runtime-fallback/fallback-policy"
+import { DEFAULT_CONFIG } from "../../hooks/runtime-fallback/constants"
 
 const DEFAULT_POLL_INTERVAL_MS = 500
 const DEFAULT_REQUIRED_CONSECUTIVE = 1
@@ -10,6 +12,7 @@ const ERROR_GRACE_CYCLES = 3
 const MIN_STABILIZATION_MS = 1_000
 const DEFAULT_EVENT_WATCHDOG_MS = 30_000 // 30 seconds
 const DEFAULT_SECONDARY_MEANINGFUL_WORK_TIMEOUT_MS = 60_000 // 60 seconds
+const DEFAULT_DELAYED_RETRY_ERROR_GRACE_MS = 15_000 // 15 seconds
 
 export interface PollOptions {
   pollIntervalMs?: number
@@ -17,6 +20,7 @@ export interface PollOptions {
   minStabilizationMs?: number
   eventWatchdogMs?: number
   secondaryMeaningfulWorkTimeoutMs?: number
+  delayedRetryErrorGraceMs?: number
 }
 
 export async function pollForCompletion(
@@ -37,8 +41,11 @@ export async function pollForCompletion(
   const secondaryMeaningfulWorkTimeoutMs =
     options.secondaryMeaningfulWorkTimeoutMs ??
     DEFAULT_SECONDARY_MEANINGFUL_WORK_TIMEOUT_MS
+  const delayedRetryErrorGraceMs =
+    options.delayedRetryErrorGraceMs ?? DEFAULT_DELAYED_RETRY_ERROR_GRACE_MS
   let consecutiveCompleteChecks = 0
   let errorCycleCount = 0
+  let errorGraceStartedAt: number | null = null
   let firstWorkTimestamp: number | null = null
   let secondaryTimeoutChecked = false
   const pollStartTimestamp = Date.now()
@@ -93,7 +100,25 @@ export async function pollForCompletion(
       if (mainSessionStatus === "busy" || mainSessionStatus === "retry") {
         eventState.mainSessionError = false
         errorCycleCount = 0
+        errorGraceStartedAt = null
       } else {
+        const errorAction = getRuntimeFallbackAction(
+          { message: eventState.lastError ?? "" },
+          DEFAULT_CONFIG.retry_on_errors,
+        )
+        const usesDelayedRetryGrace =
+          errorAction === "retry_same_model_delayed"
+          || errorAction === "retry_same_model_delayed_persistent"
+        if (usesDelayedRetryGrace) {
+          if (errorGraceStartedAt === null) {
+            errorGraceStartedAt = Date.now()
+          }
+
+          if (Date.now() - errorGraceStartedAt < delayedRetryErrorGraceMs) {
+            continue
+          }
+        }
+
         errorCycleCount++
         if (errorCycleCount >= ERROR_GRACE_CYCLES) {
           console.error(
@@ -110,6 +135,7 @@ export async function pollForCompletion(
     } else {
       // Reset error counter when error clears (recovery succeeded)
       errorCycleCount = 0
+      errorGraceStartedAt = null
     }
 
     if (mainSessionStatus === "busy" || mainSessionStatus === "retry") {
