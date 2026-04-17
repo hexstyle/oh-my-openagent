@@ -3,7 +3,7 @@ import type { RunContext } from "./types"
 import type { EventState } from "./events"
 import { checkCompletionConditions } from "./completion"
 import { normalizeSDKResponse } from "../../shared"
-import { getRuntimeFallbackAction } from "../../hooks/runtime-fallback/fallback-policy"
+import { getRuntimeFallbackAction, isSameModelRetryAction } from "../../hooks/runtime-fallback/fallback-policy"
 import { DEFAULT_CONFIG } from "../../hooks/runtime-fallback/constants"
 
 const DEFAULT_POLL_INTERVAL_MS = 500
@@ -114,10 +114,8 @@ export async function pollForCompletion(
           { message: eventState.lastError ?? "" },
           DEFAULT_CONFIG.retry_on_errors,
         )
-        const usesDelayedRetryGrace =
-          errorAction === "retry_same_model_delayed"
-          || errorAction === "retry_same_model_delayed_persistent"
-        if (usesDelayedRetryGrace) {
+        const usesRetryGrace = isSameModelRetryAction(errorAction)
+        if (usesRetryGrace) {
           if (errorGraceStartedAt === null) {
             errorGraceStartedAt = Date.now()
           }

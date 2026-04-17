@@ -273,18 +273,20 @@ describe("pollForCompletion", () => {
   it("restarts delayed retry grace when a new transient 403 arrives during recovery", async () => {
     //#given - first delayed-retry error fires, recovery retries, then a second 403 arrives and must reset grace
     let statusCalls = 0
+    let recovered = false
+    let busyReturned = false
     const ctx = createMockContext({
       statuses: {},
     })
     ;(ctx.client.session as any).status = mock(async () => {
       statusCalls += 1
-      if (statusCalls < 9) {
+      if (!recovered) {
         return { data: {} }
       }
       return {
         data: {
           "test-session": {
-            type: statusCalls === 9 ? "busy" : "idle",
+            type: busyReturned ? "idle" : (busyReturned = true, "busy"),
           },
         },
       }
@@ -304,6 +306,50 @@ describe("pollForCompletion", () => {
       eventState.lastError = "Forbidden: Request not allowed"
       eventState.errorSequence = 2
       eventState.lastErrorTimestamp = Date.now()
+    }, 20)
+
+    setTimeout(() => {
+      recovered = true
+    }, 105)
+
+    //#when
+    const result = await pollForCompletion(ctx, eventState, abortController, {
+      pollIntervalMs: 10,
+      requiredConsecutive: 1,
+      minStabilizationMs: 10,
+      delayedRetryErrorGraceMs: 80,
+    })
+
+    //#then - the second transient 403 should restart grace instead of inheriting the first window and failing
+    expect(result).toBe(0)
+    expect(eventState.mainSessionError).toBe(false)
+    expect(statusCalls).toBeGreaterThan(0)
+  })
+
+  it("does not fail when assistant activity clears a transient error before busy status appears", async () => {
+    //#given - session.error fires, but assistant output resumes before status flips to busy/retry
+    let statusCalls = 0
+    const ctx = createMockContext({
+      statuses: {},
+    })
+    ;(ctx.client.session as any).status = mock(async () => {
+      statusCalls += 1
+      return { data: {} }
+    })
+
+    const eventState = createEventState()
+    eventState.mainSessionIdle = true
+    eventState.mainSessionError = true
+    eventState.lastError = "unknown certificate verification error"
+    eventState.errorSequence = 1
+    eventState.lastErrorTimestamp = Date.now()
+    eventState.hasReceivedMeaningfulWork = true
+    const abortController = new AbortController()
+
+    setTimeout(() => {
+      eventState.mainSessionError = false
+      eventState.messageCount += 1
+      eventState.hasReceivedMeaningfulWork = true
     }, 35)
 
     //#when
@@ -314,10 +360,9 @@ describe("pollForCompletion", () => {
       delayedRetryErrorGraceMs: 40,
     })
 
-    //#then - the second transient 403 should restart grace instead of inheriting the first window and failing
+    //#then - recovered assistant output should prevent terminal failure even without a busy status edge
     expect(result).toBe(0)
-    expect(eventState.mainSessionError).toBe(false)
-    expect(statusCalls).toBeGreaterThanOrEqual(9)
+    expect(statusCalls).toBeGreaterThanOrEqual(3)
   })
 
   it("returns 130 when aborted", async () => {

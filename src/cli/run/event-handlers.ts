@@ -64,6 +64,14 @@ function renderCompletionMetaLine(state: EventState, messageID: string): void {
   state.completionMetaPrintedByMessageId[messageID] = true
 }
 
+function clearRecoveredSessionError(state: EventState): void {
+  if (!state.mainSessionError) {
+    return
+  }
+
+  state.mainSessionError = false
+}
+
 export function handleSessionIdle(ctx: RunContext, payload: EventPayload, state: EventState): void {
   if (payload.type !== "session.idle") return
 
@@ -118,6 +126,8 @@ export function handleMessagePartUpdated(ctx: RunContext, payload: EventPayload,
 
   const part = props?.part
   if (!part) return
+
+  clearRecoveredSessionError(state)
 
   if (part.id && part.type) {
     state.partTypesById[part.id] = part.type
@@ -180,6 +190,8 @@ export function handleMessagePartDelta(ctx: RunContext, payload: EventPayload, s
 
   const delta = props.delta ?? ""
   if (!delta) return
+
+  clearRecoveredSessionError(state)
 
   if (partType === "reasoning") {
     ensureThinkBlockOpen(state)
@@ -247,6 +259,8 @@ export function handleMessageUpdated(ctx: RunContext, payload: EventPayload, sta
   }
 
   if (props?.info?.role !== "assistant") return
+
+  clearRecoveredSessionError(state)
 
   const isNewMessage = !messageID || messageID !== state.currentMessageId
   if (isNewMessage) {

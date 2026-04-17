@@ -121,6 +121,36 @@ describe("handleSessionError", () => {
 })
 
 describe("handleMessagePartUpdated", () => {
+  it("clears a transient main-session error when assistant output resumes", () => {
+    //#given - transient session.error already fired, then assistant output resumes without busy status
+    const ctx = createMockContext("ses_main")
+    const state = createEventState()
+    state.mainSessionError = true
+    state.lastError = "unknown certificate verification error"
+    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation(() => true)
+
+    const payload = {
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "part_1",
+          sessionID: "ses_main",
+          messageID: "msg_1",
+          type: "text",
+          text: "Recovered output",
+        },
+      },
+    }
+
+    //#when
+    handleMessagePartUpdated(ctx, payload as any, state)
+
+    //#then
+    expect(state.mainSessionError).toBe(false)
+    expect(state.hasReceivedMeaningfulWork).toBe(true)
+    stdoutSpy.mockRestore()
+  })
+
   it("extracts sessionID from part (current OpenCode event structure)", () => {
     //#given - message.part.updated with sessionID in part, not info
     const ctx = createMockContext("ses_main")
