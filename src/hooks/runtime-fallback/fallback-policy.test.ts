@@ -226,7 +226,7 @@ describe("runtime fallback policy", () => {
     ).toBe("retry_same_model")
   })
 
-  it("routes quota and cooldown failures to spark then free models", () => {
+  it("routes quota and cooldown failures through every remaining paid model before free", () => {
     expect(
       getRuntimeFallbackAction(
         { message: "Subscription quota exceeded. You can continue using free models." },
@@ -239,6 +239,7 @@ describe("runtime fallback policy", () => {
         currentModel: "anthropic/claude-opus-4-6",
         fallbackModels: [
           "openai/gpt-5.4",
+          "anthropic/claude-sonnet-4-6",
           "openai/gpt-5.3-codex-spark",
           "opencode/nemotron-3-super-free",
           "opencode/big-pickle",
@@ -246,7 +247,30 @@ describe("runtime fallback policy", () => {
         action: "limit_fallback",
       }),
     ).toEqual([
+      "openai/gpt-5.4",
+      "anthropic/claude-sonnet-4-6",
       "openai/gpt-5.3-codex-spark",
+      "opencode/nemotron-3-super-free",
+      "opencode/big-pickle",
+    ])
+  })
+
+  it("keeps spark-primary chains on remaining paid models before descending to free", () => {
+    expect(
+      selectFallbackModelsForAction({
+        currentModel: "openai/gpt-5.3-codex-spark",
+        fallbackModels: [
+          "openai/gpt-5.3-codex-spark",
+          "openai/gpt-5.4",
+          "anthropic/claude-sonnet-4-6",
+          "opencode/nemotron-3-super-free",
+          "opencode/big-pickle",
+        ],
+        action: "limit_fallback",
+      }),
+    ).toEqual([
+      "openai/gpt-5.4",
+      "anthropic/claude-sonnet-4-6",
       "opencode/nemotron-3-super-free",
       "opencode/big-pickle",
     ])

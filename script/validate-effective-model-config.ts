@@ -6,7 +6,7 @@ import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 
 import { OhMyOpenCodeConfigSchema } from "../src/config"
-import { extractConfiguredModelReferences } from "../src/custom-opencode/model-config-validation"
+import { collectFallbackPolicyViolations, extractConfiguredModelReferences } from "../src/custom-opencode/model-config-validation"
 import { loadEffectiveUserConfig } from "../src/custom-opencode/user-config-layers"
 import { mergeConfigs } from "../src/plugin-config"
 import { findProviderModelMetadata, readProviderModelsCache, type ProviderModelsCache } from "../src/shared/connected-providers-cache"
@@ -252,6 +252,7 @@ function main(): void {
   }
 
   const references = extractConfiguredModelReferences(effectiveConfig, hostConfig)
+  const fallbackPolicyViolations = collectFallbackPolicyViolations(effectiveConfig)
 
   const missingModels = references.models
     .filter((entry) => !resolveKnownCachedModel(entry.model, availableModels))
@@ -289,6 +290,14 @@ function main(): void {
     fail(
       `Configured context limits exceed the refreshed model metadata:\n${contextViolations
         .map((entry) => `- ${entry}`)
+        .join("\n")}`,
+    )
+  }
+
+  if (fallbackPolicyViolations.length > 0) {
+    fail(
+      `Configured fallback chains violate the paid-before-free policy:\n${fallbackPolicyViolations
+        .map((entry) => `- ${entry.source}: ${entry.message} (${entry.chain.join(" -> ")})`)
         .join("\n")}`,
     )
   }

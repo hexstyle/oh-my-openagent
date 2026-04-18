@@ -13,6 +13,12 @@ export interface HostContextLimitReference {
   source: string
 }
 
+export interface FallbackPolicyViolation {
+  source: string
+  message: string
+  chain: string[]
+}
+
 type HostConfigLike = {
   provider?: Record<string, { models?: Record<string, { limit?: { context?: number } }> }>
 }
@@ -52,6 +58,89 @@ function addFallbackRefs(
       ? sourcePrefix
       : `${sourcePrefix}.fallback_models`
   flattened.forEach((model, index) => addModelRef(target, model, `${sourceBase}[${index}]`))
+}
+
+function flattenFallbackChain(fallbackModels: string | unknown[] | undefined): string[] {
+  return flattenToFallbackModelStrings(normalizeFallbackModels(fallbackModels as any)) ?? []
+}
+
+function isFreeModel(model: string): boolean {
+  const normalized = normalizeConfiguredModel(model).toLowerCase()
+  return /(^|\/)big-pickle(?:\(|$)/i.test(normalized) || /(^|\/)[^/]+-free(?:\(|$)/i.test(normalized)
+}
+
+function isPaidOpenAIModel(model: string): boolean {
+  return normalizeConfiguredModel(model).toLowerCase().startsWith("openai/")
+}
+
+function isPaidAnthropicModel(model: string): boolean {
+  return normalizeConfiguredModel(model).toLowerCase().startsWith("anthropic/")
+}
+
+export function collectFallbackPolicyViolations(
+  pluginConfig: OhMyOpenCodeConfig | null | undefined,
+): FallbackPolicyViolation[] {
+  if (!pluginConfig) {
+    return []
+  }
+
+  const chains: Array<{ source: string; chain: string[] }> = []
+  const pushChain = (source: string, fallbackModels: string | unknown[] | undefined) => {
+    const chain = flattenFallbackChain(fallbackModels)
+    if (chain.length === 0) {
+      return
+    }
+    chains.push({ source, chain })
+  }
+
+  pushChain("fallback_models", pluginConfig.fallback_models)
+
+  for (const [agentName, agentConfig] of Object.entries(pluginConfig.agents ?? {})) {
+    pushChain(`agents.${agentName}.fallback_models`, agentConfig?.fallback_models)
+  }
+
+  for (const [categoryName, categoryConfig] of Object.entries(pluginConfig.categories ?? {})) {
+    pushChain(`categories.${categoryName}.fallback_models`, categoryConfig?.fallback_models)
+  }
+
+  const violations: FallbackPolicyViolation[] = []
+
+  for (const { source, chain } of chains) {
+    const firstFreeIndex = chain.findIndex((model) => isFreeModel(model))
+    if (firstFreeIndex === -1) {
+      continue
+    }
+
+    const beforeFree = chain.slice(0, firstFreeIndex)
+    const afterFree = chain.slice(firstFreeIndex + 1)
+    const trailingPaid = afterFree.filter((model) => !isFreeModel(model))
+
+    if (!beforeFree.some((model) => isPaidOpenAIModel(model))) {
+      violations.push({
+        source,
+        chain,
+        message: "free fallback requires at least one paid OpenAI/Codex model before free models",
+      })
+    }
+
+    if (!beforeFree.some((model) => isPaidAnthropicModel(model))) {
+      violations.push({
+        source,
+        chain,
+        message: "free fallback requires at least one paid Claude model before free models",
+      })
+    }
+
+    if (trailingPaid.length > 0) {
+      violations.push({
+        source,
+        chain,
+        message: "paid fallback models must appear before free models",
+      })
+    }
+  }
+
+  return violations
 }
 
 export function extractConfiguredModelReferences(

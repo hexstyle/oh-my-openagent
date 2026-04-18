@@ -157,6 +157,7 @@ export function selectFallbackModelsForAction(args: {
   }
 
   const sparkCandidates = candidates.filter((model) => getRuntimeFallbackTier(model) === "spark")
+  const paidCandidates = candidates.filter((model) => getRuntimeFallbackTier(model) === "paid")
   const freeCandidates = candidates.filter((model) => getRuntimeFallbackTier(model) === "free")
   const currentTier = getRuntimeFallbackTier(args.currentModel)
 
@@ -164,11 +165,7 @@ export function selectFallbackModelsForAction(args: {
     return freeCandidates.length > 0 ? freeCandidates : candidates
   }
 
-  if (currentTier === "spark") {
-    return freeCandidates.length > 0 ? freeCandidates : candidates
-  }
-
-  const limitCandidates = [...sparkCandidates, ...freeCandidates]
+  const limitCandidates = [...paidCandidates, ...sparkCandidates, ...freeCandidates]
   return limitCandidates.length > 0 ? dedupeModels(limitCandidates) : candidates
 }
 

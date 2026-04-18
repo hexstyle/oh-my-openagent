@@ -167,7 +167,7 @@ If you add or rename an agent, update:
 - Managed host context caps must stay within live model metadata:
   - keep `openai/gpt-5.4`, `anthropic/claude-opus-4-6`, and `anthropic/claude-sonnet-4-6` at or below `200000`
   - keep `openai/gpt-5.3-codex-spark` at or below its refreshed live limit, currently `128000`
-- Free-model fallbacks remain behind the paid chain and must survive transient failures cleanly.
+- Free-model fallbacks remain behind the full paid OpenAI/Codex + Claude chain and must survive transient failures cleanly.
 - The managed free fallback chain is `opencode/nemotron-3-super-free` -> `opencode/minimax-m2.5-free` -> `opencode/big-pickle`.
 - Do not rely on deprecated `models.json` entries alone when choosing OpenCode free fallbacks; live provider refresh wins over stale cache.
 
@@ -210,10 +210,10 @@ Current policy:
   - never become less frequent than once every 5 minutes
   - fall back only after that retry window expires
 - quota, cooldown, payment, usage-limit, and free-period failures skip directly to the limit path:
-  - first `gpt-5.3-codex-spark`
-  - then free fallback models
+  - exhaust every remaining paid OpenAI/Codex and Claude fallback in configured order
+  - only then descend to free fallback models
 - `Explore` stays `spark`-primary:
-  - keep its fallback path as `spark` -> free models
+  - keep its limit-fallback path as `spark` -> paid `gpt-5.4` -> paid `claude-sonnet-4-6` -> free models
 - `Sisyphus Junior` is not `spark`-primary:
   - keep `gpt-5.4` ahead of `spark`
   - keep `claude-sonnet-4-6` ahead of `spark`

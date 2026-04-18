@@ -463,7 +463,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     // If OpenCode wraps a quota-exceeded failure as MessageAbortedError, the
     // real cause is invisible. Treat it as quota_exceeded when there was a
     // recent limit signal for this session, so we route to limit_fallback
-    // (spark → free) instead of the standard fallback chain.
+    // (remaining paid chain before free) instead of the standard fallback chain.
     const rawErrorName = extractErrorName(error)?.toLowerCase()
     const isAbortedError = rawErrorName === "messageabortederror"
     const effectiveError =

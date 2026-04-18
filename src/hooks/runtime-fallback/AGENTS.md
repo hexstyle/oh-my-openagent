@@ -21,9 +21,9 @@
 `fallback-policy.ts` implements the fork's model priority:
 
 - Transient: retry same model within 4-hour window, increasing delay, cap at 5min intervals
-- Limit: skip to `gpt-5.3-codex-spark`, then free fallback chain
-- `Explore`: spark-primary then free models (no paid fallback)
-- `Sisyphus Junior`: `gpt-5.4` then `spark` then free models
+- Limit: exhaust every remaining paid fallback before free fallback chain
+- `Explore`: spark-primary, then paid `gpt-5.4`, then paid `claude-sonnet-4-6`, then free models
+- `Sisyphus Junior`: `gpt-5.4` then `claude-sonnet-4-6` then `spark` then free models
 - Recovery probes: when on degraded model, periodically test if higher-priority model recovered
 
 ## KEY FILES
@@ -83,4 +83,3 @@ bun test src/hooks/runtime-fallback/error-classifier.test.ts src/hooks/runtime-f
 - `model-fallback` (Session Tier): Provider-level fallback in `chat.params` — complements this hook
 - `session-recovery` (Session Tier): Handles structural errors (thinking blocks, empty content) — distinct from API errors
 - `anthropic-context-window-limit-recovery`: Handles token limit errors — distinct from provider errors
-

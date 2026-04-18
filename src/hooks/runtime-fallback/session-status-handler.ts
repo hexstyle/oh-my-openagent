@@ -219,7 +219,7 @@ export function createSessionStatusHandler(
       }
     }
 
-    // Route quota/rate-limit signals through limit_fallback (spark → free tier)
+    // Route quota/rate-limit signals through limit_fallback (remaining paid chain before free)
     // so we don't waste quota retrying paid models.
     const isQuota = isQuotaAutoRetrySignal(retryMessage)
     if (isQuota) {

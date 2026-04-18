@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import { readFileSync } from "node:fs"
+import { collectFallbackPolicyViolations } from "../../../custom-opencode/model-config-validation"
 import {
   MANAGED_HOST_INSTRUCTION_ENTRIES,
   MANAGED_HOST_PLUGIN_ENTRIES,
@@ -10,48 +11,6 @@ const pluginConfigPath = new URL("../../../../assets/custom-opencode/oh-my-openc
 
 const EXECUTION_PROMPT_APPEND = "Before substantive work in any repository, first check whether the root AGENTS.md exists and matches the current project. If it is missing, outdated, or clearly incomplete, create or refresh it immediately before major edits. Keep it concise and factual. Add nested AGENTS.md files only when the repository is large or conventions differ by subtree. Maintain these files as you learn the repo's structure, commands, tests, conventions, and gotchas. If execution begins via /start-work, an approved Prometheus handoff, or an active boulder, treat that as explicit permission to implement. In execution mode, drive the plan to completion, keep delegating and verifying until all planned work is done, and do not stop at interim summaries or partial progress. Return control early only for destructive or irreversible actions, materially missing information, or hard environment blockers that cannot be solved from the repo. Default to short, task-appropriate timeouts for every operation. Long-running commands are exceptions, not the default. Break work into minimal steps, avoid waiting idle on commands that show no useful progress, and if something runs unexpectedly long, stop to diagnose it before retrying with a larger timeout."
 const PROMETHEUS_PROMPT_APPEND = "Before substantive work in any repository, first check whether the root AGENTS.md exists and matches the current project. If it is missing, outdated, or clearly incomplete, create or refresh it immediately before major edits. Keep it concise and factual. Add nested AGENTS.md files only when the repository is large or conventions differ by subtree. Maintain these files as you learn the repo's structure, commands, tests, conventions, and gotchas. You are the planning and negotiation front door. Stay in planning mode, resolve scope and tradeoffs with the user, and finish with a concrete executable plan plus /start-work guidance. Do not execute the plan yourself unless the user explicitly overrides this role. Default to short, task-appropriate timeouts for every operation. Long-running commands are exceptions, not the default. Break work into minimal steps, avoid waiting idle on commands that show no useful progress, and if something runs unexpectedly long, stop to diagnose it before retrying with a larger timeout."
-const PAID_MODELS = [
-  "anthropic/claude-opus-4-6",
-  "anthropic/claude-sonnet-4-6",
-  "openai/gpt-5.4",
-] as const
-const SPARK_MODELS = ["openai/gpt-5.3-codex-spark"] as const
-const FREE_MODELS = [
-  "opencode/nemotron-3-super-free",
-  "opencode/minimax-m2.5-free",
-  "opencode/big-pickle",
-] as const
-
-type FallbackModelEntry = string | { model?: string }
-
-function extractModelID(entry: FallbackModelEntry): string {
-  if (typeof entry === "string") return entry
-  return entry.model ?? ""
-}
-
-function assertPaidSparkFreeOrdering(chain: FallbackModelEntry[]) {
-  expect(chain.length).toBeGreaterThan(0)
-
-  const stageOf = (model: string): 0 | 1 | 2 | 3 => {
-    if (PAID_MODELS.includes(model as (typeof PAID_MODELS)[number])) return 0
-    if (SPARK_MODELS.includes(model as (typeof SPARK_MODELS)[number])) return 1
-    if (FREE_MODELS.includes(model as (typeof FREE_MODELS)[number])) return 2
-    return 3
-  }
-
-  let previousStage = 0
-  for (const entry of chain) {
-    const model = extractModelID(entry)
-    const stage = stageOf(model)
-    expect(stage).not.toBe(3)
-    expect(stage).toBeGreaterThanOrEqual(previousStage)
-    previousStage = stage
-  }
-
-  expect(chain.some((entry) => SPARK_MODELS.includes(extractModelID(entry) as (typeof SPARK_MODELS)[number]))).toBe(true)
-  expect(chain.some((entry) => FREE_MODELS.includes(extractModelID(entry) as (typeof FREE_MODELS)[number]))).toBe(true)
-}
-
 const hostConfig = JSON.parse(readFileSync(hostConfigPath, "utf-8")) as {
   $schema?: string
   default_agent?: string
@@ -124,7 +83,7 @@ describe("managed custom OpenCode config assets", () => {
     })
   })
 
-  it("pins controller and review agents to Opus first, keeps GPT-5.4 coding/deep workers, and leaves explore as the spark-only speed lane", () => {
+  it("pins controller and review agents to Opus first, keeps GPT-5.4 coding/deep workers, and leaves explore as the spark-primary speed lane", () => {
     const prometheus = pluginConfig.agents?.prometheus
     expect(prometheus?.model).toBe("anthropic/claude-opus-4-6")
     expect(prometheus?.variant).toBe("max")
@@ -146,6 +105,8 @@ describe("managed custom OpenCode config assets", () => {
     expect(pluginConfig.agents?.["sisyphus-junior"]?.variant).toBe("medium")
     expect(pluginConfig.agents?.explore?.fallback_models).toEqual([
       "openai/gpt-5.3-codex-spark",
+      "openai/gpt-5.4",
+      "anthropic/claude-sonnet-4-6",
       "opencode/nemotron-3-super-free",
       "opencode/minimax-m2.5-free",
       "opencode/big-pickle",
@@ -171,11 +132,9 @@ describe("managed custom OpenCode config assets", () => {
     expect(pluginConfig.default_run_agent).toBe("Prometheus (Plan Builder)")
   })
 
-  it("keeps fallback order as paid -> spark -> free", () => {
-    assertPaidSparkFreeOrdering(pluginConfig.fallback_models ?? [])
-    assertPaidSparkFreeOrdering((pluginConfig.agents?.prometheus?.fallback_models as FallbackModelEntry[] | undefined) ?? [])
-    assertPaidSparkFreeOrdering((pluginConfig.agents?.sisyphus?.fallback_models as FallbackModelEntry[] | undefined) ?? [])
-    assertPaidSparkFreeOrdering((pluginConfig.categories?.deep?.fallback_models as FallbackModelEntry[] | undefined) ?? [])
+  it("keeps free fallbacks behind paid OpenAI and Claude models in every managed chain", () => {
+    const violations = collectFallbackPolicyViolations(pluginConfig as any)
+    expect(violations).toEqual([])
   })
 
   it("preserves the audited prompt_append text only for the intended agents", () => {

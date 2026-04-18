@@ -74,7 +74,8 @@ export interface FallbackState {
   pendingFallbackModel?: string
   /** Timestamp of the last quota / rate-limit signal for this session. Used to
    *  route `MessageAbortedError` events and watchdog timeouts through the
-   *  `limit_fallback` path (spark → free) instead of `fallback_chain`. */
+   *  `limit_fallback` path (all remaining paid models before free) instead of
+   *  `fallback_chain`. */
   lastLimitErrorAt?: number
   /** Timestamp of the last real assistant/tool progress that should allow
    *  the active session.status path to extend the watchdog once more. */

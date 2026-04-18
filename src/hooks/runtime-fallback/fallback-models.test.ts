@@ -160,4 +160,28 @@ describe("runtime-fallback fallback-models", () => {
       "opencode/big-pickle",
     ])
   })
+
+  test("managed explore chain keeps paid OpenAI and Claude before free fallback", () => {
+    const managedConfig = JSON.parse(
+      readFileSync(
+        join(import.meta.dir, "../../../assets/custom-opencode/oh-my-opencode.json"),
+        "utf8",
+      ),
+    )
+
+    const result = getFallbackModelsForSession(
+      "ses_runtime_fallback_explore",
+      "explore",
+      managedConfig,
+    )
+
+    expect(result).toEqual([
+      "openai/gpt-5.3-codex-spark",
+      "openai/gpt-5.4",
+      "anthropic/claude-sonnet-4-6",
+      "opencode/nemotron-3-super-free",
+      "opencode/minimax-m2.5-free",
+      "opencode/big-pickle",
+    ])
+  })
 })

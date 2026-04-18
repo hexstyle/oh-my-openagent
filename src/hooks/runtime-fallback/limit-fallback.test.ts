@@ -2,11 +2,11 @@
  * Tests covering the three bugs in the Atlas / quota / Spark fallback path:
  *
  *  Bug 1: `MessageAbortedError` hides quota-exceeded — plugin saw it as non-retryable
- *         and skipped fallback entirely, so Spark was never reached.
+ *         and skipped fallback entirely, so the next paid fallback was never reached.
  *
- *  Bug 2: The watchdog timeout always used `fallback_chain` ordering (gpt-5.4 first),
- *         even when the model had been quota-limited. It should route to spark → free
- *         when a recent limit signal exists.
+ *  Bug 2: The watchdog timeout always used `fallback_chain` ordering without preserving
+ *         the dedicated limit path. With recent quota context, it should keep the full
+ *         remaining paid chain ahead of any free fallback.
  *
  *  Bug 3: After `session.stop` (ESC), the watchdog timer that fired immediately after
  *         would still dispatch a new promptAsync, wasting tokens.
@@ -76,8 +76,8 @@ function sleep(ms: number): Promise<void> {
 // Bug 1 — MessageAbortedError should route to limit_fallback when quota context
 // ---------------------------------------------------------------------------
 
-describe("Bug 1 – MessageAbortedError after quota signal routes to spark", () => {
-  it("quota error in session.error routes directly to spark (limit_fallback)", async () => {
+describe("Bug 1 – MessageAbortedError after quota signal routes to the next paid fallback", () => {
+  it("quota error in session.error routes to the next paid model before free fallback", async () => {
     SessionCategoryRegistry.clear()
     const { ctx, promptCalls } = createPluginInput()
     const sessionID = "test-quota-direct"
@@ -93,6 +93,7 @@ describe("Bug 1 – MessageAbortedError after quota signal routes to spark", () 
       },
       pluginConfig: makeCategoryConfig([
         "openai/gpt-5.4",
+        "anthropic/claude-sonnet-4-6",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
       ]),
@@ -117,11 +118,11 @@ describe("Bug 1 – MessageAbortedError after quota signal routes to spark", () 
       },
     })
 
-    // Should retry with spark (limit_fallback skips paid gpt-5.4)
+    // Should retry with the first remaining paid model.
     expect(promptCalls).toHaveLength(1)
     const body = (promptCalls[0] as { body: { model: { providerID: string; modelID: string } } }).body
     expect(body.model.providerID).toBe("openai")
-    expect(body.model.modelID).toBe("gpt-5.3-codex-spark")
+    expect(body.model.modelID).toBe("gpt-5.4")
 
     hook.dispose?.()
     SessionCategoryRegistry.clear()
@@ -200,7 +201,7 @@ describe("Bug 1 – MessageAbortedError after quota signal routes to spark", () 
       }
     }).body
     expect(body.model.providerID).toBe("openai")
-    expect(body.model.modelID).toBe("gpt-5.3-codex-spark")
+    expect(body.model.modelID).toBe("gpt-5.4")
     expect(body.parts).toHaveLength(1)
     expect(body.parts[0]?.type).toBe("text")
     expect(body.parts[0]?.text).toContain(OMO_INTERNAL_INITIATOR_MARKER)
@@ -211,7 +212,7 @@ describe("Bug 1 – MessageAbortedError after quota signal routes to spark", () 
     SessionCategoryRegistry.clear()
   })
 
-  it("MessageAbortedError after recent quota signal routes to spark, not gpt-5.4", async () => {
+  it("MessageAbortedError after recent quota signal routes to the next paid model, not free fallback", async () => {
     SessionCategoryRegistry.clear()
     const { ctx, promptCalls } = createPluginInput()
     const sessionID = "test-aborted-after-quota"
@@ -227,6 +228,7 @@ describe("Bug 1 – MessageAbortedError after quota signal routes to spark", () 
       },
       pluginConfig: makeCategoryConfig([
         "openai/gpt-5.4",
+        "anthropic/claude-sonnet-4-6",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
       ]),
@@ -259,7 +261,7 @@ describe("Bug 1 – MessageAbortedError after quota signal routes to spark", () 
 
     expect(promptCalls).toHaveLength(1)
     const first = (promptCalls[0] as { body: { model: { providerID: string; modelID: string } } }).body
-    expect(first.model.modelID).toBe("gpt-5.3-codex-spark")
+    expect(first.model.modelID).toBe("gpt-5.4")
 
     hook.dispose?.()
     SessionCategoryRegistry.clear()
@@ -317,7 +319,7 @@ describe("Bug 1 – MessageAbortedError after quota signal routes to spark", () 
 // ---------------------------------------------------------------------------
 
 describe("Bug 2 – Watchdog timeout respects limit_fallback ordering when quota context exists", () => {
-  it("timeout fires after quota signal → selects spark, not paid gpt-5.4", async () => {
+  it("timeout fires after quota signal → keeps the next paid model before free fallback", async () => {
     SessionCategoryRegistry.clear()
     const { ctx, promptCalls } = createPluginInput()
     const sessionID = "test-timeout-limit"
@@ -335,6 +337,7 @@ describe("Bug 2 – Watchdog timeout respects limit_fallback ordering when quota
       session_timeout_ms: 50,
       pluginConfig: makeCategoryConfig([
         "openai/gpt-5.4",
+        "anthropic/claude-sonnet-4-6",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
       ]),
@@ -364,7 +367,7 @@ describe("Bug 2 – Watchdog timeout respects limit_fallback ordering when quota
     const afterFirstFallback = promptCalls.length
     expect(afterFirstFallback).toBe(1)
     const first = (promptCalls[0] as { body: { model: { providerID: string; modelID: string } } }).body
-    expect(first.model.modelID).toBe("gpt-5.3-codex-spark")
+    expect(first.model.modelID).toBe("gpt-5.4")
 
     hook.dispose?.()
     SessionCategoryRegistry.clear()
