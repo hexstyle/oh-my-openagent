@@ -299,6 +299,7 @@ describe("pollSyncSession", () => {
        let messageCallCount = 0
        const mockClient = {
          session: {
+           abort: async () => {},
            messages: async () => {
              messageCallCount++
              return {
@@ -332,6 +333,48 @@ describe("pollSyncSession", () => {
        //#then - should have waited for idle before checking messages
        expect(result).toBeNull()
        expect(statusCallCount).toBeGreaterThanOrEqual(3)
+     })
+
+     test("detects terminal completion even when session status stays stale running", async () => {
+       //#given - status remains stuck at running, but assistant already emitted a terminal message
+       const { pollSyncSession } = require("./sync-session-poller")
+
+       let statusCallCount = 0
+       let messageCallCount = 0
+       const mockClient = {
+         session: {
+           abort: async () => {},
+           messages: async () => {
+             messageCallCount++
+             return {
+               data: [
+                 { info: { id: "msg_001", role: "user", time: { created: 1000 } } },
+                 {
+                   info: { id: "msg_002", role: "assistant", time: { created: 2000 }, finish: "stop" },
+                   parts: [{ type: "text", text: "Done" }],
+                 },
+               ],
+             }
+           },
+           status: async () => {
+             statusCallCount++
+             return { data: { "ses_busy": { type: "running" } } }
+           },
+         },
+       }
+
+       //#when
+       const result = await pollSyncSession(createMockCtx(), mockClient, {
+         sessionID: "ses_busy",
+         agentToUse: "test-agent",
+         toastManager: null,
+         taskId: undefined,
+       }, 120)
+
+       //#then - stale running status should not block terminal completion forever
+       expect(result).toBeNull()
+       expect(statusCallCount).toBeGreaterThan(0)
+       expect(messageCallCount).toBeGreaterThan(0)
      })
    })
 

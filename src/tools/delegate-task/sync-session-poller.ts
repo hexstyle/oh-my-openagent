@@ -5,6 +5,7 @@ import { log } from "../../shared/logger"
 import { normalizeSDKResponse } from "../../shared"
 
 const NON_TERMINAL_FINISH_REASONS = new Set(["tool-calls", "unknown"])
+const STALE_NON_IDLE_MESSAGE_CHECK_EVERY_POLLS = 5
 
 function wait(milliseconds: number): Promise<void> {
   const sharedBuffer = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)
@@ -95,9 +96,9 @@ export async function pollSyncSession(
       })
     }
 
-    if (sessionStatus && sessionStatus.type !== "idle") {
-      continue
-    }
+    const isNonIdle = Boolean(sessionStatus && sessionStatus.type !== "idle")
+    const shouldInspectMessages = !isNonIdle || pollCount % STALE_NON_IDLE_MESSAGE_CHECK_EVERY_POLLS === 0
+    if (!shouldInspectMessages) continue
 
     let messagesResult: { data?: unknown } | SessionMessage[]
     try {
@@ -116,6 +117,10 @@ export async function pollSyncSession(
     if (isSessionComplete(msgs)) {
       log("[task] Poll complete - terminal finish detected", { sessionID: input.sessionID, pollCount })
       break
+    }
+
+    if (isNonIdle) {
+      continue
     }
 
     // 计数新出现的 assistant 轮次，用于熔断无限循环

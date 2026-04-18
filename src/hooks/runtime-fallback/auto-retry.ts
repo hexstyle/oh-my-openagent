@@ -87,6 +87,8 @@ type RuntimeFallbackChildSession = {
   id?: string
 }
 
+const NON_TERMINAL_SESSION_FINISH_REASONS = new Set(["tool-calls", "unknown"])
+
 declare function setTimeout(callback: () => void | Promise<void>, delay?: number): RuntimeFallbackTimeout
 declare function clearTimeout(timeout: RuntimeFallbackTimeout): void
 
@@ -134,6 +136,46 @@ function formatScopedFallbackBrief(
   }
 
   return `${text.slice(0, SCOPED_FALLBACK_HANDOFF_MAX_BRIEF_CHARS).trim()}\n\n[Brief truncated for scoped fallback handoff]`
+}
+
+function hasTerminalAssistantCompletion(messagesResponse: unknown): boolean {
+  const messages = extractSessionMessages(messagesResponse)
+  if (!messages?.length) {
+    return false
+  }
+
+  let lastUserID: string | undefined
+  let lastAssistantID: string | undefined
+  let lastAssistantFinish: string | undefined
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const info = messages[i]?.info
+    const role = typeof info?.role === "string" ? info.role : undefined
+    const id = typeof info?.id === "string" ? info.id : undefined
+
+    if (!lastAssistantID && role === "assistant") {
+      lastAssistantID = id
+      lastAssistantFinish = typeof info?.finish === "string" ? info.finish : undefined
+    }
+
+    if (!lastUserID && role === "user") {
+      lastUserID = id
+    }
+
+    if (lastUserID && lastAssistantID) {
+      break
+    }
+  }
+
+  if (!lastUserID || !lastAssistantID || !lastAssistantFinish) {
+    return false
+  }
+
+  if (NON_TERMINAL_SESSION_FINISH_REASONS.has(lastAssistantFinish)) {
+    return false
+  }
+
+  return lastUserID < lastAssistantID
 }
 
 function buildScopedFallbackHandoffPrompt(args: {
@@ -701,7 +743,33 @@ fi
           }
 
           if (isBlockingDescendantSessionStatus(statuses[childSessionID]?.type)) {
-            activeSessionIDs.add(childSessionID)
+            let treatAsActive = true
+
+            try {
+              const childMessagesResponse = await sessionApi.messages({
+                path: { id: childSessionID },
+                query: { directory: ctx.directory },
+              })
+
+              if (hasTerminalAssistantCompletion(childMessagesResponse)) {
+                treatAsActive = false
+                log(`[${HOOK_NAME}] Ignoring stale busy descendant session because it already completed`, {
+                  sessionID,
+                  childSessionID,
+                  childStatus: statuses[childSessionID]?.type ?? "unknown",
+                })
+              }
+            } catch (error) {
+              log(`[${HOOK_NAME}] Failed to inspect descendant session messages`, {
+                sessionID,
+                childSessionID,
+                error: String(error),
+              })
+            }
+
+            if (treatAsActive) {
+              activeSessionIDs.add(childSessionID)
+            }
           }
 
           await visitChildren(childSessionID)
