@@ -197,4 +197,31 @@ describe("runtime fallback state recovery", () => {
     state.transientRetryStartedAt = now - 901_000
     expect(canKeepRetryingTransiently(state, config, now)).toBe(false)
   })
+
+  it("lets an active manual provider-clearance window override the normal transient retry cap until the window expires", () => {
+    const now = Date.now()
+    const state = createFallbackState("anthropic/claude-sonnet-4-6")
+    const config = {
+      enabled: true,
+      retry_on_errors: [429, 503],
+      max_fallback_attempts: 12,
+      max_full_chain_cycles: 5,
+      cooldown_seconds: 300,
+      timeout_seconds: 45,
+      transient_retry_window_seconds: 900,
+      transient_retry_initial_delay_seconds: 10,
+      transient_retry_max_delay_seconds: 300,
+      notify_on_fallback: true,
+      manual_provider_clearance_enabled: true,
+      manual_provider_clearance_pause_window_seconds: 600,
+      manual_provider_clearance_notify_on_pause: true,
+    } as const
+
+    state.transientRetryCount = 99
+    state.transientRetryMaxAttempts = 1
+    state.manualProviderClearanceUntil = now + 60_000
+
+    expect(canKeepRetryingTransiently(state, config, now)).toBe(true)
+    expect(canKeepRetryingTransiently(state, config, now + 61_000)).toBe(false)
+  })
 })

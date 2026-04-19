@@ -1,7 +1,7 @@
 import type { FallbackState, FallbackResult } from "./types"
 import { HOOK_NAME } from "./constants"
 import { log } from "../../shared/logger"
-import type { RuntimeFallbackConfig } from "../../config"
+import type { ResolvedRuntimeFallbackConfig } from "./types"
 
 function getModelIdentity(model: string): string {
   return model.replace(/\([^)]*\)\s*$/, "").trim()
@@ -57,6 +57,10 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     lastActiveStatusRefreshAt: undefined,
     lastTerminalIdleAt: undefined,
     stoppedAt: undefined,
+    manualProviderClearanceUntil: undefined,
+    manualProviderClearanceProviderFamily: undefined,
+    manualProviderClearanceUrl: undefined,
+    manualProviderClearanceNotifiedAt: undefined,
   }
 }
 
@@ -127,6 +131,7 @@ export function markMeaningfulProgress(state: FallbackState, now = Date.now()): 
   clearLimitError(state)
   state.lastErrorAt = undefined
   state.lastActiveStatusRefreshAt = undefined
+  clearManualProviderClearance(state)
 }
 
 export function canRefreshFromActiveStatus(state: FallbackState): boolean {
@@ -148,13 +153,42 @@ export function resetTransientRetryState(state: FallbackState): void {
   state.transientRetryMaxAttempts = undefined
   state.pendingTransientRetry = false
   state.persistentTransientRetry = false
+  clearManualProviderClearance(state)
+}
+
+export function clearManualProviderClearance(state: FallbackState): void {
+  state.manualProviderClearanceUntil = undefined
+  state.manualProviderClearanceProviderFamily = undefined
+  state.manualProviderClearanceUrl = undefined
+  state.manualProviderClearanceNotifiedAt = undefined
+}
+
+export function activateManualProviderClearance(
+  state: FallbackState,
+  args: {
+    until: number
+    providerFamily: "claude" | "codex"
+    url: string
+  },
+): void {
+  state.manualProviderClearanceUntil = args.until
+  state.manualProviderClearanceProviderFamily = args.providerFamily
+  state.manualProviderClearanceUrl = args.url
+}
+
+export function isManualProviderClearanceActive(state: FallbackState, now = Date.now()): boolean {
+  return typeof state.manualProviderClearanceUntil === "number" && now < state.manualProviderClearanceUntil
 }
 
 export function canKeepRetryingTransiently(
   state: FallbackState,
-  config: Required<RuntimeFallbackConfig>,
+  config: ResolvedRuntimeFallbackConfig,
   now = Date.now(),
 ): boolean {
+  if (typeof state.manualProviderClearanceUntil === "number") {
+    return now < state.manualProviderClearanceUntil
+  }
+
   if (
     typeof state.transientRetryMaxAttempts === "number"
     && state.transientRetryMaxAttempts > 0
@@ -182,7 +216,7 @@ export function beginTransientRetryWindow(state: FallbackState, now = Date.now()
 
 export function getNextTransientRetryDelayMs(
   state: FallbackState,
-  config: Required<RuntimeFallbackConfig>,
+  config: ResolvedRuntimeFallbackConfig,
 ): number {
   const initialDelayMs = Math.max(0, Math.round(config.transient_retry_initial_delay_seconds * 1000))
   const maxDelayMs = Math.max(initialDelayMs, Math.round(config.transient_retry_max_delay_seconds * 1000))
@@ -319,7 +353,7 @@ export function prepareFallback(
   sessionID: string,
   state: FallbackState,
   fallbackModels: string[],
-  config: Required<RuntimeFallbackConfig>
+  config: ResolvedRuntimeFallbackConfig,
 ): FallbackResult {
   updateFallbackModels(state, fallbackModels)
   pruneExpiredFailedModels(state, config.cooldown_seconds)

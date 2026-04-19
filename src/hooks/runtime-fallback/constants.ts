@@ -4,12 +4,12 @@
  * Default values and configuration constants for the runtime fallback feature.
  */
 
-import type { RuntimeFallbackConfig } from "../../config"
+import type { ResolvedRuntimeFallbackConfig } from "./types"
 
 /**
  * Default configuration values for runtime fallback
  */
-export const DEFAULT_CONFIG: Required<RuntimeFallbackConfig> = {
+export const DEFAULT_CONFIG: ResolvedRuntimeFallbackConfig = {
   enabled: false,
   retry_on_errors: [402, 429, 500, 502, 503, 504],
   max_fallback_attempts: 3,
@@ -20,6 +20,9 @@ export const DEFAULT_CONFIG: Required<RuntimeFallbackConfig> = {
   transient_retry_initial_delay_seconds: 10,
   transient_retry_max_delay_seconds: 5 * 60,
   notify_on_fallback: true,
+  manual_provider_clearance_enabled: false,
+  manual_provider_clearance_pause_window_seconds: 10 * 60,
+  manual_provider_clearance_notify_on_pause: true,
 }
 
 /**

@@ -26,6 +26,7 @@ import {
   shouldSuppressRecentCompletionReplay,
 } from "./recent-completion-guard"
 import { isInternalInitiatorMessage } from "./internal-continuation-loop-detector"
+import { maybePauseForManualProviderClearance } from "./manual-provider-clearance"
 import {
   handleInternalContinuationUserMessage,
   resetInternalContinuationLoopForRealUser,
@@ -480,6 +481,16 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         error,
         action,
       })
+
+      if (await maybePauseForManualProviderClearance(deps, helpers, {
+        sessionID,
+        resolvedAgent,
+        model: state.currentModel,
+        error,
+        source: "message.updated.assistant.error",
+      })) {
+        return
+      }
 
       if (isSameModelRetryAction(action)) {
         const maxAttempts = getSameModelRetryAttemptLimit(error, action)

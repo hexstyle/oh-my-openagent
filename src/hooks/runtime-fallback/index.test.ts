@@ -159,6 +159,74 @@ describe("runtime-fallback", () => {
       expect(errorLog).toBeDefined()
     })
 
+    test("keeps tracked Claude 403 errors on the same paid model when manual provider clearance is enabled", async () => {
+      const promptCalls: Array<unknown> = []
+      const hook = createRuntimeFallbackHook(
+        createMockPluginInput({
+          session: {
+            messages: async () => ({
+              data: [
+                {
+                  info: { role: "user" },
+                  parts: [{ type: "text", text: "Continue the task." }],
+                },
+              ],
+            }),
+            promptAsync: async (input) => {
+              promptCalls.push(input)
+              return {}
+            },
+          },
+        }),
+        {
+          config: createMockConfig({
+            notify_on_fallback: false,
+            transient_retry_initial_delay_seconds: 0,
+            transient_retry_max_delay_seconds: 0.01,
+            manual_provider_clearance_enabled: true,
+            manual_provider_clearance_pause_window_seconds: 60,
+            manual_provider_clearance_notify_on_pause: true,
+          }),
+          pluginConfig: createMockPluginConfigWithCategoryFallback([
+            "openai/gpt-5.4",
+            "openai/gpt-5.3-codex-spark",
+            "opencode/nemotron-3-super-free",
+          ]),
+        },
+      )
+      const sessionID = "test-session-manual-provider-clearance"
+      SessionCategoryRegistry.register(sessionID, "test")
+
+      await hook.event({
+        event: {
+          type: "session.created",
+          properties: { info: { id: sessionID, model: "anthropic/claude-sonnet-4-6" } },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            error: { statusCode: 403, message: "Request not allowed" },
+          },
+        },
+      })
+
+      await waitFor(() => promptCalls.length > 0)
+
+      const firstPrompt = promptCalls[0] as {
+        body?: { model?: { providerID?: string; modelID?: string } }
+      } | undefined
+      expect(firstPrompt?.body?.model).toEqual({
+        providerID: "anthropic",
+        modelID: "claude-sonnet-4-6",
+      })
+      expect(toastCalls.at(-1)?.title).toContain("Manual Provider Clearance")
+      expect(toastCalls.at(-1)?.message).toContain("https://console.anthropic.com/")
+    })
+
     test("should detect retryable error with status code 529", async () => {
       const hook = createRuntimeFallbackHook(createMockPluginInput(), { config: createMockConfig() })
       const sessionID = "test-session-529"

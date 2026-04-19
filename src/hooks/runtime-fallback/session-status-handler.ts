@@ -22,6 +22,7 @@ import {
 } from "./fallback-policy"
 import { isQuotaAutoRetrySignal } from "./error-classifier"
 import { logTrackedProvider403 } from "./provider-403-diagnostics"
+import { maybePauseForManualProviderClearance } from "./manual-provider-clearance"
 import {
   clearRecentCompletionState,
   shouldSuppressRecentCompletionReplay,
@@ -246,6 +247,17 @@ export function createSessionStatusHandler(
       error: { message: retryMessage },
       action: retryAction,
     })
+
+    if (await maybePauseForManualProviderClearance(deps, helpers, {
+      sessionID,
+      resolvedAgent,
+      model: state.currentModel,
+      error: { message: retryMessage },
+      source: "session.status.retry",
+    })) {
+      return
+    }
+
     if (isSameModelRetryAction(retryAction)) {
       const maxAttempts = getSameModelRetryAttemptLimit({ message: retryMessage }, retryAction)
       await helpers.abortSessionRequest(sessionID, "session.status.transient-retry")

@@ -33,6 +33,12 @@ export function createRuntimeFallbackHook(
     transient_retry_max_delay_seconds:
       options?.config?.transient_retry_max_delay_seconds ?? DEFAULT_CONFIG.transient_retry_max_delay_seconds,
     notify_on_fallback: options?.config?.notify_on_fallback ?? DEFAULT_CONFIG.notify_on_fallback,
+    manual_provider_clearance_enabled:
+      options?.config?.manual_provider_clearance_enabled ?? DEFAULT_CONFIG.manual_provider_clearance_enabled,
+    manual_provider_clearance_pause_window_seconds:
+      options?.config?.manual_provider_clearance_pause_window_seconds ?? DEFAULT_CONFIG.manual_provider_clearance_pause_window_seconds,
+    manual_provider_clearance_notify_on_pause:
+      options?.config?.manual_provider_clearance_notify_on_pause ?? DEFAULT_CONFIG.manual_provider_clearance_notify_on_pause,
   }
 
   if (envDisabled) {

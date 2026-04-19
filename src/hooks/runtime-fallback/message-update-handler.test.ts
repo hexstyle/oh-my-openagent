@@ -500,7 +500,7 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     expect(autoRetryCalls).toEqual([
       {
         sessionID,
-        model: "opencode/nemotron-3-super-free",
+        model: "openai/gpt-5.4",
         source: "message.updated.limit_fallback",
       },
     ])

@@ -23,6 +23,7 @@ import {
   selectFallbackModelsForAction,
 } from "./fallback-policy"
 import { logTrackedProvider403 } from "./provider-403-diagnostics"
+import { maybePauseForManualProviderClearance } from "./manual-provider-clearance"
 
 export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   const { config, options, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRecentActiveStatusUntil, sessionSilentAssistantUpdateCounts, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionFallbackTimeouts, sessionTransientRetryTimeouts, sessionStatusRetryKeys } = deps
@@ -549,6 +550,16 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       error: effectiveError,
       action,
     })
+
+    if (await maybePauseForManualProviderClearance(deps, helpers, {
+      sessionID,
+      resolvedAgent,
+      model: state.currentModel,
+      error: effectiveError,
+      source: "session.error",
+    })) {
+      return
+    }
 
     if (action === "limit_fallback") {
       markLimitError(state)

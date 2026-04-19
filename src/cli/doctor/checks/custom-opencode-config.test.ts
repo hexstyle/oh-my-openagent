@@ -33,6 +33,9 @@ const pluginConfig = JSON.parse(pluginConfigContents) as {
     transient_retry_window_seconds?: number
     transient_retry_initial_delay_seconds?: number
     transient_retry_max_delay_seconds?: number
+    manual_provider_clearance_enabled?: boolean
+    manual_provider_clearance_pause_window_seconds?: number
+    manual_provider_clearance_notify_on_pause?: boolean
   }
   background_task?: {
     staleTimeoutMs?: number
@@ -169,6 +172,9 @@ describe("managed custom OpenCode config assets", () => {
     expect(pluginConfig.runtime_fallback?.transient_retry_window_seconds).toBe(900)
     expect(pluginConfig.runtime_fallback?.transient_retry_initial_delay_seconds).toBe(10)
     expect(pluginConfig.runtime_fallback?.transient_retry_max_delay_seconds).toBe(300)
+    expect(pluginConfig.runtime_fallback?.manual_provider_clearance_enabled).toBeUndefined()
+    expect(pluginConfig.runtime_fallback?.manual_provider_clearance_pause_window_seconds).toBeUndefined()
+    expect(pluginConfig.runtime_fallback?.manual_provider_clearance_notify_on_pause).toBeUndefined()
 
     expect(pluginConfig.sisyphus?.tasks).toEqual({
       storage_path: ".sisyphus/tasks",

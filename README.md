@@ -45,6 +45,7 @@ Managed source of truth for this table: `assets/custom-opencode/oh-my-opencode.j
 
 - transient network/TLS/5xx/unknown failures retry on the same model first
 - transient `403 Forbidden` / `Request not allowed` also retries on the same paid model first, but only for a bounded number of delayed attempts before advancing to the next paid fallback
+- optional `runtime_fallback.manual_provider_clearance_*` overrides can pause tracked Claude/Codex `403` progression on the same paid model and raise a toast with a provider URL while you clear access issues manually
 - same-model transient retries stay alive for up to 15 minutes
 - the retry interval grows over time and caps at 5 minutes between attempts
 - quota/cooldown/payment/usage-limit failures exhaust the remaining paid OpenAI/Codex and Claude chain before any free model
@@ -129,6 +130,9 @@ Use it to override:
 - `agents.*.fallback_models`
 - `categories.*.model`
 - `categories.*.fallback_models`
+- `runtime_fallback.manual_provider_clearance_enabled`
+- `runtime_fallback.manual_provider_clearance_pause_window_seconds`
+- `runtime_fallback.manual_provider_clearance_notify_on_pause`
 
 After editing the local override file:
 

@@ -5789,6 +5789,16 @@
             },
             "notify_on_fallback": {
               "type": "boolean"
+            },
+            "manual_provider_clearance_enabled": {
+              "type": "boolean"
+            },
+            "manual_provider_clearance_pause_window_seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "manual_provider_clearance_notify_on_pause": {
+              "type": "boolean"
             }
           },
           "additionalProperties": false

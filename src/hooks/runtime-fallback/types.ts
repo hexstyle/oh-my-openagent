@@ -12,6 +12,22 @@ export interface RuntimeFallbackInterval {
 
 export type RuntimeFallbackTimeout = object | number
 
+export interface ResolvedRuntimeFallbackConfig {
+  enabled: boolean
+  retry_on_errors: number[]
+  max_fallback_attempts: number
+  max_full_chain_cycles: number
+  cooldown_seconds: number
+  timeout_seconds: number
+  transient_retry_window_seconds: number
+  transient_retry_initial_delay_seconds: number
+  transient_retry_max_delay_seconds: number
+  notify_on_fallback: boolean
+  manual_provider_clearance_enabled?: boolean
+  manual_provider_clearance_pause_window_seconds?: number
+  manual_provider_clearance_notify_on_pause?: boolean
+}
+
 export interface RuntimeFallbackPluginInput {
   client: {
     session: {
@@ -93,6 +109,12 @@ export interface FallbackState {
   /** Timestamp set by `session.stop`. Prevents the watchdog timer from
    *  dispatching a new retry if the user explicitly stopped the session. */
   stoppedAt?: number
+  /** Temporary opt-in same-model hold window for tracked Claude/Codex 403s while
+   *  the user clears provider-side access checks manually. */
+  manualProviderClearanceUntil?: number
+  manualProviderClearanceProviderFamily?: "claude" | "codex"
+  manualProviderClearanceUrl?: string
+  manualProviderClearanceNotifiedAt?: number
 }
 
 export type FallbackResult =
@@ -133,7 +155,7 @@ export interface RuntimeFallbackHook {
 
 export interface HookDeps {
   ctx: RuntimeFallbackPluginInput
-  config: Required<RuntimeFallbackConfig>
+  config: ResolvedRuntimeFallbackConfig
   options: RuntimeFallbackOptions | undefined
   pluginConfig: OhMyOpenCodeConfig | undefined
   loopDetector: LoopDetector

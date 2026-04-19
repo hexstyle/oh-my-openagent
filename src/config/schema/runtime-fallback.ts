@@ -21,6 +21,12 @@ export const RuntimeFallbackConfigSchema = z.object({
   transient_retry_max_delay_seconds: z.number().min(1).optional(),
   /** Show toast notification when switching to fallback model (default: true) */
   notify_on_fallback: z.boolean().optional(),
+  /** Opt-in: pause tracked Claude/Codex 403 fallback progression and keep retrying the same paid model while the user clears provider-side access issues manually. Disabled by default. */
+  manual_provider_clearance_enabled: z.boolean().optional(),
+  /** How long tracked Claude/Codex 403 sessions stay on the same paid model before normal fallback progression resumes (default: 600 / 10m). */
+  manual_provider_clearance_pause_window_seconds: z.number().min(0).optional(),
+  /** Show a toast with manual provider-clearance instructions when the pause window starts (default: true). */
+  manual_provider_clearance_notify_on_pause: z.boolean().optional(),
 })
 
 export type RuntimeFallbackConfig = z.infer<typeof RuntimeFallbackConfigSchema>

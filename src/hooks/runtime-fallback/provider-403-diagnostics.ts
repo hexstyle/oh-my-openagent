@@ -4,7 +4,7 @@ import { classifyErrorType, extractErrorName, extractStatusCode, getErrorMessage
 
 type Tracked403ProviderFamily = "claude" | "codex"
 
-function classifyTracked403ProviderFamily(model: string | undefined): Tracked403ProviderFamily | undefined {
+export function classifyTracked403ProviderFamily(model: string | undefined): Tracked403ProviderFamily | undefined {
   const normalized = model?.trim().toLowerCase()
   if (!normalized) {
     return undefined
@@ -24,6 +24,42 @@ function classifyTracked403ProviderFamily(model: string | undefined): Tracked403
   }
 
   return undefined
+}
+
+function extractTrackedProvider403Url(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") {
+    return undefined
+  }
+
+  const candidates = [
+    error as Record<string, unknown>,
+    (error as Record<string, unknown>).data as Record<string, unknown> | undefined,
+    (error as Record<string, unknown>).error as Record<string, unknown> | undefined,
+    (error as Record<string, unknown>).cause as Record<string, unknown> | undefined,
+  ]
+
+  for (const candidate of candidates) {
+    const url = candidate?.url
+    if (typeof url === "string" && /^https?:\/\//i.test(url.trim())) {
+      return url.trim()
+    }
+  }
+
+  return undefined
+}
+
+export function getTrackedProvider403ClearanceUrl(args: {
+  providerFamily: Tracked403ProviderFamily
+  error: unknown
+}): string {
+  const rawUrl = extractTrackedProvider403Url(args.error)
+  if (rawUrl && !/\/v1\//i.test(rawUrl)) {
+    return rawUrl
+  }
+
+  return args.providerFamily === "claude"
+    ? "https://console.anthropic.com/"
+    : "https://platform.openai.com/"
 }
 
 function extractResponseBodySnippet(error: unknown): string | undefined {

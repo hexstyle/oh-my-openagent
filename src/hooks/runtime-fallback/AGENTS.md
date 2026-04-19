@@ -4,7 +4,7 @@
 
 ## OVERVIEW
 
-40 files. Session Tier hook that auto-switches models when API providers return errors. Classifies errors into transient (retry same model) vs limit/quota (fall to next in chain). Manages per-session fallback state, auto-retry with backoff, and background recovery probes.
+40+ files. Session Tier hook that auto-switches models when API providers return errors. Classifies errors into transient (retry same model) vs limit/quota (fall to next in chain). Manages per-session fallback state, auto-retry with backoff, optional manual provider-clearance pauses, and background recovery probes.
 
 ## ERROR CLASSIFICATION
 
@@ -20,10 +20,11 @@
 
 `fallback-policy.ts` implements the fork's model priority:
 
-- Transient: retry same model within 4-hour window, increasing delay, cap at 5min intervals
+- Transient: retry same model within 15-minute window, increasing delay, cap at 5min intervals
 - Limit: exhaust every remaining paid fallback before free fallback chain
 - `Explore`: spark-primary, then paid `gpt-5.4`, then paid `claude-sonnet-4-6`, then free models
 - `Sisyphus Junior`: `gpt-5.4` then `claude-sonnet-4-6` then `spark` then free models
+- Optional `manual_provider_clearance_*`: tracked Claude/Codex `403` blocks can pause the chain on the same paid model, show a toast with provider-clearance instructions, and only resume normal fallback after the pause window expires
 - Recovery probes: when on degraded model, periodically test if higher-priority model recovered
 
 ## KEY FILES

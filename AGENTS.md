@@ -203,6 +203,10 @@ Do not reintroduce a second synced JS plugin layer for fallback/retry behavior.
 Current policy:
 
 - transient network/TLS/5xx/unknown failures stay on the current model first
+- optional manual provider-clearance mode is available through `runtime_fallback.manual_provider_clearance_*`:
+  - keep it disabled in the managed base config
+  - use it only as a local opt-in override
+  - when enabled, tracked Claude/Codex `403` provider blocks pause the chain on the same paid model, raise a toast with provider-clearance instructions, and only resume normal fallback after the pause window expires
 - transient same-model retries must:
   - open a retry window of 15 minutes by default
   - start with a 10-second retry delay
