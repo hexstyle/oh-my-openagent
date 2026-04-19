@@ -43,7 +43,8 @@ Managed source of truth for this table: `assets/custom-opencode/oh-my-opencode.j
 
 ## Fallback behavior
 
-- transient network/TLS/5xx/unknown failures, plus transient `403 Forbidden` / `Request not allowed`, retry on the same model first
+- transient network/TLS/5xx/unknown failures retry on the same model first
+- transient `403 Forbidden` / `Request not allowed` also retries on the same paid model first, but only for a bounded number of delayed attempts before advancing to the next paid fallback
 - same-model transient retries stay alive for up to 15 minutes
 - the retry interval grows over time and caps at 5 minutes between attempts
 - quota/cooldown/payment/usage-limit failures exhaust the remaining paid OpenAI/Codex and Claude chain before any free model

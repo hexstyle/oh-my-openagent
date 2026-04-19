@@ -14,6 +14,7 @@ import { normalizeRetryStatusMessage, extractRetryAttempt } from "../../shared/r
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
 import {
+  getSameModelRetryAttemptLimit,
   getRuntimeFallbackAction,
   isPersistentSameModelRetryAction,
   isSameModelRetryAction,
@@ -246,6 +247,7 @@ export function createSessionStatusHandler(
       action: retryAction,
     })
     if (isSameModelRetryAction(retryAction)) {
+      const maxAttempts = getSameModelRetryAttemptLimit({ message: retryMessage }, retryAction)
       await helpers.abortSessionRequest(sessionID, "session.status.transient-retry")
 
       const retried = await helpers.retryCurrentModel(
@@ -255,6 +257,7 @@ export function createSessionStatusHandler(
         {
           immediate: retryAction === "retry_same_model",
           persistent: isPersistentSameModelRetryAction(retryAction),
+          maxAttempts,
         },
       )
       if (retried || isPersistentSameModelRetryAction(retryAction)) {

@@ -20,6 +20,29 @@ function createRunningTask(overrides: Partial<BackgroundTask> = {}): BackgroundT
 }
 
 describe("handleSessionIdleBackgroundEvent", () => {
+  describe("#given session.idle uses nested info.id", () => {
+    it("#then should resolve the child session and complete the task", async () => {
+      //#given
+      const task = createRunningTask()
+      const tryCompleteTask = mock(() => Promise.resolve(true))
+
+      //#when
+      handleSessionIdleBackgroundEvent({
+        properties: { info: { id: task.sessionID! } },
+        findBySession: () => task,
+        idleDeferralTimers: new Map(),
+        validateSessionHasOutput: () => Promise.resolve(true),
+        checkSessionTodos: () => Promise.resolve(false),
+        tryCompleteTask,
+        emitIdleEvent: () => {},
+      })
+
+      //#then
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(tryCompleteTask).toHaveBeenCalledWith(task, "session.idle event")
+    })
+  })
+
   describe("#given no sessionID in properties", () => {
     it("#then should do nothing", () => {
       //#given

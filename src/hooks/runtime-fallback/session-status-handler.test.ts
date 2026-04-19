@@ -60,7 +60,7 @@ function createDeps(): HookDeps {
 function createHelpers(
   abortCalls: string[],
   retryCalls: Array<{ sessionID: string; model: string; source: string }>,
-  sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; persistent?: boolean; resolvedAgent?: string }>,
+  sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; persistent?: boolean; resolvedAgent?: string; maxAttempts?: number }>,
   scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry"; timeoutMsOverride?: number }>,
   retryCurrentModelResult = false,
 ): AutoRetryHelpers {
@@ -87,7 +87,7 @@ function createHelpers(
       sessionID: string,
       resolvedAgent: string | undefined,
       source: string,
-      options?: { immediate?: boolean; persistent?: boolean },
+      options?: { immediate?: boolean; persistent?: boolean; maxAttempts?: number },
     ) => {
       sameModelRetryCalls.push({
         sessionID,
@@ -95,6 +95,7 @@ function createHelpers(
         source,
         immediate: options?.immediate ?? false,
         persistent: options?.persistent ?? false,
+        maxAttempts: options?.maxAttempts,
       })
       return retryCurrentModelResult
     },
@@ -129,7 +130,7 @@ describe("createSessionStatusHandler", () => {
     const deps = createDeps()
     const abortCalls: string[] = []
     const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
-    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; persistent?: boolean; resolvedAgent?: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; persistent?: boolean; resolvedAgent?: string; maxAttempts?: number }> = []
     const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" }> = []
     const state = createFallbackState("anthropic/claude-opus-4-6")
     state.currentModel = "openai/gpt-5.4"
@@ -382,6 +383,7 @@ describe("createSessionStatusHandler", () => {
         immediate: false,
         persistent: false,
         resolvedAgent: undefined,
+        maxAttempts: 3,
       },
     ])
     expect(retryCalls).toEqual([])

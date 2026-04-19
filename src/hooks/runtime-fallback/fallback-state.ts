@@ -47,6 +47,7 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     transientRetryCount: 0,
     transientRetryStartedAt: undefined,
     transientRetryDelayMs: undefined,
+    transientRetryMaxAttempts: undefined,
     pendingTransientRetry: false,
     persistentTransientRetry: false,
     pendingFallbackModel: undefined,
@@ -64,6 +65,10 @@ const STOP_INHIBIT_WINDOW_MS = 15_000
 
 export function markLimitError(state: FallbackState, now = Date.now()): void {
   state.lastLimitErrorAt = now
+}
+
+export function clearLimitError(state: FallbackState): void {
+  state.lastLimitErrorAt = undefined
 }
 
 export function markSessionError(state: FallbackState, now = Date.now()): void {
@@ -111,6 +116,7 @@ export function markFallbackResponseSuccess(state: FallbackState): void {
   state.pendingFallbackModel = undefined
   state.attemptCount = 0
   state.fullChainCyclesCompleted = 0
+  clearLimitError(state)
   state.lastErrorAt = undefined
   state.lastActiveStatusRefreshAt = undefined
   resetTransientRetryState(state)
@@ -118,6 +124,7 @@ export function markFallbackResponseSuccess(state: FallbackState): void {
 
 export function markMeaningfulProgress(state: FallbackState, now = Date.now()): void {
   state.lastMeaningfulProgressAt = now
+  clearLimitError(state)
   state.lastErrorAt = undefined
   state.lastActiveStatusRefreshAt = undefined
 }
@@ -138,6 +145,7 @@ export function resetTransientRetryState(state: FallbackState): void {
   state.transientRetryCount = 0
   state.transientRetryStartedAt = undefined
   state.transientRetryDelayMs = undefined
+  state.transientRetryMaxAttempts = undefined
   state.pendingTransientRetry = false
   state.persistentTransientRetry = false
 }
@@ -147,6 +155,14 @@ export function canKeepRetryingTransiently(
   config: Required<RuntimeFallbackConfig>,
   now = Date.now(),
 ): boolean {
+  if (
+    typeof state.transientRetryMaxAttempts === "number"
+    && state.transientRetryMaxAttempts > 0
+    && state.transientRetryCount >= state.transientRetryMaxAttempts
+  ) {
+    return false
+  }
+
   if (config.transient_retry_window_seconds <= 0) {
     return false
   }
@@ -240,6 +256,7 @@ export function recoverPreferredModel(
   state.currentModel = candidate
   state.pendingFallbackModel = undefined
   state.attemptCount = 0
+  clearLimitError(state)
   resetTransientRetryState(state)
   state.fallbackIndex = hasSameModelIdentity(candidate, state.originalModel)
     ? -1

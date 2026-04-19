@@ -9,6 +9,7 @@ function createDeps(args: {
   promptCalls: Array<unknown>
   abortCalls: string[]
   retryWindowSeconds: number
+  fallbackModels?: string[]
 }): HookDeps {
   return {
     ctx: {
@@ -53,7 +54,7 @@ function createDeps(args: {
       session_timeout_ms: 10,
     },
     pluginConfig: {
-      fallback_models: ["openai/gpt-5.3-codex-spark"],
+      fallback_models: args.fallbackModels ?? ["openai/gpt-5.3-codex-spark"],
     } as HookDeps["pluginConfig"],
     loopDetector: createLoopDetector(),
     sessionStates: new Map(),
@@ -149,6 +150,46 @@ describe("runtime fallback transient backoff", () => {
 
     const state = deps.sessionStates.get(sessionID)
     expect(state?.currentModel).toBe("openai/gpt-5.3-codex-spark")
+  })
+
+  it("caps request-not-allowed style retries and advances to the next paid model before the full retry window expires", async () => {
+    const promptCalls: Array<unknown> = []
+    const abortCalls: string[] = []
+    const deps = createDeps({
+      promptCalls,
+      abortCalls,
+      retryWindowSeconds: 60,
+      fallbackModels: ["openai/gpt-5.4", "openai/gpt-5.3-codex-spark"],
+    })
+    const sessionID = "ses_transient_forbidden_capped"
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
+
+    const helpers = createAutoRetryHelpers(deps)
+    const retried = await helpers.retryCurrentModel(sessionID, undefined, "session.error", {
+      immediate: false,
+      maxAttempts: 3,
+    })
+
+    expect(retried).toBe(true)
+    expect(promptCalls).toHaveLength(0)
+
+    await flushTimers(200)
+
+    const promptModels = promptCalls.map(
+      (call) => (call as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+    )
+    expect(promptModels).toEqual([
+      { providerID: "anthropic", modelID: "claude-opus-4-6" },
+      { providerID: "anthropic", modelID: "claude-opus-4-6" },
+      { providerID: "anthropic", modelID: "claude-opus-4-6" },
+      { providerID: "openai", modelID: "gpt-5.4" },
+    ])
+
+    const state = deps.sessionStates.get(sessionID)
+    expect(state?.currentModel).toBe("openai/gpt-5.4")
+    expect(state?.transientRetryCount).toBe(0)
+    expect(state?.transientRetryMaxAttempts).toBeUndefined()
+    expect(abortCalls.length).toBeGreaterThanOrEqual(1)
   })
 
   it("uses the explore runtime key for auto-retry prompt payloads", async () => {

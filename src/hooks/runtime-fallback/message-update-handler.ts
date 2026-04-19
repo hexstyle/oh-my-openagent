@@ -9,6 +9,7 @@ import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
 import { extractEventModelString } from "./event-model"
 import {
+  getSameModelRetryAttemptLimit,
   getRuntimeFallbackAction,
   isPersistentSameModelRetryAction,
   isSameModelRetryAction,
@@ -481,9 +482,11 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       })
 
       if (isSameModelRetryAction(action)) {
+        const maxAttempts = getSameModelRetryAttemptLimit(error, action)
         const retried = await helpers.retryCurrentModel(sessionID, resolvedAgent, "message.updated", {
           immediate: action === "retry_same_model",
           persistent: isPersistentSameModelRetryAction(action),
+          maxAttempts,
         })
         if (retried || isPersistentSameModelRetryAction(action)) {
           return

@@ -1292,6 +1292,7 @@ fi
     options?: {
       immediate?: boolean
       persistent?: boolean
+      maxAttempts?: number
     },
   ): Promise<boolean> => {
     const state = sessionStates.get(sessionID)
@@ -1301,12 +1302,17 @@ fi
 
     const immediate = options?.immediate ?? true
     const persistent = options?.persistent ?? false
+    if (typeof options?.maxAttempts === "number" && options.maxAttempts > 0) {
+      state.transientRetryMaxAttempts = options.maxAttempts
+    }
 
     if (!persistent && !canKeepRetryingTransiently(state, config)) {
       log(`[${HOOK_NAME}] Transient retry window exhausted before retry dispatch`, {
         sessionID,
         source,
         currentModel: state.currentModel,
+        transientRetryCount: state.transientRetryCount,
+        transientRetryMaxAttempts: state.transientRetryMaxAttempts,
       })
       return false
     }

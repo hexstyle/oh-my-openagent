@@ -5,6 +5,8 @@ import {
   createFallbackState,
   getNextTransientRetryDelayMs,
   markFallbackResponseSuccess,
+  markLimitError,
+  markMeaningfulProgress,
   prepareFallback,
   recoverPreferredModel,
 } from "./fallback-state"
@@ -91,6 +93,18 @@ describe("runtime fallback state recovery", () => {
     expect(state.currentModel).toBe("anthropic/claude-sonnet-4-6")
   })
 
+  it("clears recent quota context after meaningful progress or fallback success", () => {
+    const state = createFallbackState("anthropic/claude-opus-4-6", ["openai/gpt-5.4"])
+    markLimitError(state, 123)
+
+    markMeaningfulProgress(state, 456)
+    expect(state.lastLimitErrorAt).toBeUndefined()
+
+    markLimitError(state, 789)
+    markFallbackResponseSuccess(state)
+    expect(state.lastLimitErrorAt).toBeUndefined()
+  })
+
   it("restores the original model after its cooldown expires", () => {
     const now = Date.now()
     const state = createFallbackState("anthropic/claude-opus-4-6", [
@@ -101,6 +115,7 @@ describe("runtime fallback state recovery", () => {
     state.currentModel = "openai/gpt-5.3-codex"
     state.fallbackIndex = 1
     state.attemptCount = 3
+    state.lastLimitErrorAt = now - 1_000
     state.failedModels.set("anthropic/claude-opus-4-6", now - 610_000)
     state.failedModels.set("anthropic/claude-sonnet-4-6", now - 610_000)
 
@@ -110,6 +125,7 @@ describe("runtime fallback state recovery", () => {
     expect(state.currentModel).toBe("anthropic/claude-opus-4-6")
     expect(state.fallbackIndex).toBe(-1)
     expect(state.attemptCount).toBe(0)
+    expect(state.lastLimitErrorAt).toBeUndefined()
   })
 
   it("does not recover to a variant-only alias while the original identity is still cooling down", () => {

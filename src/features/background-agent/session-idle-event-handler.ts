@@ -7,6 +7,19 @@ function getString(obj: Record<string, unknown>, key: string): string | undefine
   return typeof value === "string" ? value : undefined
 }
 
+function resolveSessionID(properties: Record<string, unknown>): string | undefined {
+  const rootSessionID = getString(properties, "sessionID") ?? getString(properties, "sessionId")
+  if (rootSessionID) return rootSessionID
+
+  const info = properties.info
+  if (!info || typeof info !== "object") return undefined
+
+  const infoRecord = info as Record<string, unknown>
+  return getString(infoRecord, "sessionID")
+    ?? getString(infoRecord, "sessionId")
+    ?? getString(infoRecord, "id")
+}
+
 export function handleSessionIdleBackgroundEvent(args: {
   properties: Record<string, unknown>
   findBySession: (sessionID: string) => BackgroundTask | undefined
@@ -28,7 +41,7 @@ export function handleSessionIdleBackgroundEvent(args: {
     emitIdleEvent,
   } = args
 
-  const sessionID = getString(properties, "sessionID")
+  const sessionID = resolveSessionID(properties)
   if (!sessionID) return
 
   const task = findBySession(sessionID)

@@ -16,6 +16,7 @@ import { createSessionStatusHandler } from "./session-status-handler"
 import { extractEventModelString } from "./event-model"
 import { clearRecentCompletionState, markSessionRecentlyCompleted } from "./recent-completion-guard"
 import {
+  getSameModelRetryAttemptLimit,
   getRuntimeFallbackAction,
   isPersistentSameModelRetryAction,
   isSameModelRetryAction,
@@ -554,9 +555,11 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     }
 
     if (isSameModelRetryAction(action)) {
+      const maxAttempts = getSameModelRetryAttemptLimit(effectiveError, action)
       const retried = await helpers.retryCurrentModel(sessionID, resolvedAgent, "session.error", {
         immediate: action === "retry_same_model",
         persistent: isPersistentSameModelRetryAction(action),
+        maxAttempts,
       })
       if (retried || isPersistentSameModelRetryAction(action)) {
         return

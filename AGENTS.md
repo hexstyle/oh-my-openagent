@@ -209,6 +209,7 @@ Current policy:
   - increase delay between attempts over time
   - never become less frequent than once every 5 minutes
   - fall back only after that retry window expires
+- transient `403 Request not allowed` / gateway-blocked `403 Forbidden` must still retry the same paid model first, but stay bounded to a small attempt cap before advancing to the next paid model
 - quota, cooldown, payment, usage-limit, and free-period failures skip directly to the limit path:
   - exhaust every remaining paid OpenAI/Codex and Claude fallback in configured order
   - only then descend to free fallback models

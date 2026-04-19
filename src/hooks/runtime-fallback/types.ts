@@ -69,6 +69,7 @@ export interface FallbackState {
   transientRetryCount: number
   transientRetryStartedAt?: number
   transientRetryDelayMs?: number
+  transientRetryMaxAttempts?: number
   pendingTransientRetry?: boolean
   persistentTransientRetry?: boolean
   pendingFallbackModel?: string

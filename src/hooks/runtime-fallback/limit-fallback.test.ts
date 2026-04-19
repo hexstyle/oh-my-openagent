@@ -312,6 +312,99 @@ describe("Bug 1 – MessageAbortedError after quota signal routes to the next pa
     hook.dispose?.()
     SessionCategoryRegistry.clear()
   })
+
+  it("clears stale quota context after a visible paid-model response so a later generic abort does not continue the limit path", async () => {
+    SessionCategoryRegistry.clear()
+    const { ctx, promptCalls } = createPluginInput({
+      messagesResponse: {
+        data: [
+          {
+            info: { role: "user" },
+            parts: [{ type: "text", text: "Resume the task." }],
+          },
+          {
+            info: { role: "assistant", message: "Implemented the next step." },
+            parts: [{ type: "text", text: "Implemented the next step." }],
+          },
+        ],
+      },
+    })
+    const sessionID = "test-aborted-after-visible-paid-progress"
+    SessionCategoryRegistry.register(sessionID, "test")
+
+    const hook = createRuntimeFallbackHook(ctx, {
+      config: {
+        enabled: true,
+        retry_on_errors: [402, 429, 500, 503],
+        max_fallback_attempts: 10,
+        cooldown_seconds: 60,
+        notify_on_fallback: false,
+      },
+      pluginConfig: makeCategoryConfig([
+        "openai/gpt-5.4",
+        "anthropic/claude-sonnet-4-6",
+        "openai/gpt-5.3-codex-spark",
+        "opencode/nemotron-3-super-free",
+      ]),
+    })
+
+    await hook.event({
+      event: {
+        type: "session.created",
+        properties: {
+          info: { id: sessionID, providerID: "anthropic", modelID: "claude-opus-4-6" },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID,
+          error: { message: "Subscription quota exceeded. You can continue using free models." },
+        },
+      },
+    })
+
+    expect(promptCalls).toHaveLength(1)
+    const firstFallback = (promptCalls[0] as { body: { model: { providerID: string; modelID: string } } }).body
+    expect(firstFallback.model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.4",
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg-visible-paid-progress",
+            sessionID,
+            role: "assistant",
+            providerID: "openai",
+            modelID: "gpt-5.4",
+            message: "Implemented the next step.",
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID,
+          error: { name: "MessageAbortedError", message: "MessageAbortedError" },
+        },
+      },
+    })
+
+    expect(promptCalls).toHaveLength(1)
+
+    hook.dispose?.()
+    SessionCategoryRegistry.clear()
+  })
 })
 
 // ---------------------------------------------------------------------------

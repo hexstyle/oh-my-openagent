@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test"
 
 import { createFallbackState } from "./fallback-state"
 import {
+  getSameModelRetryAttemptLimit,
   getRecoveryProbeCandidates,
   getRuntimeFallbackAction,
   getRuntimeFallbackTier,
@@ -120,6 +121,13 @@ describe("runtime fallback policy", () => {
         [402, 429, 500, 502, 503, 504],
       ),
     ).toBe("retry_same_model_delayed")
+
+    expect(
+      getSameModelRetryAttemptLimit(
+        { statusCode: 403, message: "Request not allowed" },
+        "retry_same_model_delayed",
+      ),
+    ).toBe(3)
   })
 
   it("treats gateway/proxy-blocked 403 forbidden errors as bounded delayed same-model retries", () => {
