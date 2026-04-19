@@ -102,11 +102,11 @@ export function getRuntimeFallbackAction(error: unknown, retryOnErrors: number[]
   }
 
   if (isGatewayBlockedForbiddenError(error)) {
-    return "retry_same_model_delayed_persistent"
+    return "retry_same_model_delayed"
   }
 
   if (isTransientForbiddenError(error)) {
-    return "retry_same_model_delayed_persistent"
+    return "retry_same_model_delayed"
   }
 
   if (isPlainLocalToolAbort(error)) {

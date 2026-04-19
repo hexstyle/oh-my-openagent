@@ -584,7 +584,7 @@ describe("runtime-fallback", () => {
         sessionID,
         providerFamily: "codex",
         model: "openai/gpt-5.4",
-        action: "retry_same_model_delayed_persistent",
+        action: "retry_same_model_delayed",
         statusCode: 403,
       })
     })
@@ -717,7 +717,7 @@ describe("runtime-fallback", () => {
       expect(fallbackLogs).toHaveLength(0)
     })
 
-    test("request-not-allowed 403 keeps retrying the same model even after the normal transient window is disabled", async () => {
+    test("request-not-allowed 403 falls through to the next paid model when the transient retry window is disabled", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(
         createMockPluginInput({
@@ -745,7 +745,7 @@ describe("runtime-fallback", () => {
           ]),
         },
       )
-      const sessionID = "test-session-request-not-allowed-persistent"
+      const sessionID = "test-session-request-not-allowed-fallback-after-window"
       SessionCategoryRegistry.register(sessionID, "test")
 
       await hook.event({
@@ -768,20 +768,16 @@ describe("runtime-fallback", () => {
         },
       })
 
-      expect(promptCalls).toHaveLength(0)
-
-      await new Promise((resolve) => setTimeout(resolve, 20))
-
       expect(promptCalls).toHaveLength(1)
       expect(
         (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
       ).toEqual({
         providerID: "openai",
-        modelID: "gpt-5.4",
+        modelID: "gpt-5.3-codex-spark",
       })
 
       const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
-      expect(fallbackLogs).toHaveLength(0)
+      expect(fallbackLogs.length).toBeGreaterThan(0)
     })
 
     test("tool execution aborted wrapper around transient 500 retries the current model immediately", async () => {
@@ -1031,7 +1027,7 @@ describe("runtime-fallback", () => {
         sessionID,
         providerFamily: "claude",
         model: "anthropic/claude-opus-4-6",
-        action: "retry_same_model_delayed_persistent",
+        action: "retry_same_model_delayed",
         statusCode: 403,
       })
 
@@ -1543,7 +1539,7 @@ describe("runtime-fallback", () => {
         sessionID,
         providerFamily: "codex",
         model: "openai/gpt-5.4",
-        action: "retry_same_model_delayed_persistent",
+        action: "retry_same_model_delayed",
         statusCode: 403,
       })
 
@@ -1559,7 +1555,7 @@ describe("runtime-fallback", () => {
       expect(delayedRetryLog?.data).toMatchObject({
         sessionID,
         currentModel: "openai/gpt-5.4",
-        persistent: true,
+        persistent: false,
       })
     })
 

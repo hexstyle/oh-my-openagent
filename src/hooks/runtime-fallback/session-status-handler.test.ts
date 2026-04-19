@@ -380,7 +380,7 @@ describe("createSessionStatusHandler", () => {
         sessionID,
         source: "session.status.transient_same_model",
         immediate: false,
-        persistent: true,
+        persistent: false,
         resolvedAgent: undefined,
       },
     ])
@@ -393,7 +393,7 @@ describe("createSessionStatusHandler", () => {
       sessionID,
       providerFamily: "claude",
       model: "anthropic/claude-opus-4-6",
-      action: "retry_same_model_delayed_persistent",
+      action: "retry_same_model_delayed",
       statusCode: 403,
     })
   })

@@ -68,20 +68,20 @@ describe("runtime fallback policy", () => {
     ).toBe("retry_same_model_delayed")
   })
 
-  it("treats request-not-allowed 403 errors as delayed same-model retries", () => {
+  it("treats request-not-allowed 403 errors as bounded delayed same-model retries", () => {
     expect(
       getRuntimeFallbackAction(
         { statusCode: 403, message: "Request not allowed" },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed_persistent")
+    ).toBe("retry_same_model_delayed")
 
     expect(
       getRuntimeFallbackAction(
         { message: "403 Forbidden" },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed_persistent")
+    ).toBe("retry_same_model_delayed")
 
     expect(
       getRuntimeFallbackAction(
@@ -94,7 +94,7 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed_persistent")
+    ).toBe("retry_same_model_delayed")
 
     expect(
       getRuntimeFallbackAction(
@@ -110,7 +110,7 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed_persistent")
+    ).toBe("retry_same_model_delayed")
 
     expect(
       getRuntimeFallbackAction(
@@ -119,10 +119,10 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed_persistent")
+    ).toBe("retry_same_model_delayed")
   })
 
-  it("treats gateway/proxy-blocked 403 forbidden errors as delayed same-model retries", () => {
+  it("treats gateway/proxy-blocked 403 forbidden errors as bounded delayed same-model retries", () => {
     expect(
       getRuntimeFallbackAction(
         {
@@ -132,7 +132,7 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed_persistent")
+    ).toBe("retry_same_model_delayed")
 
     expect(
       getRuntimeFallbackAction(
@@ -148,7 +148,7 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed_persistent")
+    ).toBe("retry_same_model_delayed")
   })
 
   it("keeps Cloudflare-style OpenAI 403 challenge pages on the same model", () => {
@@ -168,10 +168,10 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed_persistent")
+    ).toBe("retry_same_model_delayed")
   })
 
-  it("treats embedded forbidden request-not-allowed wrapper messages as delayed same-model retries", () => {
+  it("treats embedded forbidden request-not-allowed wrapper messages as bounded delayed same-model retries", () => {
     expect(
       getRuntimeFallbackAction(
         {
@@ -179,7 +179,7 @@ describe("runtime fallback policy", () => {
         },
         [402, 429, 500, 502, 503, 504],
       ),
-    ).toBe("retry_same_model_delayed_persistent")
+    ).toBe("retry_same_model_delayed")
   })
 
   it("treats plain local tool execution aborts as persistent delayed same-model retries", () => {
