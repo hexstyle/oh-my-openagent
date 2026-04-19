@@ -481,4 +481,61 @@ describe("createSessionStatusHandler", () => {
     expect(retryCalls).toEqual([])
     expect(scheduleCalls).toEqual([])
   })
+
+  it("#given a compaction spark quota retry after transient paid failures #when session.status handles it for sisyphus #then it preserves the paid chain instead of dropping to free", async () => {
+    const sessionID = "session-status-compaction-spark-paid-preserve"
+    const deps = createDeps()
+    deps.pluginConfig = {
+      agents: {
+        "sisyphus-junior": {
+          fallback_models: [
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5.3-codex-spark",
+            "opencode/nemotron-3-super-free",
+          ],
+        },
+      },
+    }
+    const abortCalls: string[] = []
+    const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; persistent?: boolean; resolvedAgent?: string; maxAttempts?: number }> = []
+    const freshRetryCalls: Array<{ sessionID: string; source: string; resolvedAgent?: string }> = []
+    const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" }> = []
+    const state = createFallbackState("openai/gpt-5.4")
+    state.resolvedAgent = "sisyphus-junior"
+    state.currentModel = "openai/gpt-5.3-codex-spark"
+    state.failedModels.set("openai/gpt-5.4", Date.now())
+    state.failedModels.set("anthropic/claude-sonnet-4-6", Date.now())
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createSessionStatusHandler(
+      deps,
+      createHelpers(abortCalls, retryCalls, sameModelRetryCalls, freshRetryCalls, scheduleCalls, false),
+      deps.sessionStatusRetryKeys,
+    )
+
+    await handler({
+      sessionID,
+      agent: "compaction",
+      model: "openai/gpt-5.3-codex-spark",
+      status: {
+        type: "retry",
+        attempt: 1,
+        message: "The usage limit has been reached [retrying in 10s attempt #1]",
+      },
+    })
+
+    expect(abortCalls).toEqual([sessionID])
+    expect(sameModelRetryCalls).toEqual([])
+    expect(freshRetryCalls).toEqual([])
+    expect(retryCalls).toEqual([
+      {
+        sessionID,
+        model: "openai/gpt-5.4",
+        source: "session.status.limit_fallback",
+      },
+    ])
+    expect(scheduleCalls).toEqual([])
+  })
 })

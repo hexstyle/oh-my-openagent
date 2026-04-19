@@ -6,6 +6,7 @@ import { createLoopDetector } from "./internal-continuation-loop-detector"
 import type { HookDeps } from "./types"
 
 function createDeps(args: {
+  createCalls?: Array<unknown>
   promptCalls: Array<unknown>
   abortCalls: string[]
   retryWindowSeconds: number
@@ -16,6 +17,15 @@ function createDeps(args: {
       directory: "/tmp/runtime-fallback-transient-backoff",
       client: {
         session: {
+          create: async (input) => {
+            args.createCalls?.push(input)
+            return { data: { id: "ses_transient_fresh_child" } }
+          },
+          get: async () => ({
+            data: {
+              directory: "/tmp/runtime-fallback-transient-backoff/project",
+            },
+          }),
           abort: async ({ path }) => {
             args.abortCalls.push(path.id)
             return undefined
@@ -152,10 +162,12 @@ describe("runtime fallback transient backoff", () => {
     expect(state?.currentModel).toBe("openai/gpt-5.3-codex-spark")
   })
 
-  it("caps request-not-allowed style retries and advances to the next paid model before the full retry window expires", async () => {
+  it("caps request-not-allowed style paid retries and opens a fresh same-model handoff before burning the paid chain", async () => {
+    const createCalls: Array<unknown> = []
     const promptCalls: Array<unknown> = []
     const abortCalls: string[] = []
     const deps = createDeps({
+      createCalls,
       promptCalls,
       abortCalls,
       retryWindowSeconds: 60,
@@ -175,15 +187,205 @@ describe("runtime fallback transient backoff", () => {
 
     await flushTimers(200)
 
-    const promptModels = promptCalls.map(
-      (call) => (call as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+    const promptTargets = promptCalls.map(
+      (call) => ({
+        pathID: (call as { path?: { id?: string } }).path?.id,
+        model: (call as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+      }),
     )
-    expect(promptModels).toEqual([
-      { providerID: "anthropic", modelID: "claude-opus-4-6" },
-      { providerID: "anthropic", modelID: "claude-opus-4-6" },
-      { providerID: "anthropic", modelID: "claude-opus-4-6" },
-      { providerID: "openai", modelID: "gpt-5.4" },
+    expect(promptTargets).toEqual([
+      {
+        pathID: sessionID,
+        model: { providerID: "anthropic", modelID: "claude-opus-4-6" },
+      },
+      {
+        pathID: sessionID,
+        model: { providerID: "anthropic", modelID: "claude-opus-4-6" },
+      },
+      {
+        pathID: sessionID,
+        model: { providerID: "anthropic", modelID: "claude-opus-4-6" },
+      },
+      {
+        pathID: "ses_transient_fresh_child",
+        model: { providerID: "anthropic", modelID: "claude-opus-4-6" },
+      },
     ])
+    expect(createCalls).toHaveLength(1)
+
+    const state = deps.sessionStates.get(sessionID)
+    expect(state?.currentModel).toBe("anthropic/claude-opus-4-6")
+    expect(state?.transientRetryCount).toBe(0)
+    expect(state?.transientRetryMaxAttempts).toBeUndefined()
+    expect(abortCalls.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("opens the same fresh paid handoff for capped codex/openai 403 retries", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const abortCalls: string[] = []
+    const deps = createDeps({
+      createCalls,
+      promptCalls,
+      abortCalls,
+      retryWindowSeconds: 60,
+      fallbackModels: ["anthropic/claude-sonnet-4-6", "openai/gpt-5.3-codex-spark"],
+    })
+    const sessionID = "ses_transient_forbidden_capped_codex"
+    deps.sessionStates.set(sessionID, createFallbackState("openai/gpt-5.4"))
+
+    const helpers = createAutoRetryHelpers(deps)
+    const retried = await helpers.retryCurrentModel(sessionID, "Sisyphus Junior (Focused Executor)", "session.error", {
+      immediate: false,
+      maxAttempts: 3,
+    })
+
+    expect(retried).toBe(true)
+
+    await flushTimers(200)
+
+    const promptTargets = promptCalls.map(
+      (call) => ({
+        pathID: (call as { path?: { id?: string } }).path?.id,
+        model: (call as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+      }),
+    )
+    expect(promptTargets).toEqual([
+      {
+        pathID: sessionID,
+        model: { providerID: "openai", modelID: "gpt-5.4" },
+      },
+      {
+        pathID: sessionID,
+        model: { providerID: "openai", modelID: "gpt-5.4" },
+      },
+      {
+        pathID: sessionID,
+        model: { providerID: "openai", modelID: "gpt-5.4" },
+      },
+      {
+        pathID: "ses_transient_fresh_child",
+        model: { providerID: "openai", modelID: "gpt-5.4" },
+      },
+    ])
+    expect(createCalls).toHaveLength(1)
+
+    const state = deps.sessionStates.get(sessionID)
+    expect(state?.currentModel).toBe("openai/gpt-5.4")
+    expect(state?.transientRetryCount).toBe(0)
+    expect(state?.transientRetryMaxAttempts).toBeUndefined()
+    expect(abortCalls.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("caps persistent local tool abort retries for claude and opens a fresh same-model handoff", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const abortCalls: string[] = []
+    const deps = createDeps({
+      createCalls,
+      promptCalls,
+      abortCalls,
+      retryWindowSeconds: 60,
+      fallbackModels: ["openai/gpt-5.4", "openai/gpt-5.3-codex-spark"],
+    })
+    const sessionID = "ses_persistent_tool_abort_claude"
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
+
+    const helpers = createAutoRetryHelpers(deps)
+    const retried = await helpers.retryCurrentModel(sessionID, "Prometheus (Plan Builder)", "tool.error", {
+      immediate: false,
+      persistent: true,
+      maxAttempts: 3,
+    })
+
+    expect(retried).toBe(true)
+    expect(promptCalls).toHaveLength(0)
+
+    await flushTimers(200)
+
+    const promptTargets = promptCalls.map(
+      (call) => ({
+        pathID: (call as { path?: { id?: string } }).path?.id,
+        model: (call as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+      }),
+    )
+    expect(promptTargets).toEqual([
+      {
+        pathID: sessionID,
+        model: { providerID: "anthropic", modelID: "claude-opus-4-6" },
+      },
+      {
+        pathID: sessionID,
+        model: { providerID: "anthropic", modelID: "claude-opus-4-6" },
+      },
+      {
+        pathID: sessionID,
+        model: { providerID: "anthropic", modelID: "claude-opus-4-6" },
+      },
+      {
+        pathID: "ses_transient_fresh_child",
+        model: { providerID: "anthropic", modelID: "claude-opus-4-6" },
+      },
+    ])
+    expect(createCalls).toHaveLength(1)
+
+    const state = deps.sessionStates.get(sessionID)
+    expect(state?.currentModel).toBe("anthropic/claude-opus-4-6")
+    expect(state?.transientRetryCount).toBe(0)
+    expect(state?.transientRetryMaxAttempts).toBeUndefined()
+    expect(abortCalls.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("caps persistent local tool abort retries for codex/openai and opens a fresh same-model handoff", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const abortCalls: string[] = []
+    const deps = createDeps({
+      createCalls,
+      promptCalls,
+      abortCalls,
+      retryWindowSeconds: 60,
+      fallbackModels: ["anthropic/claude-sonnet-4-6", "openai/gpt-5.3-codex-spark"],
+    })
+    const sessionID = "ses_persistent_tool_abort_codex"
+    deps.sessionStates.set(sessionID, createFallbackState("openai/gpt-5.4"))
+
+    const helpers = createAutoRetryHelpers(deps)
+    const retried = await helpers.retryCurrentModel(sessionID, "Sisyphus Junior (Focused Executor)", "tool.error", {
+      immediate: false,
+      persistent: true,
+      maxAttempts: 3,
+    })
+
+    expect(retried).toBe(true)
+
+    await flushTimers(200)
+
+    const promptTargets = promptCalls.map(
+      (call) => ({
+        pathID: (call as { path?: { id?: string } }).path?.id,
+        model: (call as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+      }),
+    )
+    expect(promptTargets).toEqual([
+      {
+        pathID: sessionID,
+        model: { providerID: "openai", modelID: "gpt-5.4" },
+      },
+      {
+        pathID: sessionID,
+        model: { providerID: "openai", modelID: "gpt-5.4" },
+      },
+      {
+        pathID: sessionID,
+        model: { providerID: "openai", modelID: "gpt-5.4" },
+      },
+      {
+        pathID: "ses_transient_fresh_child",
+        model: { providerID: "openai", modelID: "gpt-5.4" },
+      },
+    ])
+    expect(createCalls).toHaveLength(1)
 
     const state = deps.sessionStates.get(sessionID)
     expect(state?.currentModel).toBe("openai/gpt-5.4")

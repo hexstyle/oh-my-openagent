@@ -335,13 +335,16 @@ export function findNextAvailableFallback(
   state: FallbackState,
   fallbackModels: string[],
   cooldownSeconds: number,
+  options?: {
+    ignoreCandidateCooldown?: boolean
+  },
 ): string | undefined {
   for (let i = state.fallbackIndex + 1; i < fallbackModels.length; i++) {
     const candidate = fallbackModels[i]
     if (hasSameModelIdentity(candidate, state.currentModel)) {
       continue
     }
-    if (!isModelInCooldown(candidate, state, cooldownSeconds)) {
+    if (options?.ignoreCandidateCooldown || !isModelInCooldown(candidate, state, cooldownSeconds)) {
       return candidate
     }
     log(`[${HOOK_NAME}] Skipping fallback model in cooldown`, { model: candidate, index: i })
@@ -356,6 +359,7 @@ export function prepareFallback(
   config: ResolvedRuntimeFallbackConfig,
   options?: {
     skipFailedModelCooldown?: boolean
+    ignoreCandidateCooldown?: boolean
   },
 ): FallbackResult {
   updateFallbackModels(state, fallbackModels)
@@ -366,7 +370,14 @@ export function prepareFallback(
     return { success: false, error: "Max fallback attempts reached", maxAttemptsReached: true }
   }
 
-  const nextModel = findNextAvailableFallback(state, fallbackModels, config.cooldown_seconds)
+  const nextModel = findNextAvailableFallback(
+    state,
+    fallbackModels,
+    config.cooldown_seconds,
+    {
+      ignoreCandidateCooldown: options?.ignoreCandidateCooldown,
+    },
+  )
 
   if (!nextModel) {
     log(`[${HOOK_NAME}] No available fallback models`, { sessionID })

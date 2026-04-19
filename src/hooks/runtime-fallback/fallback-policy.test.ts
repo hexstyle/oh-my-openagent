@@ -199,6 +199,13 @@ describe("runtime fallback policy", () => {
         [402, 429, 500, 502, 503, 504],
       ),
     ).toBe("retry_same_model_delayed_persistent")
+
+    expect(
+      getSameModelRetryAttemptLimit(
+        { message: "Tool execution aborted" },
+        "retry_same_model_delayed_persistent",
+      ),
+    ).toBe(3)
   })
 
   it("treats wrapped and remote compact 500 internal-server errors as immediate same-model retries", () => {

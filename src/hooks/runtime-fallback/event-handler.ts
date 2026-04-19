@@ -169,6 +169,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     if (partType === "tool" && toolStatus === "error" && typeof toolError === "string" && toolError.trim().length > 0) {
       const retryAction = getRuntimeFallbackAction({ message: toolError }, config.retry_on_errors)
       if (isPersistentSameModelRetryAction(retryAction)) {
+        const maxAttempts = getSameModelRetryAttemptLimit({ message: toolError }, retryAction)
         const retried = await helpers.retryCurrentModel(
           sessionID,
           resolvedAgent,
@@ -176,14 +177,24 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
           {
             immediate: false,
             persistent: true,
+            maxAttempts,
           },
         )
+        let freshRetried = false
+        if (!retried && state && getRuntimeFallbackTier(state.currentModel) === "paid") {
+          freshRetried = await helpers.retryCurrentModelInFreshSession(
+            sessionID,
+            resolvedAgent,
+            `${source}.tool-error`,
+          )
+        }
         log(`[${HOOK_NAME}] Observed local tool abort during assistant progress`, {
           sessionID,
           source,
           toolName,
           resolvedAgent,
           retried,
+          freshRetried,
           retryAction,
         })
       }
@@ -574,7 +585,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
         persistent: isPersistentSameModelRetryAction(action),
         maxAttempts,
       })
-      if (retried || isPersistentSameModelRetryAction(action)) {
+      if (retried) {
         return
       }
 
@@ -599,6 +610,9 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       fallbackModels,
       action: effectiveAction,
     })
+    const shouldIgnoreCandidateCooldown =
+      effectiveAction === "limit_fallback"
+      && getRuntimeFallbackTier(state.currentModel) !== "paid"
 
     await dispatchFallbackRetry(deps, helpers, {
       sessionID,
@@ -606,9 +620,19 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       fallbackModels: errorAwareFallbackModels,
       resolvedAgent,
       source: `session.error.${effectiveAction}`,
-      prepareFallbackOptions: isSameModelRetryAction(action) && getRuntimeFallbackTier(state.currentModel) === "paid"
-        ? { skipFailedModelCooldown: true }
-        : undefined,
+      prepareFallbackOptions:
+        (
+          isSameModelRetryAction(action) && getRuntimeFallbackTier(state.currentModel) === "paid"
+        ) || shouldIgnoreCandidateCooldown
+          ? {
+            ...(isSameModelRetryAction(action) && getRuntimeFallbackTier(state.currentModel) === "paid"
+              ? { skipFailedModelCooldown: true }
+              : {}),
+            ...(shouldIgnoreCandidateCooldown
+              ? { ignoreCandidateCooldown: true }
+              : {}),
+          }
+          : undefined,
     })
   }
 

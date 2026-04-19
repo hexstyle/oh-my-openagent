@@ -12,6 +12,7 @@ type DispatchFallbackRetryOptions = {
   source: string
   prepareFallbackOptions?: {
     skipFailedModelCooldown?: boolean
+    ignoreCandidateCooldown?: boolean
   }
 }
 

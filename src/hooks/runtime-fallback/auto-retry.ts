@@ -44,7 +44,11 @@ import {
   normalizeAgentForExecution,
   normalizeAgentForSessionPrompt,
 } from "../../shared/agent-display-names"
-import { getRecoveryProbeCandidates, selectFallbackModelsForAction } from "./fallback-policy"
+import {
+  getRecoveryProbeCandidates,
+  getRuntimeFallbackTier,
+  selectFallbackModelsForAction,
+} from "./fallback-policy"
 import { inspectParentSessionTasks } from "../../features/background-agent/parent-session-tasks"
 import { getAgentFromSession } from "../prometheus-md-only/agent-resolution"
 import { readBoulderState } from "../../features/boulder-state"
@@ -116,6 +120,10 @@ function shouldOmitRetryAgent(
 function isBoulderTrackedExecutionSession(sessionID: string, directory: string): boolean {
   const boulderState = readBoulderState(directory)
   return Boolean(boulderState?.session_ids?.includes(sessionID))
+}
+
+function getExplicitLiveRetryAgent(resolvedAgent?: string): string | undefined {
+  return normalizeAgentName(resolvedAgent) ?? resolvedAgent
 }
 
 function formatScopedFallbackBrief(
@@ -991,11 +999,28 @@ fi
           const persistentTransientRetry = state.persistentTransientRetry ?? false
           state.pendingTransientRetry = false
 
-          if (persistentTransientRetry || canKeepRetryingTransiently(state, config)) {
-            scheduleTransientRetry(sessionID, resolvedAgent, `${source}.transient-timeout`, {
+          const retryRescheduled =
+            (persistentTransientRetry || canKeepRetryingTransiently(state, config))
+            && scheduleTransientRetry(sessionID, resolvedAgent, `${source}.transient-timeout`, {
               persistent: persistentTransientRetry,
             })
+          if (retryRescheduled) {
             return
+          }
+
+          if (
+            typeof state.transientRetryMaxAttempts === "number"
+            && getRuntimeFallbackTier(state.currentModel) === "paid"
+          ) {
+            const freshRetried = await retryCurrentModelInFreshSession(
+              sessionID,
+              resolvedAgent,
+              `${source}.transient-timeout`,
+            )
+            if (freshRetried) {
+              resetTransientRetryState(state)
+              return
+            }
           }
         }
 
@@ -1031,7 +1056,11 @@ fi
           lastAccessAgeMs: typeof lastAccess === "number" ? Math.max(0, Date.now() - lastAccess) : undefined,
         })
 
-        const result = prepareFallback(sessionID, state, fallbackModels, config)
+        const result = prepareFallback(sessionID, state, fallbackModels, config, {
+          ignoreCandidateCooldown:
+            timeoutAction === "limit_fallback"
+            && getRuntimeFallbackTier(state.currentModel) !== "paid",
+        })
         if (result.success && result.newModel) {
           const transitionMode = getRuntimeFallbackTransitionMode({
             resolvedAgent,
@@ -1063,6 +1092,18 @@ fi
     sessionFallbackTimeouts.set(sessionID, timer)
   }
 
+  const hasTransientRetryAttemptsRemaining = (state: FallbackState): boolean => {
+    if (
+      typeof state.transientRetryMaxAttempts === "number"
+      && state.transientRetryMaxAttempts > 0
+      && state.transientRetryCount >= state.transientRetryMaxAttempts
+    ) {
+      return false
+    }
+
+    return true
+  }
+
   const scheduleTransientRetry = (
     sessionID: string,
     resolvedAgent: string | undefined,
@@ -1070,13 +1111,25 @@ fi
     options?: {
       persistent?: boolean
     },
-  ): void => {
+  ): boolean => {
     const state = sessionStates.get(sessionID)
     if (!state) {
-      return
+      return false
     }
 
     const persistent = options?.persistent ?? state.persistentTransientRetry ?? false
+
+    if (!hasTransientRetryAttemptsRemaining(state)) {
+      log(`[${HOOK_NAME}] Transient retry attempt budget exhausted`, {
+        sessionID,
+        source,
+        currentModel: state.currentModel,
+        transientRetryCount: state.transientRetryCount,
+        transientRetryMaxAttempts: state.transientRetryMaxAttempts,
+        persistent,
+      })
+      return false
+    }
 
     if (!persistent && !canKeepRetryingTransiently(state, config)) {
       log(`[${HOOK_NAME}] Transient retry window exhausted`, {
@@ -1085,7 +1138,7 @@ fi
         currentModel: state.currentModel,
         transientRetryCount: state.transientRetryCount,
       })
-      return
+      return false
     }
 
     if (sessionTransientRetryTimeouts.has(sessionID)) {
@@ -1094,7 +1147,7 @@ fi
         source,
         currentModel: state.currentModel,
       })
-      return
+      return true
     }
 
     beginTransientRetryWindow(state)
@@ -1120,6 +1173,18 @@ fi
       }
 
       const latestPersistent = latestState.persistentTransientRetry ?? false
+      if (!hasTransientRetryAttemptsRemaining(latestState)) {
+        log(`[${HOOK_NAME}] Skipping delayed transient retry after attempt budget expired`, {
+          sessionID,
+          source,
+          currentModel: latestState.currentModel,
+          transientRetryCount: latestState.transientRetryCount,
+          transientRetryMaxAttempts: latestState.transientRetryMaxAttempts,
+          persistent: latestPersistent,
+        })
+        return
+      }
+
       if (!latestPersistent && !canKeepRetryingTransiently(latestState, config)) {
         log(`[${HOOK_NAME}] Skipping delayed transient retry after retry window expired`, {
           sessionID,
@@ -1136,6 +1201,7 @@ fi
     }, delayMs)
 
     sessionTransientRetryTimeouts.set(sessionID, timer)
+    return true
   }
 
   const autoRetryWithFallback = async (
@@ -1188,10 +1254,14 @@ fi
         model: newModel,
       })
 
-      const retryAgent = await resolveAgentForSessionFromContext(
-        sessionID,
-        resolvedAgent ?? getSessionAgent(sessionID),
-      ) ?? resolvedAgent ?? getSessionAgent(sessionID)
+      const explicitLiveRetryAgent = getExplicitLiveRetryAgent(resolvedAgent)
+      const retryAgent = explicitLiveRetryAgent
+        ?? await resolveAgentForSessionFromContext(
+          sessionID,
+          resolvedAgent ?? getSessionAgent(sessionID),
+        )
+        ?? resolvedAgent
+        ?? getSessionAgent(sessionID)
       const previousModel = args?.previousModel ?? state?.currentModel ?? newModel
       const transitionMode = getRuntimeFallbackTransitionMode({
         resolvedAgent: retryAgent,
@@ -1331,10 +1401,14 @@ fi
         query: { directory: ctx.directory },
       })
       const lastUserRetryParts = getLastUserRetryParts(messagesResp)
-      const retryAgent = await resolveAgentForSessionFromContext(
-        sessionID,
-        resolvedAgent ?? getSessionAgent(sessionID),
-      ) ?? resolvedAgent ?? getSessionAgent(sessionID)
+      const explicitLiveRetryAgent = getExplicitLiveRetryAgent(resolvedAgent)
+      const retryAgent = explicitLiveRetryAgent
+        ?? await resolveAgentForSessionFromContext(
+          sessionID,
+          resolvedAgent ?? getSessionAgent(sessionID),
+        )
+        ?? resolvedAgent
+        ?? getSessionAgent(sessionID)
       const preserveRetryAgent = isBoulderTrackedExecutionSession(sessionID, ctx.directory)
       const retryPromptAgent = (!preserveRetryAgent
         && shouldOmitRetryAgent(state.currentModel, state.originalModel ?? state.currentModel, retryAgent))
@@ -1452,8 +1526,7 @@ fi
       })
     }
 
-    scheduleTransientRetry(sessionID, resolvedAgent, source, { persistent })
-    return true
+    return scheduleTransientRetry(sessionID, resolvedAgent, source, { persistent })
   }
 
   const resolveAgentForSessionFromContext = async (

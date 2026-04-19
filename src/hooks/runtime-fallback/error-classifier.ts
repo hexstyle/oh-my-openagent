@@ -305,5 +305,9 @@ return true
     return true
   }
 
+  if (/tool execution aborted/i.test(message)) {
+    return true
+  }
+
   return RETRYABLE_ERROR_PATTERNS.some((pattern) => pattern.test(message))
 }

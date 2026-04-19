@@ -18,6 +18,7 @@ export type RuntimeFallbackTier = "paid" | "spark" | "free"
 const LIMIT_STATUS_CODES = new Set([402, 429])
 const TRANSIENT_STATUS_CODES = new Set([408, 500, 502, 503, 504, 521, 522, 523, 524, 525, 526])
 const TRANSIENT_FORBIDDEN_MAX_RETRY_ATTEMPTS = 3
+const PERSISTENT_TOOL_ABORT_MAX_RETRY_ATTEMPTS = 3
 const NETWORK_ERROR_PATTERNS = [
   /certificate/i,
   /\btls\b/i,
@@ -139,6 +140,10 @@ export function getSameModelRetryAttemptLimit(
 
   if (isGatewayBlockedForbiddenError(error) || isTransientForbiddenError(error)) {
     return TRANSIENT_FORBIDDEN_MAX_RETRY_ATTEMPTS
+  }
+
+  if (isPlainLocalToolAbort(error)) {
+    return PERSISTENT_TOOL_ABORT_MAX_RETRY_ATTEMPTS
   }
 
   return undefined

@@ -434,6 +434,74 @@ describe("createEventHandler", () => {
         },
       ])
     })
+
+    it("#when a capped local tool abort can no longer retry in-place #then the handler opens a fresh paid handoff", async () => {
+      const sessionID = "session-progress-local-tool-abort-fresh"
+      const deps = createDeps()
+      const abortCalls: string[] = []
+      const clearCalls: string[] = []
+      deps.pluginConfig = {
+        agents: {
+          prometheus: {
+            fallback_models: [
+              "anthropic/claude-opus-4-6",
+              "openai/gpt-5.4",
+              "anthropic/claude-sonnet-4-6",
+            ],
+          },
+        },
+      }
+      const state = createFallbackState("anthropic/claude-opus-4-6")
+      state.resolvedAgent = "prometheus"
+      deps.sessionStates.set(sessionID, state)
+      const helpers = createHelpers(deps, abortCalls, clearCalls)
+      helpers.retryCurrentModel = async (retrySessionID, resolvedAgent, source, options) => {
+        helpers.__retryCurrentModelCallsForTest.push({
+          sessionID: retrySessionID,
+          resolvedAgent,
+          source,
+          immediate: options?.immediate,
+          persistent: options?.persistent,
+        })
+        return false
+      }
+      const handler = createEventHandler(deps, helpers)
+
+      await handler({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            info: { sessionID, role: "assistant", agent: "Prometheus (Plan Builder)" },
+            part: {
+              sessionID,
+              type: "tool",
+              tool: "write",
+              state: {
+                status: "error",
+                error: "Tool execution aborted",
+              },
+            },
+          },
+        },
+      })
+
+      expect(helpers.__retryCurrentModelCallsForTest).toEqual([
+        {
+          sessionID,
+          resolvedAgent: "prometheus",
+          source: "message.part.updated.tool-error",
+          immediate: false,
+          persistent: true,
+        },
+      ])
+      expect(helpers.__freshRetryCallsForTest).toEqual([
+        {
+          sessionID,
+          resolvedAgent: "prometheus",
+          source: "message.part.updated.tool-error",
+        },
+      ])
+    })
   })
 
   it("#given a paid transient 403 session.error after same-model retries are exhausted #when the event handler processes it #then it opens a fresh paid handoff before the paid fallback chain", async () => {

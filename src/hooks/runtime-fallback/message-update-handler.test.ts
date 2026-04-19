@@ -507,7 +507,7 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     ])
   })
 
-  it("#given compaction loses live agent resolution #when spark limit fallback fires #then the stored execution agent paid chain is preserved", async () => {
+  it("#given compaction loses live agent resolution #when spark limit fallback fires #then the stored execution agent paid chain is reopened from the top paid model", async () => {
     const { createMessageUpdateHandler } = await import(`./message-update-handler?compaction-preserve-agent-${Date.now()}-${Math.random()}`)
     const sessionID = "session-compaction-preserve-agent"
     const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
@@ -568,7 +568,75 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     expect(autoRetryCalls).toEqual([
       {
         sessionID,
-        model: "anthropic/claude-sonnet-4-6",
+        model: "openai/gpt-5.4",
+        source: "message.updated.limit_fallback",
+      },
+    ])
+  })
+
+  it("#given compaction spark hits a quota retry after transient paid failures #when message.updated handles it for sisyphus #then it reopens the paid chain instead of dropping to free", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?compaction-paid-reopen-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-compaction-paid-reopen"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const autoRetryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const deps = createDeps({
+      data: [
+        { info: { role: "user" }, parts: [{ type: "text", text: "Continue the task." }] },
+      ],
+    })
+    deps.pluginConfig = {
+      ...deps.pluginConfig,
+      agents: {
+        "sisyphus-junior": {
+          fallback_models: [
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5.3-codex-spark",
+            "opencode/nemotron-3-super-free",
+          ],
+        },
+      },
+    }
+    const state = createFallbackState("openai/gpt-5.4")
+    state.resolvedAgent = "sisyphus-junior"
+    state.currentModel = "openai/gpt-5.3-codex-spark"
+    state.pendingFallbackModel = "openai/gpt-5.3-codex-spark"
+    state.failedModels.set("openai/gpt-5.4", Date.now())
+    state.failedModels.set("anthropic/claude-sonnet-4-6", Date.now())
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls, {
+      resolveAgentForSessionFromContext: async () => undefined,
+      autoRetryWithFallback: async (retrySessionID, model, _resolvedAgent, source) => {
+        autoRetryCalls.push({
+          sessionID: retrySessionID,
+          model,
+          source,
+        })
+      },
+    }))
+
+    await handler({
+      info: {
+        id: "msg-compaction-paid-reopen",
+        sessionID,
+        role: "assistant",
+        agent: "compaction",
+        model: "openai/gpt-5.3-codex-spark",
+        error: {
+          name: "AI_APICallError",
+          data: {
+            statusCode: 429,
+            message: "usage_limit_reached",
+          },
+        },
+      },
+    })
+
+    expect(autoRetryCalls).toEqual([
+      {
+        sessionID,
+        model: "openai/gpt-5.4",
         source: "message.updated.limit_fallback",
       },
     ])
@@ -635,6 +703,72 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
       {
         sessionID,
         resolvedAgent: "sisyphus-junior",
+        source: "message.updated",
+      },
+    ])
+    expect(autoRetryCalls).toEqual([])
+  })
+
+  it("#given a paid local tool abort exhausts persistent same-model retries #when message.updated handles the assistant error #then runtime-fallback opens a fresh same-model handoff", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?fresh-paid-tool-abort-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-fresh-paid-tool-abort"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const autoRetryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const freshRetryCalls: Array<{ sessionID: string; resolvedAgent?: string; source: string }> = []
+    const deps = createDeps({
+      data: [
+        { info: { role: "user" }, parts: [{ type: "text", text: "Continue the task." }] },
+      ],
+    })
+    deps.pluginConfig = {
+      ...deps.pluginConfig,
+      agents: {
+        prometheus: {
+          fallback_models: [
+            "anthropic/claude-opus-4-6",
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-4-6",
+            "opencode/nemotron-3-super-free",
+          ],
+        },
+      },
+    }
+    const state = createFallbackState("anthropic/claude-opus-4-6")
+    state.resolvedAgent = "prometheus"
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls, {
+      retryCurrentModel: async () => false,
+      retryCurrentModelInFreshSession: async (retrySessionID, resolvedAgent, source) => {
+        freshRetryCalls.push({ sessionID: retrySessionID, resolvedAgent, source })
+        return true
+      },
+      autoRetryWithFallback: async (retrySessionID, model, _resolvedAgent, source) => {
+        autoRetryCalls.push({
+          sessionID: retrySessionID,
+          model,
+          source,
+        })
+      },
+    }))
+
+    await handler({
+      info: {
+        id: "msg-fresh-paid-tool-abort",
+        sessionID,
+        role: "assistant",
+        agent: "Prometheus (Plan Builder)",
+        model: "anthropic/claude-opus-4-6",
+        error: {
+          message: "Tool execution aborted",
+        },
+      },
+    })
+
+    expect(freshRetryCalls).toEqual([
+      {
+        sessionID,
+        resolvedAgent: "prometheus",
         source: "message.updated",
       },
     ])

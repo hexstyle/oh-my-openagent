@@ -501,7 +501,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
           persistent: isPersistentSameModelRetryAction(action),
           maxAttempts,
         })
-        if (retried || isPersistentSameModelRetryAction(action)) {
+        if (retried) {
           return
         }
 
@@ -526,6 +526,9 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         fallbackModels,
         action: effectiveAction,
       })
+      const shouldIgnoreCandidateCooldown =
+        effectiveAction === "limit_fallback"
+        && getRuntimeFallbackTier(state.currentModel) !== "paid"
 
       await dispatchFallbackRetry(deps, helpers, {
         sessionID,
@@ -533,9 +536,19 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         fallbackModels: errorAwareFallbackModels,
         resolvedAgent,
         source: `message.updated.${effectiveAction}`,
-        prepareFallbackOptions: isSameModelRetryAction(action) && getRuntimeFallbackTier(state.currentModel) === "paid"
-          ? { skipFailedModelCooldown: true }
-          : undefined,
+        prepareFallbackOptions:
+          (
+            isSameModelRetryAction(action) && getRuntimeFallbackTier(state.currentModel) === "paid"
+          ) || shouldIgnoreCandidateCooldown
+            ? {
+              ...(isSameModelRetryAction(action) && getRuntimeFallbackTier(state.currentModel) === "paid"
+                ? { skipFailedModelCooldown: true }
+                : {}),
+              ...(shouldIgnoreCandidateCooldown
+                ? { ignoreCandidateCooldown: true }
+                : {}),
+            }
+            : undefined,
       })
     }
   }

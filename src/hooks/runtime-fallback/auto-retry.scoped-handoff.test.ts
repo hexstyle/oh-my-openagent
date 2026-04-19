@@ -1,4 +1,8 @@
 import { describe, expect, it } from "bun:test"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import { randomUUID } from "node:crypto"
 
 import { createAutoRetryHelpers } from "./auto-retry"
 import { createFallbackState } from "./fallback-state"
@@ -315,5 +319,96 @@ describe("runtime fallback scoped handoff", () => {
     ).body?.parts?.[0]?.text
     expect(retryText).toContain("Fresh paid retry handoff")
     expect(retryText).toContain("Retry on the same paid model in a fresh session")
+  })
+
+  it("preserves an explicit live planner agent on a boulder-tracked paid fallback instead of drifting to atlas", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({ createCalls, promptCalls })
+    const sessionID = "ses_boulder_planner_same_session"
+    const testDirectory = join(tmpdir(), `runtime-fallback-live-planner-${randomUUID()}`)
+
+    mkdirSync(join(testDirectory, ".sisyphus"), { recursive: true })
+    writeFileSync(
+      join(testDirectory, ".sisyphus", "boulder.json"),
+      JSON.stringify({
+        active_plan: "/tmp/test-plan.md",
+        started_at: new Date().toISOString(),
+        session_ids: [sessionID],
+        plan_name: "test-plan",
+        agent: "atlas",
+      }),
+    )
+    deps.ctx.directory = testDirectory
+
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.4",
+    ])
+    deps.sessionStates.set(sessionID, state)
+
+    try {
+      const helpers = createAutoRetryHelpers(deps)
+      const dispatched = await helpers.autoRetryWithFallback(
+        sessionID,
+        "openai/gpt-5.4",
+        "Prometheus (Plan Builder)",
+        "session.error.fallback_chain",
+        { previousModel: "anthropic/claude-opus-4-6" },
+      )
+
+      expect(dispatched).toBe(true)
+      expect(createCalls).toHaveLength(0)
+      expect(promptCalls).toHaveLength(1)
+      expect(
+        (promptCalls[0] as { body?: { agent?: string } }).body?.agent,
+      ).toBe("Prometheus (Plan Builder)")
+    } finally {
+      rmSync(testDirectory, { recursive: true, force: true })
+    }
+  })
+
+  it("preserves an explicit live planner agent on a boulder-tracked fresh paid handoff", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({ createCalls, promptCalls })
+    const sessionID = "ses_boulder_planner_fresh_handoff"
+    const testDirectory = join(tmpdir(), `runtime-fallback-live-planner-fresh-${randomUUID()}`)
+
+    mkdirSync(join(testDirectory, ".sisyphus"), { recursive: true })
+    writeFileSync(
+      join(testDirectory, ".sisyphus", "boulder.json"),
+      JSON.stringify({
+        active_plan: "/tmp/test-plan.md",
+        started_at: new Date().toISOString(),
+        session_ids: [sessionID],
+        plan_name: "test-plan",
+        agent: "atlas",
+      }),
+    )
+    deps.ctx.directory = testDirectory
+
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.4",
+    ])
+    state.currentModel = "anthropic/claude-opus-4-6"
+    deps.sessionStates.set(sessionID, state)
+
+    try {
+      const helpers = createAutoRetryHelpers(deps)
+      const dispatched = await helpers.retryCurrentModelInFreshSession(
+        sessionID,
+        "Prometheus (Plan Builder)",
+        "session.error.transient_forbidden",
+      )
+
+      expect(dispatched).toBe(true)
+      expect(createCalls).toHaveLength(1)
+      expect(promptCalls).toHaveLength(1)
+      expect(
+        (promptCalls[0] as { body?: { agent?: string } }).body?.agent,
+      ).toBe("Prometheus (Plan Builder)")
+    } finally {
+      rmSync(testDirectory, { recursive: true, force: true })
+    }
   })
 })

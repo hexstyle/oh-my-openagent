@@ -168,6 +168,15 @@ describe("runtime-fallback error classifier", () => {
     expect(isRetryableError(error, [402, 403, 429, 500, 502, 503, 504, 529])).toBe(true)
   })
 
+  test("treats plain local tool execution aborted wrappers as retryable", () => {
+    const error = {
+      message: "Tool execution aborted",
+    }
+
+    expect(getErrorMessage(error)).toBe("tool execution aborted")
+    expect(isRetryableError(error, [402, 403, 429, 500, 502, 503, 504, 529])).toBe(true)
+  })
+
   test("treats remote compact 403 forbidden errors as transient forbidden failures", () => {
     const error = {
       message: "Error running remote compact task: unexpected status 403 Forbidden",

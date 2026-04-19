@@ -276,7 +276,7 @@ export function createSessionStatusHandler(
           maxAttempts,
         },
       )
-      if (retried || isPersistentSameModelRetryAction(retryAction)) {
+      if (retried) {
         return
       }
 
@@ -300,9 +300,19 @@ export function createSessionStatusHandler(
       fallbackModels: statusFallbackModels,
       resolvedAgent,
       source: `session.status.${isQuota ? "limit_fallback" : "fallback_chain"}`,
-      prepareFallbackOptions: isSameModelRetryAction(retryAction) && getRuntimeFallbackTier(state.currentModel) === "paid"
-        ? { skipFailedModelCooldown: true }
-        : undefined,
+      prepareFallbackOptions:
+        (
+          isSameModelRetryAction(retryAction) && getRuntimeFallbackTier(state.currentModel) === "paid"
+        ) || (isQuota && getRuntimeFallbackTier(state.currentModel) !== "paid")
+          ? {
+            ...(isSameModelRetryAction(retryAction) && getRuntimeFallbackTier(state.currentModel) === "paid"
+              ? { skipFailedModelCooldown: true }
+              : {}),
+            ...(isQuota && getRuntimeFallbackTier(state.currentModel) !== "paid"
+              ? { ignoreCandidateCooldown: true }
+              : {}),
+          }
+          : undefined,
     })
   }
 }
