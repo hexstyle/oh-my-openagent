@@ -1,5 +1,6 @@
 export const PLUGIN_NAME = "oh-my-openagent"
 export const LEGACY_PLUGIN_NAME = "oh-my-opencode"
+export const PUBLISHED_PACKAGE_NAME = "oh-my-opencode"
 export const CONFIG_BASENAME = "oh-my-openagent"
 export const LEGACY_CONFIG_BASENAME = "oh-my-opencode"
 export const LOCAL_OVERRIDE_CONFIG_BASENAME = "oh-my-openagent.local"

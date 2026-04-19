@@ -11,7 +11,7 @@ interface ManagedClient {
   initializingSince?: number;
 }
 class LSPServerManager {
-  private static instance: LSPServerManager;
+  private static instance: LSPServerManager | undefined;
   private clients = new Map<string, ManagedClient>();
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
   private readonly IDLE_TIMEOUT = 5 * 60 * 1000;
@@ -41,6 +41,10 @@ class LSPServerManager {
       LSPServerManager.instance = new LSPServerManager();
     }
     return LSPServerManager.instance;
+  }
+
+  static getExistingInstance(): LSPServerManager | undefined {
+    return LSPServerManager.instance
   }
 
   private getKey(root: string, serverId: string): string {
@@ -204,6 +208,9 @@ class LSPServerManager {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
     }
+    if (LSPServerManager.instance === this) {
+      LSPServerManager.instance = undefined
+    }
   }
 
   async cleanupTempDirectoryClients(): Promise<void> {
@@ -211,4 +218,44 @@ class LSPServerManager {
   }
 }
 
-export const lspManager = LSPServerManager.getInstance();
+type LspManagerApi = Pick<
+  LSPServerManager,
+  "getClient" | "warmupClient" | "releaseClient" | "isServerInitializing" | "stopAll" | "cleanupTempDirectoryClients"
+>
+
+function getLspManager(): LSPServerManager {
+  return LSPServerManager.getInstance()
+}
+
+function getExistingLspManager(): LSPServerManager | undefined {
+  return LSPServerManager.getExistingInstance()
+}
+
+export const lspManager: LspManagerApi = {
+  getClient(...args) {
+    return getLspManager().getClient(...args)
+  },
+  warmupClient(...args) {
+    return getLspManager().warmupClient(...args)
+  },
+  releaseClient(...args) {
+    return getLspManager().releaseClient(...args)
+  },
+  isServerInitializing(...args) {
+    return getLspManager().isServerInitializing(...args)
+  },
+  async stopAll() {
+    const manager = getExistingLspManager()
+    if (!manager) return
+    await manager.stopAll()
+  },
+  async cleanupTempDirectoryClients() {
+    const manager = getExistingLspManager()
+    if (!manager) return
+    await manager.cleanupTempDirectoryClients()
+  },
+}
+
+export function _peekLspManagerForTesting(): LSPServerManager | undefined {
+  return getExistingLspManager()
+}

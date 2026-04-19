@@ -43,7 +43,7 @@ export function createSessionNotification(
     questionMessage: "Agent is asking a question",
     permissionMessage: "Agent needs permission to continue",
     playSound: false,
-    soundPath: defaultSoundPath,
+    soundPath: "",
     idleConfirmationDelay: 1500,
     skipIfIncompleteTodos: true,
     maxTrackedSessions: 100,
@@ -134,8 +134,6 @@ export function createSessionNotification(
   }
 
   return async ({ event }: { event: { type: string; properties?: unknown } }) => {
-    if (currentPlatform === "unsupported") return
-
     const props = event.properties as Record<string, unknown> | undefined
 
     if (event.type === "session.created") {

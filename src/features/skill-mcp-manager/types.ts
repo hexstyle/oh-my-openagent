@@ -10,6 +10,7 @@ export interface SkillMcpClientInfo {
   serverName: string
   skillName: string
   sessionID: string
+  scope?: string
 }
 
 export interface SkillMcpServerContext {

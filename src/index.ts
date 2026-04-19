@@ -134,7 +134,14 @@ const OhMyOpenCodePlugin: Plugin = async (ctx) => {
   }
 }
 
-export default OhMyOpenCodePlugin
+const serverPlugin = OhMyOpenCodePlugin
+
+const pluginModule = {
+  id: "oh-my-openagent",
+  server: serverPlugin,
+}
+
+export default pluginModule
 
 export type {
   OhMyOpenCodeConfig,

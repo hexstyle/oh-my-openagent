@@ -128,6 +128,7 @@ function v3EntryToInstallation(entry: InstalledPluginEntryV3): PluginInstallatio
   return {
     scope: entry.scope,
     installPath: entry.installPath,
+    projectPath: entry.projectPath,
     version: entry.version,
     installedAt: entry.lastUpdated,
     lastUpdated: entry.lastUpdated,

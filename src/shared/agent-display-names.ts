@@ -50,6 +50,17 @@ const REVERSE_DISPLAY_NAMES: Record<string, string> = Object.fromEntries(
   Object.entries(AGENT_DISPLAY_NAMES).map(([key, displayName]) => [displayName.toLowerCase(), key]),
 )
 
+const INVISIBLE_AGENT_CHARACTER_PATTERN = /[\u200B-\u200D\u2060\uFEFF]/g
+const AGENT_LIST_SORT_PREFIX_PATTERN = /^\s*(?:[-*+]\s+|\d+[\].):-]?\s+)/
+
+export function stripInvisibleAgentCharacters(value: string): string {
+  return value.replace(INVISIBLE_AGENT_CHARACTER_PATTERN, "")
+}
+
+export function stripAgentListSortPrefix(value: string): string {
+  return stripInvisibleAgentCharacters(value).replace(AGENT_LIST_SORT_PREFIX_PATTERN, "")
+}
+
 /**
  * Resolve an agent name (display name or config key) to its lowercase config key.
  * "Atlas (Plan Executor)" → "atlas", "atlas" → "atlas", "unknown" → "unknown"

@@ -1,6 +1,6 @@
 import type { AgentConfig } from "@opencode-ai/sdk"
 
-export type AgentScope = "user" | "project"
+export type AgentScope = "user" | "project" | "opencode-config"
 
 export type ClaudeCodeAgentConfig = Omit<AgentConfig, "model"> & {
   model?: string | { providerID: string; modelID: string }
@@ -11,6 +11,15 @@ export interface AgentFrontmatter {
   description?: string
   model?: string
   tools?: string
+  mode?: "subagent" | "primary" | "all"
+}
+
+export interface AgentJsonDefinition {
+  name?: string
+  description?: string
+  prompt?: string
+  model?: string
+  tools?: unknown
   mode?: "subagent" | "primary" | "all"
 }
 

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import {
   PLUGIN_NAME,
+  PUBLISHED_PACKAGE_NAME,
   CONFIG_BASENAME,
   LOCAL_OVERRIDE_CONFIG_BASENAME,
   LOG_FILENAME,
@@ -16,6 +17,12 @@ describe("plugin-identity constants", () => {
 
       // then
       expect(PLUGIN_NAME).toBe("oh-my-openagent")
+    })
+  })
+
+  describe("PUBLISHED_PACKAGE_NAME", () => {
+    it("equals oh-my-opencode", () => {
+      expect(PUBLISHED_PACKAGE_NAME).toBe("oh-my-opencode")
     })
   })
 

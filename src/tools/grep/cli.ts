@@ -1,7 +1,10 @@
 import { spawn } from "bun"
 import {
   resolveGrepCli,
+  type ResolvedCli,
   type GrepBackend,
+} from "../../shared/ripgrep-cli"
+import {
   DEFAULT_MAX_DEPTH,
   DEFAULT_MAX_FILESIZE,
   DEFAULT_MAX_COUNT,
@@ -101,7 +104,8 @@ function parseOutput(output: string, filesOnly = false): GrepMatch[] {
   const matches: GrepMatch[] = []
   const lines = output.split("\n")
 
-  for (const line of lines) {
+  for (let line of lines) {
+    line = line.replace(/\r$/, "")
     if (!line.trim()) continue
 
     if (filesOnly) {
@@ -133,10 +137,11 @@ function parseCountOutput(output: string): CountResult[] {
   const results: CountResult[] = []
   const lines = output.split("\n")
 
-  for (const line of lines) {
+  for (let line of lines) {
+    line = line.replace(/\r$/, "")
     if (!line.trim()) continue
 
-    const match = line.match(/^(.+?):(\d+)$/)
+    const match = line.match(/^([A-Za-z]:[\\\/].*?|.+?):(\d+)$/)
     if (match) {
       results.push({
         file: match[1],

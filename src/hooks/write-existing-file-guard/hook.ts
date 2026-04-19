@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, normalize, relative, resolve } fro
 
 import { log } from "../../shared"
 
-type GuardArgs = {
+export type GuardArgs = {
   filePath?: string
   path?: string
   file_path?: string
@@ -16,7 +16,7 @@ const MAX_TRACKED_SESSIONS = 256
 export const MAX_TRACKED_PATHS_PER_SESSION = 1024
 const BLOCK_MESSAGE = "File already exists. Use edit tool instead."
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
+export function asRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined
   }
@@ -24,22 +24,22 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value as Record<string, unknown>
 }
 
-function getPathFromArgs(args: GuardArgs | undefined): string | undefined {
+export function getPathFromArgs(args: GuardArgs | undefined): string | undefined {
   return args?.filePath ?? args?.path ?? args?.file_path
 }
 
-function resolveInputPath(ctx: PluginInput, inputPath: string): string {
+export function resolveInputPath(ctx: PluginInput, inputPath: string): string {
   return normalize(isAbsolute(inputPath) ? inputPath : resolve(ctx.directory, inputPath))
 }
 
-function isPathInsideDirectory(pathToCheck: string, directory: string): boolean {
+export function isPathInsideDirectory(pathToCheck: string, directory: string): boolean {
   const relativePath = relative(directory, pathToCheck)
   return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath))
 }
 
 
 
-function toCanonicalPath(absolutePath: string): string {
+export function toCanonicalPath(absolutePath: string): string {
   let canonicalPath = absolutePath
 
   if (existsSync(absolutePath)) {
@@ -59,7 +59,7 @@ function toCanonicalPath(absolutePath: string): string {
   return normalize(canonicalPath)
 }
 
-function isOverwriteEnabled(value: boolean | string | undefined): boolean {
+export function isOverwriteEnabled(value: boolean | string | undefined): boolean {
   if (value === true) {
     return true
   }

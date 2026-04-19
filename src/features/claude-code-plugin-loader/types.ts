@@ -13,6 +13,7 @@ export type PluginScope = "user" | "project" | "local" | "managed"
 export interface PluginInstallation {
   scope: PluginScope
   installPath: string
+  projectPath?: string
   version: string
   installedAt: string
   lastUpdated: string
@@ -49,6 +50,7 @@ export interface InstalledPluginEntryV3 {
   scope: PluginScope
   version: string
   installPath: string
+  projectPath?: string
   lastUpdated: string
   gitCommitSha?: string
 }

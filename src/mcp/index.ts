@@ -28,5 +28,13 @@ export function createBuiltinMcps(disabledMcps: string[] = [], config?: OhMyOpen
     mcps.grep_app = grep_app
   }
 
+  if (!disabledMcps.includes("context7")) {
+    mcps.context7 = context7
+  }
+
+  if (!disabledMcps.includes("grep_app")) {
+    mcps.grep_app = grep_app
+  }
+
   return mcps
 }
