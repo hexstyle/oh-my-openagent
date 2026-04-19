@@ -73,6 +73,7 @@ export interface FallbackState {
   originalModel: string
   currentModel: string
   resolvedAgent?: string
+  isScopedFallbackChild?: boolean
   fallbackIndex: number
   fallbackModels: string[]
   failedModels: Map<string, number>

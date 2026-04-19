@@ -1028,19 +1028,36 @@ fi
           state.pendingFallbackModel = undefined
         }
 
+        const timeoutAction = isRecentLimitError(state) ? "limit_fallback" : "fallback_chain"
+        if (
+          mode === "fallback"
+          && timeoutAction === "fallback_chain"
+          && getRuntimeFallbackTier(state.currentModel) === "paid"
+          && !state.isScopedFallbackChild
+        ) {
+          const freshRetried = await retryCurrentModelInFreshSession(
+            sessionID,
+            resolvedAgent,
+            `${source}.timeout`,
+          )
+          if (freshRetried) {
+            return
+          }
+        }
+
         const allFallbackModels = getFallbackModelsForSession(sessionID, resolvedAgent, pluginConfig)
         if (allFallbackModels.length === 0) {
           log(`[${HOOK_NAME}] Session fallback timeout reached but no fallback models were resolved`, {
             sessionID,
             source,
             resolvedAgent,
+            timeoutAction,
           })
           return
         }
 
         // If the session previously hit a quota/limit, route directly to spark
         // then free-tier models instead of retrying paid models that are capped.
-        const timeoutAction = isRecentLimitError(state) ? "limit_fallback" : "fallback_chain"
         const fallbackModels = timeoutAction === "limit_fallback"
           ? selectFallbackModelsForAction({ currentModel: state.currentModel, fallbackModels: allFallbackModels, action: "limit_fallback" })
           : allFallbackModels

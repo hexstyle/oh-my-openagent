@@ -39,6 +39,7 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
   return {
     originalModel,
     currentModel: originalModel,
+    isScopedFallbackChild: false,
     fallbackIndex: -1,
     fallbackModels: dedupeModels(fallbackModels),
     failedModels: new Map<string, number>(),

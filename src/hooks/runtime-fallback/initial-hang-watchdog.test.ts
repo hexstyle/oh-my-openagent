@@ -61,9 +61,9 @@ describe("runtime-fallback initial hang watchdog", () => {
     logSpy?.mockRestore()
   })
 
-  test("falls back when a resumed session creates an empty assistant turn and then stalls", async () => {
-    const retriedModels: string[] = []
-    const abortCalls: string[] = []
+  test("opens a fresh same-model handoff when a paid planner session stalls on its first turn", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
     const sessionID = "ses-initial-hang"
 
     const hook = createRuntimeFallbackHook(
@@ -73,25 +73,21 @@ describe("runtime-fallback initial hang watchdog", () => {
             showToast: async () => ({}),
           },
           session: {
+            create: async (args) => {
+              createCalls.push(args)
+              return { data: { id: "ses-fresh-timeout-child" } }
+            },
             messages: async () => ({
               data: [
                 { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
                 { info: { role: "assistant" }, parts: [] },
               ],
             }),
-            promptAsync: async (args: {
-              body?: { model?: { providerID?: string; modelID?: string } }
-            }) => {
-              const model = args.body?.model
-              if (model?.providerID && model?.modelID) {
-                retriedModels.push(`${model.providerID}/${model.modelID}`)
-              }
+            promptAsync: async (args) => {
+              promptCalls.push(args)
               return {}
             },
-            abort: async (args: { path: { id: string } }) => {
-              abortCalls.push(args.path.id)
-              return {}
-            },
+            abort: async () => ({}),
           },
         },
         directory: "/test/dir",
@@ -140,13 +136,128 @@ describe("runtime-fallback initial hang watchdog", () => {
     jest.advanceTimersByTime(25)
     await Promise.resolve()
 
-    expect(abortCalls).toContain(sessionID)
-    expect(retriedModels).toContain("openai/gpt-5.4")
+    expect(createCalls).toHaveLength(1)
+    expect(
+      (createCalls[0] as { body?: { parentID?: string; title?: string } }).body,
+    ).toEqual({
+      parentID: sessionID,
+      title: "[runtime-fallback] Scoped Fallback: claude-opus-4-6",
+    })
+    expect(promptCalls).toHaveLength(1)
+    expect(
+      (promptCalls[0] as { path?: { id?: string } }).path?.id,
+    ).toBe("ses-fresh-timeout-child")
+    expect(
+      (promptCalls[0] as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+    ).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-opus-4-6",
+    })
     expect(logCalls.some((call) => call.msg.includes("Armed session fallback timeout"))).toBe(true)
-    expect(logCalls.some((call) => call.msg.includes("Session fallback timeout reached"))).toBe(true)
   })
 
-  test("aborts the stale initial request before dispatching a timeout-driven same-session fallback", async () => {
+  test("opens the same fresh timeout handoff for stalled paid codex/openai planners", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const sessionID = "ses-initial-hang-openai"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            create: async (args) => {
+              createCalls.push(args)
+              return { data: { id: "ses-openai-fresh-timeout-child" } }
+            },
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+                { info: { role: "assistant" }, parts: [] },
+              ],
+            }),
+            promptAsync: async (args) => {
+              promptCalls.push(args)
+              return {}
+            },
+            abort: async () => ({}),
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: {
+          ...createPluginConfig(),
+          agents: {
+            ...createPluginConfig().agents,
+            prometheus: {
+              model: "openai/gpt-5.4",
+              fallback_models: [
+                "openai/gpt-5.4",
+                "anthropic/claude-sonnet-4-6",
+                "openai/gpt-5.3-codex-spark",
+              ],
+            },
+          },
+        },
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "openai",
+              modelID: "gpt-5.4",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "openai",
+              modelID: "gpt-5.4",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(25)
+    await Promise.resolve()
+
+    expect(createCalls).toHaveLength(1)
+    expect(
+      (promptCalls[0] as { path?: { id?: string } }).path?.id,
+    ).toBe("ses-openai-fresh-timeout-child")
+    expect(
+      (promptCalls[0] as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+    ).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.4",
+    })
+  })
+
+  test("does not nest another fresh same-model handoff when an existing scoped fallback child stalls", async () => {
+    const createCalls: Array<unknown> = []
     const callOrder: string[] = []
     const sessionID = "ses-initial-hang-abort-before-retry"
 
@@ -157,6 +268,10 @@ describe("runtime-fallback initial hang watchdog", () => {
             showToast: async () => ({}),
           },
           session: {
+            create: async (args) => {
+              createCalls.push(args)
+              return { data: { id: "ses-nested-fresh-child" } }
+            },
             messages: async () => ({
               data: [
                 { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
@@ -189,6 +304,22 @@ describe("runtime-fallback initial hang watchdog", () => {
 
     await hook.event({
       event: {
+        type: "session.created",
+        properties: {
+          info: {
+            id: sessionID,
+            title: "[runtime-fallback] Scoped Fallback: claude-opus-4-6",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
         type: "message.updated",
         properties: {
           info: {
@@ -224,6 +355,7 @@ describe("runtime-fallback initial hang watchdog", () => {
     jest.advanceTimersByTime(25)
     await Promise.resolve()
 
+    expect(createCalls).toHaveLength(0)
     expect(callOrder).toEqual([
       `abort:${sessionID}`,
       "prompt:openai/gpt-5.4",

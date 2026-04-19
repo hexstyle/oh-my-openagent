@@ -25,6 +25,7 @@ import {
 } from "./fallback-policy"
 import { logTrackedProvider403 } from "./provider-403-diagnostics"
 import { maybePauseForManualProviderClearance } from "./manual-provider-clearance"
+import { isRuntimeFallbackScopedHandoffTitle } from "../../shared/runtime-fallback-session-titles"
 
 export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   const { config, options, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRecentActiveStatusUntil, sessionSilentAssistantUpdateCounts, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionFallbackTimeouts, sessionTransientRetryTimeouts, sessionStatusRetryKeys } = deps
@@ -292,6 +293,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   const handleSessionCreated = (props: Record<string, unknown> | undefined) => {
     const sessionInfo = props?.info as Record<string, unknown> | undefined
     const sessionID = typeof sessionInfo?.id === "string" ? sessionInfo.id : undefined
+    const title = typeof sessionInfo?.title === "string" ? sessionInfo.title : undefined
     const model = extractEventModelString({
       model: sessionInfo?.model,
       providerID: sessionInfo?.providerID,
@@ -300,8 +302,10 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     })
 
     if (sessionID && model) {
+      const state = createFallbackState(model)
+      state.isScopedFallbackChild = isRuntimeFallbackScopedHandoffTitle(title)
       log(`[${HOOK_NAME}] Session created with model`, { sessionID, model })
-      sessionStates.set(sessionID, createFallbackState(model))
+      sessionStates.set(sessionID, state)
       sessionLastAccess.set(sessionID, Date.now())
     }
   }

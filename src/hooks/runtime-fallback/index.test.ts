@@ -2926,7 +2926,7 @@ describe("runtime-fallback", () => {
 
       expect(retriedModels).toEqual([
         "openai/gpt-5.3-codex-spark",
-        "opencode/nemotron-3-super-free",
+        "openai/gpt-5.4",
       ])
     })
 
