@@ -11,6 +11,7 @@ import { extractEventModelString } from "./event-model"
 import {
   getSameModelRetryAttemptLimit,
   getRuntimeFallbackAction,
+  getRuntimeFallbackTier,
   isPersistentSameModelRetryAction,
   isSameModelRetryAction,
   selectFallbackModelsForAction,
@@ -404,7 +405,8 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
 
       let state = sessionStates.get(sessionID)
       const agent = info?.agent as string | undefined
-      const resolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent)
+      const liveResolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent)
+      const resolvedAgent = liveResolvedAgent ?? state?.resolvedAgent
       const fallbackModels = getFallbackModelsForSession(sessionID, resolvedAgent, pluginConfig)
 
       if (fallbackModels.length === 0) {
@@ -502,6 +504,17 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         if (retried || isPersistentSameModelRetryAction(action)) {
           return
         }
+
+        if (getRuntimeFallbackTier(state.currentModel) === "paid") {
+          const freshRetried = await helpers.retryCurrentModelInFreshSession(
+            sessionID,
+            resolvedAgent,
+            "message.updated",
+          )
+          if (freshRetried) {
+            return
+          }
+        }
       }
 
       const effectiveAction =
@@ -520,6 +533,9 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         fallbackModels: errorAwareFallbackModels,
         resolvedAgent,
         source: `message.updated.${effectiveAction}`,
+        prepareFallbackOptions: isSameModelRetryAction(action) && getRuntimeFallbackTier(state.currentModel) === "paid"
+          ? { skipFailedModelCooldown: true }
+          : undefined,
       })
     }
   }

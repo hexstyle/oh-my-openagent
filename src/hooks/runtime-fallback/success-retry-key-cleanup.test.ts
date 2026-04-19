@@ -65,6 +65,7 @@ function createHelpers(clearCalls: string[]): AutoRetryHelpers {
     scheduleSessionFallbackTimeout: (_sessionID: string, _args?: { timeoutMsOverride?: number }) => {},
     autoRetryWithFallback: async () => {},
     retryCurrentModel: async () => false,
+    retryCurrentModelInFreshSession: async () => false,
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
     recoverPreferredModels: async () => {},

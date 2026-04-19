@@ -10,6 +10,9 @@ type DispatchFallbackRetryOptions = {
   fallbackModels: string[]
   resolvedAgent?: string
   source: string
+  prepareFallbackOptions?: {
+    skipFailedModelCooldown?: boolean
+  }
 }
 
 export async function dispatchFallbackRetry(
@@ -22,6 +25,7 @@ export async function dispatchFallbackRetry(
     options.state,
     options.fallbackModels,
     deps.config,
+    options.prepareFallbackOptions,
   )
 
   if (result.success && deps.config.notify_on_fallback) {

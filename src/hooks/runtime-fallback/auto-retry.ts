@@ -197,6 +197,26 @@ function buildScopedFallbackHandoffPrompt(args: {
   ].join("\n")
 }
 
+function buildFreshPaidRetryHandoffPrompt(args: {
+  parentSessionID: string
+  currentModel: string
+  lastUserRetryParts: Array<{ type?: string; text?: string }>
+}): string {
+  const brief = formatScopedFallbackBrief(args.lastUserRetryParts)
+  return [
+    "Fresh paid retry handoff.",
+    `Parent session: ${args.parentSessionID}`,
+    `Retry model: ${args.currentModel}`,
+    "Retry on the same paid model in a fresh session.",
+    "Preserve the parent context and continue the current task without restarting from scratch.",
+    "Do not restate the full request or redo completed work.",
+    "Focus only on the next unresolved step.",
+    "",
+    "Task brief:",
+    brief,
+  ].join("\n")
+}
+
 export function selectExternalWatchdogModel(
   currentModel: string,
   fallbackModels: string[],
@@ -1285,6 +1305,94 @@ fi
     return retryDispatched
   }
 
+  const retryCurrentModelInFreshSession = async (
+    sessionID: string,
+    resolvedAgent: string | undefined,
+    source: string,
+  ): Promise<boolean> => {
+    const state = sessionStates.get(sessionID)
+    if (!state) {
+      return false
+    }
+
+    const retryModelPayload = buildRetryModelPayload(state.currentModel)
+    if (!retryModelPayload) {
+      log(`[${HOOK_NAME}] Invalid current model format for fresh retry handoff`, {
+        sessionID,
+        source,
+        model: state.currentModel,
+      })
+      return false
+    }
+
+    try {
+      const messagesResp = await ctx.client.session.messages({
+        path: { id: sessionID },
+        query: { directory: ctx.directory },
+      })
+      const lastUserRetryParts = getLastUserRetryParts(messagesResp)
+      const retryAgent = await resolveAgentForSessionFromContext(
+        sessionID,
+        resolvedAgent ?? getSessionAgent(sessionID),
+      ) ?? resolvedAgent ?? getSessionAgent(sessionID)
+      const preserveRetryAgent = isBoulderTrackedExecutionSession(sessionID, ctx.directory)
+      const retryPromptAgent = (!preserveRetryAgent
+        && shouldOmitRetryAgent(state.currentModel, state.originalModel ?? state.currentModel, retryAgent))
+        ? undefined
+        : normalizeAgentForSessionPrompt(retryAgent)
+      const childSession = await createScopedFallbackSession({
+        parentSessionID: sessionID,
+        newModel: state.currentModel,
+      })
+
+      if (!childSession) {
+        return false
+      }
+
+      await ctx.client.session.promptAsync({
+        path: { id: childSession.sessionID },
+        body: {
+          ...(retryPromptAgent ? { agent: retryPromptAgent } : {}),
+          ...retryModelPayload,
+          parts: [
+            createInternalAgentTextPart(
+              buildFreshPaidRetryHandoffPrompt({
+                parentSessionID: sessionID,
+                currentModel: state.currentModel,
+                lastUserRetryParts,
+              }),
+            ),
+          ],
+        },
+        query: { directory: childSession.directory },
+      })
+
+      clearSessionFallbackTimeout(sessionID)
+      sessionAwaitingFallbackResult.delete(sessionID)
+      state.pendingFallbackModel = undefined
+      state.pendingTransientRetry = false
+      state.persistentTransientRetry = false
+
+      log(`[${HOOK_NAME}] Retrying current paid model in a fresh child session`, {
+        sessionID,
+        childSessionID: childSession.sessionID,
+        model: state.currentModel,
+        source,
+        resolvedAgent: retryAgent,
+      })
+
+      return true
+    } catch (error) {
+      log(`[${HOOK_NAME}] Fresh paid retry handoff failed`, {
+        sessionID,
+        source,
+        model: state.currentModel,
+        error: String(error),
+      })
+      return false
+    }
+  }
+
   const retryCurrentModel = async (
     sessionID: string,
     resolvedAgent: string | undefined,
@@ -1684,6 +1792,7 @@ fi
     scheduleSessionFallbackTimeout,
     autoRetryWithFallback,
     retryCurrentModel,
+    retryCurrentModelInFreshSession,
     resolveAgentForSessionFromContext,
     cleanupStaleSessions,
     recoverPreferredModels,

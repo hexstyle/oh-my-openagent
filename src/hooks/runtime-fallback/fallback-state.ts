@@ -354,6 +354,9 @@ export function prepareFallback(
   state: FallbackState,
   fallbackModels: string[],
   config: ResolvedRuntimeFallbackConfig,
+  options?: {
+    skipFailedModelCooldown?: boolean
+  },
 ): FallbackResult {
   updateFallbackModels(state, fallbackModels)
   pruneExpiredFailedModels(state, config.cooldown_seconds)
@@ -381,7 +384,9 @@ export function prepareFallback(
   const now = Date.now()
 
   state.fallbackIndex = findModelIndexByIdentity(fallbackModels, nextModel)
-  state.failedModels.set(failedModel, now)
+  if (!options?.skipFailedModelCooldown) {
+    state.failedModels.set(failedModel, now)
+  }
   state.attemptCount++
   resetTransientRetryState(state)
   state.currentModel = nextModel

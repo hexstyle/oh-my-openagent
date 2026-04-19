@@ -277,4 +277,43 @@ describe("runtime fallback scoped handoff", () => {
     ).body?.parts?.[0]?.text
     expect(retryText).toContain("No reusable user brief was available from the parent session.")
   })
+
+  it("creates a fresh same-model handoff for exhausted paid transient retries", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({ createCalls, promptCalls })
+    const sessionID = "ses_paid_fresh_retry_handoff"
+    const state = createFallbackState("openai/gpt-5.4", [
+      "anthropic/claude-sonnet-4-6",
+      "openai/gpt-5.3-codex-spark",
+    ])
+
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    const dispatched = await helpers.retryCurrentModelInFreshSession(
+      sessionID,
+      "Sisyphus Junior (Focused Executor)",
+      "session.error.transient_forbidden",
+    )
+
+    expect(dispatched).toBe(true)
+    expect(createCalls).toHaveLength(1)
+    expect(promptCalls).toHaveLength(1)
+    expect(
+      (promptCalls[0] as { path?: { id?: string } }).path?.id,
+    ).toBe("ses_scoped_child")
+    expect(
+      (promptCalls[0] as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+    ).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.4",
+    })
+
+    const retryText = (
+      promptCalls[0] as { body?: { parts?: Array<{ text?: string }> } }
+    ).body?.parts?.[0]?.text
+    expect(retryText).toContain("Fresh paid retry handoff")
+    expect(retryText).toContain("Retry on the same paid model in a fresh session")
+  })
 })

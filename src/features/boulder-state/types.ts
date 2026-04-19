@@ -5,6 +5,8 @@
  * Named after Sisyphus's boulder - the eternal task that must be rolled.
  */
 
+export type BoulderSessionOrigin = "direct" | "appended"
+
 export interface BoulderState {
   /** Absolute path to the active plan file */
   active_plan: string
@@ -12,6 +14,8 @@ export interface BoulderState {
   started_at: string
   /** Session IDs that have worked on this plan */
   session_ids: string[]
+  /** How a session became associated with the active boulder plan */
+  session_origins?: Record<string, BoulderSessionOrigin>
   /** Plan name derived from filename */
   plan_name: string
   /** Agent type to use when resuming (e.g., 'atlas') */

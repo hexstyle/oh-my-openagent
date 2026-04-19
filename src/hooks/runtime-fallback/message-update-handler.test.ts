@@ -98,6 +98,7 @@ function createHelpers(
     },
     autoRetryWithFallback: async () => {},
     retryCurrentModel: async () => false,
+    retryCurrentModelInFreshSession: async () => false,
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
     recoverPreferredModels: async () => {},
@@ -504,5 +505,139 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
         source: "message.updated.limit_fallback",
       },
     ])
+  })
+
+  it("#given compaction loses live agent resolution #when spark limit fallback fires #then the stored execution agent paid chain is preserved", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?compaction-preserve-agent-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-compaction-preserve-agent"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const autoRetryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const deps = createDeps({
+      data: [
+        { info: { role: "user" }, parts: [{ type: "text", text: "Continue the task." }] },
+      ],
+    })
+    deps.pluginConfig = {
+      ...deps.pluginConfig,
+      agents: {
+        "sisyphus-junior": {
+          fallback_models: [
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5.3-codex-spark",
+            "opencode/nemotron-3-super-free",
+          ],
+        },
+      },
+    }
+    const state = createFallbackState("openai/gpt-5.4")
+    state.resolvedAgent = "sisyphus-junior"
+    state.currentModel = "openai/gpt-5.3-codex-spark"
+    state.pendingFallbackModel = "openai/gpt-5.3-codex-spark"
+    state.failedModels.set("openai/gpt-5.4", Date.now())
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls, {
+      resolveAgentForSessionFromContext: async () => undefined,
+      autoRetryWithFallback: async (retrySessionID, model, _resolvedAgent, source) => {
+        autoRetryCalls.push({
+          sessionID: retrySessionID,
+          model,
+          source,
+        })
+      },
+    }))
+
+    await handler({
+      info: {
+        id: "msg-compaction-preserve-agent",
+        sessionID,
+        role: "assistant",
+        agent: "compaction",
+        model: "openai/gpt-5.3-codex-spark",
+        error: {
+          name: "AI_APICallError",
+          data: {
+            statusCode: 429,
+            message: "usage_limit_reached",
+          },
+        },
+      },
+    })
+
+    expect(autoRetryCalls).toEqual([
+      {
+        sessionID,
+        model: "anthropic/claude-sonnet-4-6",
+        source: "message.updated.limit_fallback",
+      },
+    ])
+  })
+
+  it("#given a paid transient 403 exhausts same-model retries #when message.updated handles the assistant error #then runtime-fallback opens a fresh same-model handoff before paid fallback", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?fresh-paid-retry-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-fresh-paid-retry"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const autoRetryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const freshRetryCalls: Array<{ sessionID: string; resolvedAgent?: string; source: string }> = []
+    const deps = createDeps({
+      data: [
+        { info: { role: "user" }, parts: [{ type: "text", text: "Continue the task." }] },
+      ],
+    })
+    deps.pluginConfig = {
+      ...deps.pluginConfig,
+      agents: {
+        "sisyphus-junior": {
+          fallback_models: [
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5.3-codex-spark",
+            "opencode/nemotron-3-super-free",
+          ],
+        },
+      },
+    }
+    const state = createFallbackState("openai/gpt-5.4")
+    state.resolvedAgent = "sisyphus-junior"
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls, {
+      retryCurrentModel: async () => false,
+      retryCurrentModelInFreshSession: async (retrySessionID, resolvedAgent, source) => {
+        freshRetryCalls.push({ sessionID: retrySessionID, resolvedAgent, source })
+        return true
+      },
+      autoRetryWithFallback: async (retrySessionID, model, _resolvedAgent, source) => {
+        autoRetryCalls.push({
+          sessionID: retrySessionID,
+          model,
+          source,
+        })
+      },
+    }))
+
+    await handler({
+      info: {
+        id: "msg-fresh-paid-retry",
+        sessionID,
+        role: "assistant",
+        agent: "Sisyphus Junior (Focused Executor)",
+        model: "openai/gpt-5.4",
+        error: {
+          statusCode: 403,
+          message: "Request not allowed",
+        },
+      },
+    })
+
+    expect(freshRetryCalls).toEqual([
+      {
+        sessionID,
+        resolvedAgent: "sisyphus-junior",
+        source: "message.updated",
+      },
+    ])
+    expect(autoRetryCalls).toEqual([])
   })
 })

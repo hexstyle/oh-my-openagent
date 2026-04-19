@@ -278,7 +278,7 @@ export async function handleAtlasSessionIdle(input: {
       return
     }
 
-    const { boulderState, progress, appendedSession } = activeBoulderSession
+    const { boulderState, progress, appendedSession, sessionOrigin, sessionAgent } = activeBoulderSession
     if (progress.isComplete) {
       log(`[${HOOK_NAME}] Boulder complete`, { sessionID, plan: boulderState.plan_name })
       return
@@ -291,9 +291,16 @@ export async function handleAtlasSessionIdle(input: {
       })
     }
 
-    if (subagentSessions.has(sessionID)) {
-      const sessionAgent = getSessionAgent(sessionID)
-      const agentKey = getAgentConfigKey(sessionAgent ?? "")
+    if (sessionOrigin === "appended" || subagentSessions.has(sessionID)) {
+      const resolvedSessionAgent = sessionAgent ?? getSessionAgent(sessionID)
+      if (!resolvedSessionAgent) {
+        log(`[${HOOK_NAME}] Skipped: appended descendant agent could not be resolved`, {
+          sessionID,
+        })
+        return
+      }
+
+      const agentKey = getAgentConfigKey(resolvedSessionAgent)
       const requiredAgentName = boulderState.agent ?? (isAgentRegistered("atlas") ? "atlas" : undefined)
       if (!requiredAgentName || !isAgentRegistered(requiredAgentName)) {
         log(`[${HOOK_NAME}] Skipped: boulder agent is unavailable for continuation`, {
@@ -309,7 +316,7 @@ export async function handleAtlasSessionIdle(input: {
       if (!agentMatches) {
         log(`[${HOOK_NAME}] Skipped: subagent agent does not match boulder agent`, {
           sessionID,
-          agent: sessionAgent ?? "unknown",
+          agent: resolvedSessionAgent,
           requiredAgent: requiredAgentName,
         })
         return

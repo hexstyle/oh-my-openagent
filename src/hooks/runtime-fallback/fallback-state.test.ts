@@ -39,6 +39,38 @@ describe("runtime fallback state recovery", () => {
     ])
   })
 
+  it("can advance fallback without placing the failed paid model into cooldown", () => {
+    const state = createFallbackState("openai/gpt-5.4")
+
+    const result = prepareFallback(
+      "session-preserve-paid-availability",
+      state,
+      ["anthropic/claude-sonnet-4-6", "openai/gpt-5.3-codex-spark"],
+      {
+        enabled: true,
+        retry_on_errors: [429, 503, 529],
+        max_fallback_attempts: 5,
+        max_full_chain_cycles: 5,
+        cooldown_seconds: 600,
+        timeout_seconds: 30,
+        transient_retry_window_seconds: 900,
+        transient_retry_initial_delay_seconds: 10,
+        transient_retry_max_delay_seconds: 300,
+        notify_on_fallback: true,
+      },
+      {
+        skipFailedModelCooldown: true,
+      },
+    )
+
+    expect(result).toEqual({
+      success: true,
+      newModel: "anthropic/claude-sonnet-4-6",
+      previousModel: "openai/gpt-5.4",
+    })
+    expect(state.failedModels.has("openai/gpt-5.4")).toBe(false)
+  })
+
   it("skips variant-only aliases of the current model when preparing fallback", () => {
     const state = createFallbackState("anthropic/claude-opus-4-6(max)")
 

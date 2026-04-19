@@ -6,7 +6,7 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs"
 import { dirname, join, basename, resolve } from "node:path"
-import type { BoulderState, PlanProgress, TaskSessionState } from "./types"
+import type { BoulderSessionOrigin, BoulderState, PlanProgress, TaskSessionState } from "./types"
 import { BOULDER_DIR, BOULDER_FILE, PROMETHEUS_PLANS_DIR } from "./constants"
 
 const RESERVED_KEYS = new Set(["__proto__", "prototype", "constructor"])
@@ -154,6 +154,10 @@ function normalizeBoulderState(parsed: Record<string, unknown>): BoulderState {
   return {
     ...parsed,
     session_ids: Array.isArray(parsed.session_ids) ? parsed.session_ids : [],
+    session_origins:
+      parsed.session_origins && typeof parsed.session_origins === "object" && !Array.isArray(parsed.session_origins)
+        ? parsed.session_origins as Record<string, BoulderSessionOrigin>
+        : {},
     task_sessions:
       hadPlanMismatch || !parsed.task_sessions || typeof parsed.task_sessions !== "object" || Array.isArray(parsed.task_sessions)
         ? {}
@@ -203,7 +207,11 @@ export function writeBoulderState(directory: string, state: BoulderState): boole
   }
 }
 
-export function appendSessionId(directory: string, sessionId: string): BoulderState | null {
+export function appendSessionId(
+  directory: string,
+  sessionId: string,
+  origin: BoulderSessionOrigin = "direct",
+): BoulderState | null {
   const state = readBoulderState(directory)
   if (!state) return null
 
@@ -211,12 +219,31 @@ export function appendSessionId(directory: string, sessionId: string): BoulderSt
     if (!Array.isArray(state.session_ids)) {
       state.session_ids = []
     }
+    if (!state.session_origins || typeof state.session_origins !== "object" || Array.isArray(state.session_origins)) {
+      state.session_origins = {}
+    }
     const originalSessionIds = [...state.session_ids]
+    const originalSessionOrigins = { ...state.session_origins }
     state.session_ids.push(sessionId)
+    state.session_origins[sessionId] = origin
     if (writeBoulderState(directory, state)) {
       return state
     }
     state.session_ids = originalSessionIds
+    state.session_origins = originalSessionOrigins
+    return null
+  }
+
+  if (!state.session_origins?.[sessionId]) {
+    if (!state.session_origins || typeof state.session_origins !== "object" || Array.isArray(state.session_origins)) {
+      state.session_origins = {}
+    }
+    const originalSessionOrigins = { ...state.session_origins }
+    state.session_origins[sessionId] = origin
+    if (writeBoulderState(directory, state)) {
+      return state
+    }
+    state.session_origins = originalSessionOrigins
     return null
   }
 

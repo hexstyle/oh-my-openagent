@@ -16,6 +16,7 @@ import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
 import {
   getSameModelRetryAttemptLimit,
   getRuntimeFallbackAction,
+  getRuntimeFallbackTier,
   isPersistentSameModelRetryAction,
   isSameModelRetryAction,
   selectFallbackModelsForAction,
@@ -67,8 +68,9 @@ export function createSessionStatusHandler(
       }
 
       clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
-      const resolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent)
+      const liveResolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent)
       let state = sessionStates.get(sessionID)
+      const resolvedAgent = liveResolvedAgent ?? state?.resolvedAgent
       if (!state) {
         const initialModel = resolveFallbackBootstrapModel({
           sessionID,
@@ -155,7 +157,9 @@ export function createSessionStatusHandler(
       }
     }
 
-    const resolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent)
+    const liveResolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent)
+    const existingState = sessionStates.get(sessionID)
+    const resolvedAgent = liveResolvedAgent ?? existingState?.resolvedAgent
     const fallbackModels = getFallbackModelsForSession(sessionID, resolvedAgent, pluginConfig)
     if (fallbackModels.length === 0) {
       if (!sessionStates.has(sessionID)) {
@@ -275,6 +279,17 @@ export function createSessionStatusHandler(
       if (retried || isPersistentSameModelRetryAction(retryAction)) {
         return
       }
+
+      if (getRuntimeFallbackTier(state.currentModel) === "paid") {
+        const freshRetried = await helpers.retryCurrentModelInFreshSession(
+          sessionID,
+          resolvedAgent,
+          "session.status",
+        )
+        if (freshRetried) {
+          return
+        }
+      }
     }
 
     await helpers.abortSessionRequest(sessionID, "session.status.retry-signal")
@@ -285,6 +300,9 @@ export function createSessionStatusHandler(
       fallbackModels: statusFallbackModels,
       resolvedAgent,
       source: `session.status.${isQuota ? "limit_fallback" : "fallback_chain"}`,
+      prepareFallbackOptions: isSameModelRetryAction(retryAction) && getRuntimeFallbackTier(state.currentModel) === "paid"
+        ? { skipFailedModelCooldown: true }
+        : undefined,
     })
   }
 }

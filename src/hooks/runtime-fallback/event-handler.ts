@@ -18,6 +18,7 @@ import { clearRecentCompletionState, markSessionRecentlyCompleted } from "./rece
 import {
   getSameModelRetryAttemptLimit,
   getRuntimeFallbackAction,
+  getRuntimeFallbackTier,
   isPersistentSameModelRetryAction,
   isSameModelRetryAction,
   selectFallbackModelsForAction,
@@ -432,8 +433,9 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       return
     }
 
-    const resolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent)
+    const liveResolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent)
     const existingState = sessionStates.get(sessionID)
+    const resolvedAgent = liveResolvedAgent ?? existingState?.resolvedAgent
 
     if (sessionRetryInFlight.has(sessionID)) {
       log(`[${HOOK_NAME}] session.error skipped — retry in flight`, {
@@ -575,6 +577,17 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       if (retried || isPersistentSameModelRetryAction(action)) {
         return
       }
+
+      if (getRuntimeFallbackTier(state.currentModel) === "paid") {
+        const freshRetried = await helpers.retryCurrentModelInFreshSession(
+          sessionID,
+          resolvedAgent,
+          "session.error",
+        )
+        if (freshRetried) {
+          return
+        }
+      }
     }
 
     const effectiveAction =
@@ -593,6 +606,9 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       fallbackModels: errorAwareFallbackModels,
       resolvedAgent,
       source: `session.error.${effectiveAction}`,
+      prepareFallbackOptions: isSameModelRetryAction(action) && getRuntimeFallbackTier(state.currentModel) === "paid"
+        ? { skipFailedModelCooldown: true }
+        : undefined,
     })
   }
 

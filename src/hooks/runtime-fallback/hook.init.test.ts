@@ -13,8 +13,11 @@ const createAutoRetryHelpersMock = mock((_deps: HookDeps) => {
     clearSessionFallbackTimeout: () => {},
     scheduleSessionFallbackTimeout: () => {},
     autoRetryWithFallback: async () => {},
+    retryCurrentModel: async () => false,
+    retryCurrentModelInFreshSession: async () => false,
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
+    recoverPreferredModels: async () => {},
   }
 })
 const createEventHandlerMock = mock(() => async () => {})
@@ -108,17 +111,17 @@ describe("createRuntimeFallbackHook initialization", () => {
     expect(loadPluginConfigMock).not.toHaveBeenCalled()
   })
 
-  test("#given a fresh hook #when the first event arrives #then cleanup interval starts only once", async () => {
+  test("#given a fresh hook #when it initializes and later receives events #then background intervals start exactly once", async () => {
     // given
     const hook = createRuntimeFallbackHook(createMockContext(), { pluginConfig: {} })
 
     // when
-    expect(setIntervalCalls).toBe(0)
+    expect(setIntervalCalls).toBe(2)
     await hook.event({ event: { type: "session.created", properties: {} } })
-    expect(setIntervalCalls).toBe(1)
+    expect(setIntervalCalls).toBe(2)
     await hook.event({ event: { type: "session.error", properties: {} } })
 
     // then
-    expect(setIntervalCalls).toBe(1)
+    expect(setIntervalCalls).toBe(2)
   })
 })

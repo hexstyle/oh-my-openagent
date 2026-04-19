@@ -149,7 +149,7 @@ describe("atlas hook idle-event session lineage", () => {
       },
     })
 
-    assert.equal(readBoulderState(testDirectory)?.session_ids.includes(subagentSessionID), true)
+    assert.equal(readBoulderState(testDirectory)?.session_ids.includes(subagentSessionID), false)
     assert.equal(promptCalls.length, 0)
   })
 

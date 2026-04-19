@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { randomUUID } from "node:crypto"
-import { clearBoulderState, writeBoulderState } from "../../features/boulder-state"
+import { clearBoulderState, readBoulderState, writeBoulderState } from "../../features/boulder-state"
 import { resolveActiveBoulderSession } from "./resolve-active-boulder-session"
 
 describe("resolveActiveBoulderSession", () => {
@@ -72,7 +72,7 @@ describe("resolveActiveBoulderSession", () => {
     expect(result?.boulderState.session_ids).toContain("ses_tracked")
   })
 
-  test("returns tracked appended session for incomplete boulder plan", async () => {
+  test("returns tracked appended session for incomplete boulder plan when lineage can be proven", async () => {
     // given
     const planPath = join(testDirectory, "appended-incomplete-plan.md")
     writeFileSync(planPath, "# Plan\n- [ ] Task 1\n", "utf-8")
@@ -86,7 +86,15 @@ describe("resolveActiveBoulderSession", () => {
 
     // when
     const result = await resolveActiveBoulderSession({
-      client: { session: { get: async () => ({ data: {} }) } } as never,
+      client: {
+        session: {
+          get: async ({ path }: { path: { id: string } }) => ({
+            data: {
+              parentID: path.id === "ses_appended" ? "ses_root" : undefined,
+            },
+          }),
+        },
+      } as never,
       directory: testDirectory,
       sessionID: "ses_appended",
     })
@@ -95,5 +103,40 @@ describe("resolveActiveBoulderSession", () => {
     expect(result).not.toBeNull()
     expect(result?.progress.isComplete).toBe(false)
     expect(result?.boulderState.session_ids).toContain("ses_appended")
+  })
+
+  test("does not append lineage descendant when its persisted agent does not match the boulder agent", async () => {
+    // given
+    const planPath = join(testDirectory, "descendant-mismatch-plan.md")
+    writeFileSync(planPath, "# Plan\n- [ ] Task 1\n", "utf-8")
+    writeBoulderState(testDirectory, {
+      active_plan: planPath,
+      started_at: "2026-01-02T10:00:00Z",
+      session_ids: ["ses_root"],
+      session_origins: { ses_root: "direct" },
+      plan_name: "descendant-mismatch-plan",
+      agent: "atlas",
+    })
+
+    const result = await resolveActiveBoulderSession({
+      client: {
+        session: {
+          get: async ({ path }: { path: { id: string } }) => ({
+            data: {
+              parentID: path.id === "ses_descendant" ? "ses_root" : undefined,
+            },
+          }),
+          messages: async () => ({
+            data: [{ info: { agent: "librarian" } }],
+          }),
+        },
+      } as never,
+      directory: testDirectory,
+      sessionID: "ses_descendant",
+    })
+
+    // then
+    expect(result).toBeNull()
+    expect(readBoulderState(testDirectory)?.session_ids).toEqual(["ses_root"])
   })
 })

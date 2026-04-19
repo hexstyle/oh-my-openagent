@@ -13,6 +13,11 @@ type TestHelpers = AutoRetryHelpers & {
     immediate?: boolean
     persistent?: boolean
   }>
+  __freshRetryCallsForTest: Array<{
+    sessionID: string
+    resolvedAgent?: string
+    source: string
+  }>
 }
 
 function createContext(): RuntimeFallbackPluginInput {
@@ -69,6 +74,11 @@ function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[
     immediate?: boolean
     persistent?: boolean
   }> = []
+  const freshRetryCalls: Array<{
+    sessionID: string
+    resolvedAgent?: string
+    source: string
+  }> = []
 
   return {
     abortSessionRequest: async (sessionID: string) => {
@@ -101,11 +111,20 @@ function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[
       })
       return false
     },
+    retryCurrentModelInFreshSession: async (sessionID, resolvedAgent, source) => {
+      freshRetryCalls.push({
+        sessionID,
+        resolvedAgent,
+        source,
+      })
+      return true
+    },
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
     recoverPreferredModels: async () => {},
     __scheduleCallsForTest: scheduleCalls,
     __retryCurrentModelCallsForTest: retryCurrentModelCalls,
+    __freshRetryCallsForTest: freshRetryCalls,
   }
 }
 
@@ -415,5 +434,63 @@ describe("createEventHandler", () => {
         },
       ])
     })
+  })
+
+  it("#given a paid transient 403 session.error after same-model retries are exhausted #when the event handler processes it #then it opens a fresh paid handoff before the paid fallback chain", async () => {
+    const sessionID = "session-error-transient-forbidden-fresh-handoff"
+    const deps = createDeps()
+    deps.pluginConfig = {
+      agents: {
+        "sisyphus-junior": {
+          fallback_models: [
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5.3-codex-spark",
+            "opencode/nemotron-3-super-free",
+          ],
+        },
+      },
+    }
+    const abortCalls: string[] = []
+    const clearCalls: string[] = []
+    const state = createFallbackState("openai/gpt-5.4")
+    state.resolvedAgent = "sisyphus-junior"
+    deps.sessionStates.set(sessionID, state)
+    const helpers = createHelpers(deps, abortCalls, clearCalls)
+    const handler = createEventHandler(deps, helpers)
+
+    await handler({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID,
+          agent: "compaction",
+          model: "openai/gpt-5.4",
+          error: {
+            statusCode: 403,
+            message: "Request not allowed",
+          },
+        },
+      },
+    })
+
+    expect(clearCalls).toEqual([sessionID])
+    expect(abortCalls).toEqual([])
+    expect(helpers.__retryCurrentModelCallsForTest).toEqual([
+      {
+        sessionID,
+        resolvedAgent: "sisyphus-junior",
+        source: "session.error",
+        immediate: false,
+        persistent: false,
+      },
+    ])
+    expect(helpers.__freshRetryCallsForTest).toEqual([
+      {
+        sessionID,
+        resolvedAgent: "sisyphus-junior",
+        source: "session.error",
+      },
+    ])
   })
 })
