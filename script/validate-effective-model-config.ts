@@ -58,11 +58,95 @@ export function resolveModelCatalogRefreshCwd(
   return fallbackHomeDir
 }
 
+type ProcessSnapshot = {
+  pid: number
+  command: string
+}
+
+type ReapLingeringModelRefreshProcessesOptions = {
+  listProcesses?: () => string
+  killPid?: (pid: number) => void
+  currentPid?: number
+}
+
+const MODEL_REFRESH_COMMAND_SUFFIXES = [
+  "opencode models --refresh",
+  "opencode models opencode --refresh",
+]
+
+export const MODEL_REFRESH_PROCESS_LIST_COMMAND = ["/bin/ps", "-axww", "-o", "pid=,command="] as const
+
+export function isOpencodeModelRefreshCommand(command: string): boolean {
+  const normalized = command.trim()
+  return MODEL_REFRESH_COMMAND_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
+}
+
+export function parsePsProcessSnapshot(psOutput: string): ProcessSnapshot[] {
+  return psOutput
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const match = /^(\d+)\s+(.*)$/u.exec(line)
+      if (!match) {
+        return null
+      }
+      const pid = Number.parseInt(match[1] ?? "", 10)
+      const command = (match[2] ?? "").trim()
+      if (!Number.isFinite(pid) || pid <= 0 || command.length === 0) {
+        return null
+      }
+      return { pid, command }
+    })
+    .filter((entry): entry is ProcessSnapshot => Boolean(entry))
+}
+
+export function reapLingeringModelRefreshProcesses(
+  options?: ReapLingeringModelRefreshProcessesOptions,
+): number[] {
+  const currentPid = options?.currentPid ?? process.pid
+  const listProcesses = options?.listProcesses ?? (() => {
+    const result = childProcessSpawnSync(
+      MODEL_REFRESH_PROCESS_LIST_COMMAND[0],
+      [...MODEL_REFRESH_PROCESS_LIST_COMMAND.slice(1)],
+      {
+      env: process.env,
+      stdio: "pipe",
+      encoding: "utf8",
+      },
+    )
+    return result.stdout ?? ""
+  })
+  const killPid = options?.killPid ?? ((pid: number) => {
+    try {
+      process.kill(pid, "SIGKILL")
+    } catch {
+      // best-effort cleanup only
+    }
+  })
+
+  const killed: number[] = []
+
+  for (const entry of parsePsProcessSnapshot(listProcesses())) {
+    if (entry.pid === currentPid) {
+      continue
+    }
+    if (!isOpencodeModelRefreshCommand(entry.command)) {
+      continue
+    }
+    killPid(entry.pid)
+    killed.push(entry.pid)
+  }
+
+  return killed
+}
+
 export function refreshModelCatalog(options?: {
   cwd?: string
   env?: NodeJS.ProcessEnv
   spawnSync?: SpawnSyncLike
   timeoutMs?: number
+  reapLingeringProcesses?: () => number[]
 }): RefreshResult {
   const commands = [
     ["opencode", "models", "--refresh"],
@@ -70,6 +154,7 @@ export function refreshModelCatalog(options?: {
   ]
   const cwd = options?.cwd ?? resolveModelCatalogRefreshCwd(getOpenCodeConfigDir({ binary: "opencode" }))
   const timeoutMs = options?.timeoutMs ?? 15_000
+  const reapLingeringProcesses = options?.reapLingeringProcesses ?? (() => reapLingeringModelRefreshProcesses())
   const spawnSync = options?.spawnSync ?? ((command, spawnOptions) => {
     const result = childProcessSpawnSync(command[0] ?? "", command.slice(1), {
       cwd: spawnOptions.cwd,
@@ -89,6 +174,8 @@ export function refreshModelCatalog(options?: {
     }
   })
 
+  reapLingeringProcesses()
+
   for (const command of commands) {
     const result = spawnSync(command, {
       cwd,
@@ -100,6 +187,7 @@ export function refreshModelCatalog(options?: {
     const error = result.error as SpawnSyncErrorLike | undefined
     const timeoutCode = error?.code ?? (result.signal ? "SIGNAL" : undefined)
     if (timeoutCode === "ETIMEDOUT" || result.signal) {
+      reapLingeringProcesses()
       return {
         refreshed: false,
         warning: `Failed to refresh model catalog via '${command.join(" ")}': timed out after ${timeoutMs}ms`,
