@@ -57,6 +57,8 @@ function createDeps(): HookDeps {
     sessionLastAccess: new Map(),
     sessionLastUserMessageIDs: new Map(),
     sessionRecentCompletionUntil: new Map(),
+    sessionRecentActiveStatusUntil: new Map(),
+    sessionSilentAssistantUpdateCounts: new Map(),
     sessionRetryInFlight: new Set(),
     sessionAwaitingFallbackResult: new Set(),
     sessionFallbackTimeouts: new Map(),
@@ -388,12 +390,14 @@ describe("createEventHandler", () => {
       })
     }
 
-    it("#when a local tool abort progress part arrives #then the handler arms a persistent same-model retry", async () => {
+    it("#when a local tool abort progress part arrives in a paid parent session #then the handler opens a fresh same-model handoff", async () => {
       const sessionID = "session-progress-local-tool-abort"
       const deps = createDeps()
       const abortCalls: string[] = []
       const clearCalls: string[] = []
-      deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
+      const state = createFallbackState("anthropic/claude-opus-4-6")
+      state.resolvedAgent = "prometheus"
+      deps.sessionStates.set(sessionID, state)
       const helpers = createHelpers(deps, abortCalls, clearCalls)
       const handler = createEventHandler(deps, helpers)
 
@@ -421,50 +425,29 @@ describe("createEventHandler", () => {
         {
           sessionID,
           source: "message.part.updated.progress",
-          resolvedAgent: undefined,
+          resolvedAgent: "prometheus",
         },
       ])
-      expect(helpers.__retryCurrentModelCallsForTest).toEqual([
+      expect(helpers.__retryCurrentModelCallsForTest).toEqual([])
+      expect(helpers.__freshRetryCallsForTest).toEqual([
         {
           sessionID,
-          resolvedAgent: undefined,
+          resolvedAgent: "prometheus",
           source: "message.part.updated.tool-error",
-          immediate: false,
-          persistent: true,
         },
       ])
     })
 
-    it("#when a capped local tool abort can no longer retry in-place #then the handler opens a fresh paid handoff", async () => {
-      const sessionID = "session-progress-local-tool-abort-fresh"
+    it("#when a local tool abort progress part arrives in a scoped fallback child #then the handler stays in the same session", async () => {
+      const sessionID = "session-progress-local-tool-abort-scoped-child"
       const deps = createDeps()
       const abortCalls: string[] = []
       const clearCalls: string[] = []
-      deps.pluginConfig = {
-        agents: {
-          prometheus: {
-            fallback_models: [
-              "anthropic/claude-opus-4-6",
-              "openai/gpt-5.4",
-              "anthropic/claude-sonnet-4-6",
-            ],
-          },
-        },
-      }
       const state = createFallbackState("anthropic/claude-opus-4-6")
       state.resolvedAgent = "prometheus"
+      state.isScopedFallbackChild = true
       deps.sessionStates.set(sessionID, state)
       const helpers = createHelpers(deps, abortCalls, clearCalls)
-      helpers.retryCurrentModel = async (retrySessionID, resolvedAgent, source, options) => {
-        helpers.__retryCurrentModelCallsForTest.push({
-          sessionID: retrySessionID,
-          resolvedAgent,
-          source,
-          immediate: options?.immediate,
-          persistent: options?.persistent,
-        })
-        return false
-      }
       const handler = createEventHandler(deps, helpers)
 
       await handler({
@@ -494,11 +477,43 @@ describe("createEventHandler", () => {
           persistent: true,
         },
       ])
-      expect(helpers.__freshRetryCallsForTest).toEqual([
+      expect(helpers.__freshRetryCallsForTest).toEqual([])
+    })
+
+    it("#when visible assistant text arrives right after an active running pulse #then the handler preserves the long-running quiet window", async () => {
+      const sessionID = "session-progress-visible-text-after-active-status"
+      const deps = createDeps()
+      const abortCalls: string[] = []
+      const clearCalls: string[] = []
+      deps.sessionRecentActiveStatusUntil?.set(sessionID, Date.now() + 5_000)
+      deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
+      const helpers = createHelpers(deps, abortCalls, clearCalls)
+      const handler = createEventHandler(deps, helpers)
+
+      await handler({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            field: "text",
+            delta: "Пишу канонический план",
+            info: { sessionID, role: "assistant", agent: "Prometheus (Plan Builder)" },
+            part: {
+              sessionID,
+              type: "text",
+              text: "Пишу канонический план",
+            },
+          },
+        },
+      })
+
+      expect(clearCalls).toEqual([])
+      expect(abortCalls).toEqual([])
+      expect(helpers.__scheduleCallsForTest).toEqual([
         {
           sessionID,
-          resolvedAgent: "prometheus",
-          source: "message.part.updated.tool-error",
+          source: "message.part.updated.progress",
+          resolvedAgent: undefined,
+          timeoutMsOverride: 120_000,
         },
       ])
     })

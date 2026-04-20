@@ -1,18 +1,18 @@
 import type { OhMyOpenCodeConfig } from "../config"
-import {
-  resolveActualContextLimit,
-  type ContextLimitModelCacheState,
-} from "../shared/context-limit-resolver"
+import type { ContextLimitModelCacheState } from "../shared/context-limit-resolver"
 import { log } from "../shared/logger"
 
 import { resolveCompactionModel } from "./shared/compaction-model-resolver"
+import {
+  isPreemptiveCompactionThresholdReached,
+  resolvePreemptiveCompactionUsageSnapshot,
+} from "./shared/preemptive-compaction-usage"
 import type {
   CachedCompactionState,
   PreemptiveCompactionContext,
 } from "./preemptive-compaction-types"
 
 const PREEMPTIVE_COMPACTION_TIMEOUT_MS = 60_000
-const PREEMPTIVE_COMPACTION_THRESHOLD = 0.78
 const PREEMPTIVE_COMPACTION_COOLDOWN_MS = 60_000
 
 declare function setTimeout(handler: () => void, timeout?: number): unknown
@@ -65,23 +65,19 @@ export async function runPreemptiveCompactionIfNeeded(args: {
   const cached = tokenCache.get(sessionID)
   if (!cached) return
 
-  const actualLimit = resolveActualContextLimit(
-    cached.providerID,
-    cached.modelID,
-    modelCacheState,
-  )
+  const usageSnapshot = resolvePreemptiveCompactionUsageSnapshot(cached, pluginConfig, modelCacheState)
+  const { actualLimit, reachedAbsoluteThreshold, absoluteThreshold } = usageSnapshot
 
-  if (actualLimit === null) {
+  if (actualLimit === null && !reachedAbsoluteThreshold) {
     log("[preemptive-compaction] Skipping preemptive compaction: unknown context limit for model", {
       providerID: cached.providerID,
       modelID: cached.modelID,
+      absoluteThreshold,
     })
     return
   }
 
-  const totalInputTokens = (cached.tokens.input ?? 0) + (cached.tokens.cache?.read ?? 0)
-  const usageRatio = totalInputTokens / actualLimit
-  if (usageRatio < PREEMPTIVE_COMPACTION_THRESHOLD || !cached.modelID) return
+  if (!isPreemptiveCompactionThresholdReached(usageSnapshot) || !cached.modelID) return
 
   compactionInProgress.add(sessionID)
   lastCompactionTime.set(sessionID, Date.now())
@@ -115,7 +111,7 @@ export async function runPreemptiveCompactionIfNeeded(args: {
     ctx.client.tui.showToast({
       body: {
         title: "Preemptive compaction failed",
-        message: `Context window is above ${Math.round(PREEMPTIVE_COMPACTION_THRESHOLD * 100)}% and auto-compaction could not run. The session may grow large. Error: ${String(error)}`,
+        message: `Preemptive auto-compaction could not run. The session may grow large. Error: ${String(error)}`,
         variant: "warning",
         duration: 10000,
       },

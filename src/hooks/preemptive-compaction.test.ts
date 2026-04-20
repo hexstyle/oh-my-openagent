@@ -1189,6 +1189,52 @@ describe("preemptive-compaction", () => {
     expect(ctx.client.session.summarize).toHaveBeenCalled()
   })
 
+  it("should ignore the absolute token threshold when a known model context limit is still far below the percentage trigger", async () => {
+    const hook = createPreemptiveCompactionHook(
+      ctx as never,
+      {
+        experimental: {
+          preemptive_compaction_input_tokens: 200000,
+        },
+      } as never,
+      {
+        anthropicContext1MEnabled: false,
+        modelContextLimitsCache: new Map([
+          ["openai/gpt-4.1", 450000],
+        ]),
+      },
+    )
+    const sessionID = "ses_known_limit_below_ratio_threshold"
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            role: "assistant",
+            sessionID,
+            providerID: "openai",
+            modelID: "gpt-4.1",
+            finish: true,
+            tokens: {
+              input: 195000,
+              output: 0,
+              reasoning: 0,
+              cache: { read: 8000, write: 0 },
+            },
+          },
+        },
+      },
+    })
+
+    await hook["tool.execute.after"](
+      { tool: "bash", sessionID, callID: "call_known_limit_below_ratio_threshold" },
+      { title: "", output: "test", metadata: null },
+    )
+
+    expect(ctx.client.session.summarize).not.toHaveBeenCalled()
+  })
+
   it("should ignore stale cached Anthropic limits for older models", async () => {
     const modelContextLimitsCache = new Map<string, number>()
     modelContextLimitsCache.set("anthropic/claude-sonnet-4-5", 500000)

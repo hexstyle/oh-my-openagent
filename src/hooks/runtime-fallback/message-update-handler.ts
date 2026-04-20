@@ -1,6 +1,7 @@
 import type { HookDeps } from "./types"
 import type { AutoRetryHelpers } from "./auto-retry"
 import { HOOK_NAME, resolveLongRunningProgressTimeoutMs } from "./constants"
+import { resolveRecentActiveStatusTimeoutOverride } from "./active-status-timeout"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, extractAutoRetrySignal, containsErrorContent, containsLocalToolAbortPart, isAbortWrapperError } from "./error-classifier"
 import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, markLimitError, markLocalToolAbort, markSessionError, isRecentLocalToolAbort } from "./fallback-state"
@@ -100,21 +101,6 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
     })
 
     return { resolvedAgent, model }
-  }
-
-  const resolveRecentActiveStatusTimeoutOverride = (sessionID: string): number | undefined => {
-    const activeUntil = sessionRecentActiveStatusUntil?.get(sessionID)
-    if (typeof activeUntil !== "number") {
-      return undefined
-    }
-
-    if (activeUntil < Date.now()) {
-      sessionRecentActiveStatusUntil?.delete(sessionID)
-      return undefined
-    }
-
-    const baseTimeoutMs = deps.options?.session_timeout_ms ?? deps.config.timeout_seconds * 1000
-    return resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
   }
 
   const resolveInitialUserTimeoutOverride = (model: string | undefined): number | undefined => {
@@ -247,7 +233,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
           markFallbackResponseSuccess(state)
         }
 
-        const timeoutMsOverride = resolveRecentActiveStatusTimeoutOverride(sessionID)
+        const timeoutMsOverride = resolveRecentActiveStatusTimeoutOverride(deps, sessionID)
         if (timeoutMsOverride !== undefined) {
           await armActiveSessionWatchdog({
             sessionID,
@@ -297,7 +283,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
       const silentAssistantUpdateCount = (sessionSilentAssistantUpdateCounts?.get(sessionID) ?? 0) + 1
       sessionSilentAssistantUpdateCounts?.set(sessionID, silentAssistantUpdateCount)
-      const timeoutMsOverride = resolveRecentActiveStatusTimeoutOverride(sessionID)
+      const timeoutMsOverride = resolveRecentActiveStatusTimeoutOverride(deps, sessionID)
         ?? (
           silentAssistantUpdateCount >= 2
             ? resolveLongRunningProgressTimeoutMs(
@@ -362,10 +348,6 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
 
       if (retrySignal && timeoutEnabled) {
         log(`[${HOOK_NAME}] Detected provider auto-retry signal`, { sessionID, model })
-      }
-
-      if (!retrySignal) {
-        helpers.clearSessionFallbackTimeout(sessionID)
       }
 
       log(`[${HOOK_NAME}] message.updated with assistant error`, {
@@ -453,10 +435,11 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
           : error
 
       const retryable = isRetryableError(effectiveError, config.retry_on_errors)
+      const action = getRuntimeFallbackAction(effectiveError, config.retry_on_errors)
 
       if (
         retryable
-        && isSameModelRetryAction(getRuntimeFallbackAction(effectiveError, config.retry_on_errors))
+        && isSameModelRetryAction(action)
         && sessionTransientRetryTimeouts.has(sessionID)
       ) {
         log(`[${HOOK_NAME}] message.updated transient retry already scheduled; preserving existing timer`, {
@@ -464,6 +447,10 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
           model,
         })
         return
+      }
+
+      if (!retrySignal) {
+        helpers.clearSessionFallbackTimeout(sessionID)
       }
 
       if (!retryable) {
@@ -475,8 +462,6 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         })
         return
       }
-
-      const action = getRuntimeFallbackAction(effectiveError, config.retry_on_errors)
 
       markSessionError(state)
 

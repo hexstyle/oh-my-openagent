@@ -5,6 +5,7 @@ import {
   isLongRunningAssistantProgress,
   resolveLongRunningProgressTimeoutMs,
 } from "./constants"
+import { resolveRecentActiveStatusTimeoutOverride } from "./active-status-timeout"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, isAbortWrapperError } from "./error-classifier"
 import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, resetTransientRetryState, markLimitError, markLocalToolAbort, markSessionStopped, isRecentLimitError, isRecentLocalToolAbort, markSessionError } from "./fallback-state"
@@ -146,7 +147,14 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       toolName,
     })
       ? resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
-      : undefined
+      : (
+        (
+          (field === "text" && delta.trim().length > 0)
+          || (partType === "text" && partText.length > 0)
+        )
+          ? resolveRecentActiveStatusTimeoutOverride(deps, sessionID)
+          : undefined
+      )
 
     const resolvedAgent = await helpers.resolveAgentForSessionFromContext(
       sessionID,
@@ -174,18 +182,29 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
           markLocalToolAbort(state)
         }
         const maxAttempts = getSameModelRetryAttemptLimit({ message: toolError }, retryAction)
-        const retried = await helpers.retryCurrentModel(
-          sessionID,
-          resolvedAgent,
-          `${source}.tool-error`,
-          {
-            immediate: false,
-            persistent: true,
-            maxAttempts,
-          },
-        )
+        const preferFreshPaidRetry =
+          !!state
+          && getRuntimeFallbackTier(state.currentModel) === "paid"
+          && !state.isScopedFallbackChild
+        const retried = preferFreshPaidRetry
+          ? false
+          : await helpers.retryCurrentModel(
+            sessionID,
+            resolvedAgent,
+            `${source}.tool-error`,
+            {
+              immediate: false,
+              persistent: true,
+              maxAttempts,
+            },
+          )
         let freshRetried = false
-        if (!retried && state && getRuntimeFallbackTier(state.currentModel) === "paid") {
+        if (
+          !retried
+          && state
+          && getRuntimeFallbackTier(state.currentModel) === "paid"
+          && !state.isScopedFallbackChild
+        ) {
           freshRetried = await helpers.retryCurrentModelInFreshSession(
             sessionID,
             resolvedAgent,
