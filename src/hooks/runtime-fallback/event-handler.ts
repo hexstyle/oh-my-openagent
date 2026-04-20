@@ -673,6 +673,10 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       bootstrappedFromAgentModelForPrelude403
       && state.lastMeaningfulProgressAt === undefined
       && !state.isScopedFallbackChild
+    const shouldPreferInlinePreludeRetryOnFreshHandoffFailure =
+      preferFreshTrackedProvider403Handoff
+      && state.lastMeaningfulProgressAt === undefined
+      && !state.isScopedFallbackChild
 
     if (isSameModelRetryAction(action)) {
       if (shouldPreferInPlacePreludeRetry) {
@@ -695,6 +699,18 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
         )
         if (freshRetried) {
           return
+        }
+
+        if (shouldPreferInlinePreludeRetryOnFreshHandoffFailure) {
+          await primeSessionTitleForRetry()
+          const retried = await helpers.retryCurrentModel(sessionID, resolvedAgent, "session.error.inline-preamble", {
+            immediate: true,
+            persistent: false,
+            maxAttempts: 1,
+          })
+          if (retried) {
+            return
+          }
         }
       }
 
