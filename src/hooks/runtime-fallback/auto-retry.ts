@@ -11,6 +11,7 @@ import {
   MODEL_RECOVERY_PROBE_TIMEOUT_MS,
   STALLED_SESSION_NUDGE_MS,
   WATCHDOG_CONTINUATION_PROMPT,
+  isLongRunningAssistantProgress,
   resolveLongRunningProgressTimeoutMs,
 } from "./constants"
 import { log } from "../../shared/logger"
@@ -184,6 +185,79 @@ function hasTerminalAssistantCompletion(messagesResponse: unknown): boolean {
   }
 
   return lastUserID < lastAssistantID
+}
+
+function inspectLatestAssistantProgress(messagesResponse: unknown): {
+  hasTerminalCompletion: boolean
+  blockingProgress?:
+    | {
+        partType?: string
+        toolName?: string
+        toolStatus?: string
+      }
+} {
+  const messages = extractSessionMessages(messagesResponse)
+  if (!messages?.length) {
+    return { hasTerminalCompletion: false }
+  }
+
+  let lastUserIndex = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const role = typeof messages[i]?.info?.role === "string" ? messages[i].info?.role : undefined
+    if (role === "user") {
+      lastUserIndex = i
+      break
+    }
+  }
+
+  let lastAssistantMessage: (typeof messages)[number] | undefined
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const role = typeof messages[i]?.info?.role === "string" ? messages[i].info?.role : undefined
+    if (role !== "assistant") {
+      continue
+    }
+    if (lastUserIndex >= 0 && i <= lastUserIndex) {
+      break
+    }
+    lastAssistantMessage = messages[i]
+    break
+  }
+
+  if (!lastAssistantMessage) {
+    return { hasTerminalCompletion: false }
+  }
+
+  const finish = typeof lastAssistantMessage.info?.finish === "string"
+    ? lastAssistantMessage.info.finish
+    : undefined
+  if (finish && !NON_TERMINAL_SESSION_FINISH_REASONS.has(finish)) {
+    return { hasTerminalCompletion: true }
+  }
+
+  const parts = Array.isArray(lastAssistantMessage.parts) ? lastAssistantMessage.parts : []
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i]
+    const partType = typeof part?.type === "string" ? part.type : undefined
+    const toolName = typeof part?.tool === "string"
+      ? part.tool
+      : typeof part?.name === "string"
+        ? part.name
+        : undefined
+    const toolStatus = typeof part?.state?.status === "string" ? part.state.status : undefined
+
+    if (isLongRunningAssistantProgress({ partType, toolName, toolStatus })) {
+      return {
+        hasTerminalCompletion: false,
+        blockingProgress: {
+          partType,
+          toolName,
+          toolStatus,
+        },
+      }
+    }
+  }
+
+  return { hasTerminalCompletion: false }
 }
 
 function buildScopedFallbackHandoffPrompt(args: {
@@ -975,6 +1049,46 @@ fi
             activeBackgroundTaskCount: backgroundTasks.tasks.length,
           })
           return
+        }
+
+        try {
+          const currentMessagesResponse = await ctx.client.session.messages({
+            path: { id: sessionID },
+            query: { directory: ctx.directory },
+          })
+          const currentAssistantProgress = inspectLatestAssistantProgress(currentMessagesResponse)
+          if (currentAssistantProgress.hasTerminalCompletion) {
+            log(`[${HOOK_NAME}] Skipping session timeout fallback because the session already completed`, {
+              sessionID,
+              source,
+              resolvedAgent,
+            })
+            return
+          }
+
+          if (currentAssistantProgress.blockingProgress) {
+            sessionLastAccess.set(sessionID, Date.now())
+            scheduleSessionFallbackTimeout(sessionID, {
+              resolvedAgent,
+              source: `${source}.assistant-progress-active`,
+              timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
+            })
+            log(`[${HOOK_NAME}] Deferred session fallback timeout while latest assistant tool progress is still active`, {
+              sessionID,
+              source,
+              resolvedAgent,
+              partType: currentAssistantProgress.blockingProgress.partType,
+              toolName: currentAssistantProgress.blockingProgress.toolName,
+              toolStatus: currentAssistantProgress.blockingProgress.toolStatus,
+            })
+            return
+          }
+        } catch (error) {
+          log(`[${HOOK_NAME}] Failed to inspect current session messages before timeout fallback`, {
+            sessionID,
+            source,
+            error: String(error),
+          })
         }
 
         const descendantSessions = await inspectDescendantSessions(sessionID)

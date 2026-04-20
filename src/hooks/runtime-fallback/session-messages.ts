@@ -1,6 +1,12 @@
 export type SessionMessagePart = {
   type?: string
   text?: string
+  tool?: string
+  name?: string
+  state?: {
+    status?: string
+    error?: string
+  }
 }
 
 export type SessionMessage = {

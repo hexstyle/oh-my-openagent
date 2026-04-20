@@ -856,10 +856,127 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(logCalls.some((call) => call.msg.includes("descendant sessions are active"))).toBe(false)
   })
 
-  test("does not abort Flare delegation while task tool is still pending", async () => {
+  ;(["task", "call_omo_agent"] as const).forEach((toolName) => {
+    test(`does not abort Flare delegation while ${toolName} is still pending in the latest assistant transcript`, async () => {
+      const retriedModels: string[] = []
+      const abortCalls: string[] = []
+      const sessionID = `ses-flare-${toolName}-pending`
+
+      const hook = createRuntimeFallbackHook(
+        {
+          client: {
+            tui: {
+              showToast: async () => ({}),
+            },
+            session: {
+              messages: async () => ({
+                data: [
+                  { info: { id: "msg-user-1", role: "user" }, parts: [{ type: "text", text: "/start-work" }] },
+                  {
+                    info: { id: "msg-assistant-1", role: "assistant", finish: "tool-calls" },
+                    parts: [{ type: "tool", tool: toolName, state: { status: "pending" } }],
+                  },
+                ],
+              }),
+              promptAsync: async (args: {
+                body?: { model?: { providerID?: string; modelID?: string } }
+              }) => {
+                const model = args.body?.model
+                if (model?.providerID && model?.modelID) {
+                  retriedModels.push(`${model.providerID}/${model.modelID}`)
+                }
+                return {}
+              },
+              abort: async (args: { path: { id: string } }) => {
+                abortCalls.push(args.path.id)
+                return {}
+              },
+            },
+          },
+          directory: "/test/dir",
+        },
+        {
+          config: createMockConfig({ timeout_seconds: 30 }),
+          pluginConfig: createPluginConfig(),
+          session_timeout_ms: 20,
+        },
+      )
+
+      await hook.event({
+        event: {
+          type: "message.updated",
+          properties: {
+            info: {
+              sessionID,
+              role: "user",
+              agent: "Atlas (Plan Executor)",
+              model: {
+                providerID: "anthropic",
+                modelID: "claude-opus-4-6",
+              },
+            },
+          },
+        },
+      })
+
+      await hook.event({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            info: {
+              sessionID,
+              role: "assistant",
+              agent: "Atlas (Plan Executor)",
+              model: {
+                providerID: "anthropic",
+                modelID: "claude-opus-4-6",
+              },
+            },
+            part: {
+              sessionID,
+              type: "tool",
+              tool: toolName,
+              state: { status: "pending" },
+            },
+          },
+        },
+      })
+
+      jest.advanceTimersByTime(25)
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(abortCalls).toHaveLength(0)
+      expect(retriedModels).toHaveLength(0)
+
+      jest.advanceTimersByTime(160)
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(abortCalls).toHaveLength(0)
+      expect(retriedModels).toHaveLength(0)
+      expect(
+        logCalls.some((call) =>
+          call.msg.includes("Deferred session fallback timeout while latest assistant tool progress is still active")
+          && (call.data as { toolName?: string; toolStatus?: string } | undefined)?.toolName === toolName
+          && (call.data as { toolName?: string; toolStatus?: string } | undefined)?.toolStatus === "pending",
+        ),
+      ).toBe(true)
+      expect(
+        logCalls.some((call) =>
+          call.msg.includes("Refreshed fallback timeout after assistant progress")
+          && (call.data as { toolName?: string; timeoutMsOverride?: number } | undefined)?.toolName === toolName
+          && (call.data as { toolName?: string; timeoutMsOverride?: number } | undefined)?.timeoutMsOverride === 80,
+        ),
+      ).toBe(true)
+    })
+  })
+
+  test("aborts the stalled parent once the latest assistant transcript no longer shows a pending task tool", async () => {
     const retriedModels: string[] = []
     const abortCalls: string[] = []
-    const sessionID = "ses-flare-task-pending"
+    const sessionID = "ses-flare-task-pending-cleared"
+    let messagesCallCount = 0
 
     const hook = createRuntimeFallbackHook(
       {
@@ -868,11 +985,26 @@ describe("runtime-fallback initial hang watchdog", () => {
             showToast: async () => ({}),
           },
           session: {
-            messages: async () => ({
-              data: [
-                { info: { role: "user" }, parts: [{ type: "text", text: "/start-work" }] },
-              ],
-            }),
+            messages: async () => {
+              messagesCallCount += 1
+              return {
+                data: messagesCallCount === 1
+                  ? [
+                      { info: { id: "msg-user-1", role: "user" }, parts: [{ type: "text", text: "/start-work" }] },
+                      {
+                        info: { id: "msg-assistant-1", role: "assistant", finish: "tool-calls" },
+                        parts: [{ type: "tool", tool: "task", state: { status: "pending" } }],
+                      },
+                    ]
+                  : [
+                      { info: { id: "msg-user-1", role: "user" }, parts: [{ type: "text", text: "/start-work" }] },
+                      {
+                        info: { id: "msg-assistant-1", role: "assistant", finish: "tool-calls" },
+                        parts: [],
+                      },
+                    ],
+              }
+            },
             promptAsync: async (args: {
               body?: { model?: { providerID?: string; modelID?: string } }
             }) => {
@@ -944,19 +1076,12 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(abortCalls).toHaveLength(0)
     expect(retriedModels).toHaveLength(0)
 
-    jest.advanceTimersByTime(60)
+    jest.advanceTimersByTime(90)
     await Promise.resolve()
     await Promise.resolve()
 
     expect(abortCalls).toContain(sessionID)
     expect(retriedModels).toContain("openai/gpt-5.4")
-    expect(
-      logCalls.some((call) =>
-        call.msg.includes("Refreshed fallback timeout after assistant progress")
-        && (call.data as { toolName?: string; timeoutMsOverride?: number } | undefined)?.toolName === "task"
-        && (call.data as { toolName?: string; timeoutMsOverride?: number } | undefined)?.timeoutMsOverride === 80,
-      ),
-    ).toBe(true)
   })
 
   test("extends the quiet window when the session is still running but Anthropic has not produced a first token yet", async () => {
