@@ -2,10 +2,13 @@ import { describe, expect, it } from "bun:test"
 
 import {
   canKeepRetryingTransiently,
+  clearLocalToolAbort,
   createFallbackState,
   getNextTransientRetryDelayMs,
+  isRecentLocalToolAbort,
   markFallbackResponseSuccess,
   markLimitError,
+  markLocalToolAbort,
   markMeaningfulProgress,
   prepareFallback,
   recoverPreferredModel,
@@ -135,6 +138,30 @@ describe("runtime fallback state recovery", () => {
     markLimitError(state, 789)
     markFallbackResponseSuccess(state)
     expect(state.lastLimitErrorAt).toBeUndefined()
+  })
+
+  it("tracks and clears recent local tool-abort context after progress or fallback success", () => {
+    const state = createFallbackState("anthropic/claude-opus-4-6", ["openai/gpt-5.4"])
+    markLocalToolAbort(state, 123)
+
+    expect(isRecentLocalToolAbort(state, 10_000, 124)).toBe(true)
+
+    markMeaningfulProgress(state, 456)
+    expect(state.lastLocalToolAbortAt).toBeUndefined()
+
+    markLocalToolAbort(state, 789)
+    markFallbackResponseSuccess(state)
+    expect(state.lastLocalToolAbortAt).toBeUndefined()
+  })
+
+  it("expires recent local tool-abort context outside the signal window", () => {
+    const state = createFallbackState("openai/gpt-5.4")
+    markLocalToolAbort(state, 100)
+
+    expect(isRecentLocalToolAbort(state, 50, 151)).toBe(false)
+
+    clearLocalToolAbort(state)
+    expect(state.lastLocalToolAbortAt).toBeUndefined()
   })
 
   it("restores the original model after its cooldown expires", () => {

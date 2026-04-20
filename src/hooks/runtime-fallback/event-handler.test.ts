@@ -561,4 +561,66 @@ describe("createEventHandler", () => {
       },
     ])
   })
+
+  for (const currentModel of ["anthropic/claude-opus-4-6", "openai/gpt-5.4"]) {
+    it(`#given ${currentModel} recently observed a local tool abort #when session.error reports a MessageAbortedError wrapper #then runtime-fallback retries the same paid model in a fresh session instead of same-session fallback`, async () => {
+      const sessionID = `session-error-wrapped-tool-abort-${currentModel.replaceAll(/[^a-z0-9]+/gi, "-")}`
+      const deps = createDeps()
+      deps.pluginConfig = {
+        agents: {
+          prometheus: {
+            fallback_models: [
+              "anthropic/claude-opus-4-6",
+              "openai/gpt-5.4",
+              "anthropic/claude-sonnet-4-6",
+              "openai/gpt-5.3-codex-spark",
+              "opencode/nemotron-3-super-free",
+            ],
+          },
+        },
+      }
+      const abortCalls: string[] = []
+      const clearCalls: string[] = []
+      const state = createFallbackState(currentModel)
+      state.resolvedAgent = "prometheus"
+      state.lastLocalToolAbortAt = Date.now()
+      deps.sessionStates.set(sessionID, state)
+      const helpers = createHelpers(deps, abortCalls, clearCalls)
+      const handler = createEventHandler(deps, helpers)
+
+      await handler({
+        event: {
+          type: "session.error",
+          properties: {
+            sessionID,
+            agent: "Prometheus (Plan Builder)",
+            model: currentModel,
+            error: {
+              name: "MessageAbortedError",
+              message: "Aborted process",
+            },
+          },
+        },
+      })
+
+      expect(clearCalls).toEqual([sessionID])
+      expect(abortCalls).toEqual([])
+      expect(helpers.__retryCurrentModelCallsForTest).toEqual([
+        {
+          sessionID,
+          resolvedAgent: "prometheus",
+          source: "session.error",
+          immediate: false,
+          persistent: true,
+        },
+      ])
+      expect(helpers.__freshRetryCallsForTest).toEqual([
+        {
+          sessionID,
+          resolvedAgent: "prometheus",
+          source: "session.error",
+        },
+      ])
+    })
+  }
 })

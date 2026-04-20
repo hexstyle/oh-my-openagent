@@ -6,8 +6,8 @@ import {
   resolveLongRunningProgressTimeoutMs,
 } from "./constants"
 import { log } from "../../shared/logger"
-import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError } from "./error-classifier"
-import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, resetTransientRetryState, markLimitError, markSessionStopped, isRecentLimitError, markSessionError } from "./fallback-state"
+import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, isAbortWrapperError } from "./error-classifier"
+import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, resetTransientRetryState, markLimitError, markLocalToolAbort, markSessionStopped, isRecentLimitError, isRecentLocalToolAbort, markSessionError } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
@@ -170,6 +170,9 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     if (partType === "tool" && toolStatus === "error" && typeof toolError === "string" && toolError.trim().length > 0) {
       const retryAction = getRuntimeFallbackAction({ message: toolError }, config.retry_on_errors)
       if (isPersistentSameModelRetryAction(retryAction)) {
+        if (state) {
+          markLocalToolAbort(state)
+        }
         const maxAttempts = getSameModelRetryAttemptLimit({ message: toolError }, retryAction)
         const retried = await helpers.retryCurrentModel(
           sessionID,
@@ -488,6 +491,8 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     const effectiveError =
       isAbortedError && existingState && isRecentLimitError(existingState)
         ? { name: "QuotaExceededError", message: "quota exceeded (inferred from abort after limit error)" }
+        : isAbortWrapperError(error) && existingState && isRecentLocalToolAbort(existingState)
+          ? { name: "LocalToolAbortWrappedError", message: "Tool execution aborted" }
         : error
 
     if (isAbortedError && effectiveError !== error) {

@@ -101,6 +101,11 @@ export interface FallbackState {
   /** Timestamp of the last assistant/session error. Used to distinguish
    *  a clean terminal idle from an idle event that merely followed an abort. */
   lastErrorAt?: number
+  /** Timestamp of the last observed plain local tool abort during assistant progress.
+   *  Used to unwrap immediate follow-up `MessageAbortedError` / `Aborted process`
+   *  wrappers back into the local tool-abort retry path instead of burning the
+   *  paid fallback chain inside the same session. */
+  lastLocalToolAbortAt?: number
   /** Timestamp of the last time an active session.status pulse extended the
    *  watchdog without any newer assistant/tool progress. */
   lastActiveStatusRefreshAt?: number

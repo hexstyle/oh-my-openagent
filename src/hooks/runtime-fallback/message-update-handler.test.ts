@@ -774,4 +774,79 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     ])
     expect(autoRetryCalls).toEqual([])
   })
+
+  for (const currentModel of ["anthropic/claude-opus-4-6", "openai/gpt-5.4"]) {
+    it(`#given ${currentModel} emits a MessageAbortedError wrapper around a local tool abort #when message.updated handles it #then runtime-fallback opens a fresh same-model handoff instead of burning the paid fallback chain`, async () => {
+      const modelSlug = currentModel.replaceAll(/[^a-z0-9]+/gi, "-")
+      const { createMessageUpdateHandler } = await import(`./message-update-handler?wrapped-tool-abort-${modelSlug}-${Date.now()}-${Math.random()}`)
+      const sessionID = `session-wrapped-tool-abort-${modelSlug}`
+      const autoRetryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+      const freshRetryCalls: Array<{ sessionID: string; resolvedAgent?: string; source: string }> = []
+      const deps = createDeps({
+        data: [
+          { info: { role: "user" }, parts: [{ type: "text", text: "Continue the task." }] },
+        ],
+      })
+      deps.pluginConfig = {
+        ...deps.pluginConfig,
+        agents: {
+          prometheus: {
+            fallback_models: [
+              "anthropic/claude-opus-4-6",
+              "openai/gpt-5.4",
+              "anthropic/claude-sonnet-4-6",
+              "openai/gpt-5.3-codex-spark",
+              "opencode/nemotron-3-super-free",
+            ],
+          },
+        },
+      }
+      const state = createFallbackState(currentModel)
+      state.resolvedAgent = "prometheus"
+      deps.sessionStates.set(sessionID, state)
+
+      const handler = createMessageUpdateHandler(deps, createHelpers([], {
+        retryCurrentModel: async () => false,
+        retryCurrentModelInFreshSession: async (retrySessionID, resolvedAgent, source) => {
+          freshRetryCalls.push({ sessionID: retrySessionID, resolvedAgent, source })
+          return true
+        },
+        autoRetryWithFallback: async (retrySessionID, model, _resolvedAgent, source) => {
+          autoRetryCalls.push({ sessionID: retrySessionID, model, source })
+        },
+      }))
+
+      await handler({
+        parts: [
+          {
+            type: "tool",
+            state: {
+              status: "error",
+              error: "Tool execution aborted",
+            },
+          },
+        ],
+        info: {
+          id: "msg-wrapped-tool-abort",
+          sessionID,
+          role: "assistant",
+          agent: "Prometheus (Plan Builder)",
+          model: currentModel,
+          error: {
+            name: "MessageAbortedError",
+            message: "Aborted process",
+          },
+        },
+      })
+
+      expect(freshRetryCalls).toEqual([
+        {
+          sessionID,
+          resolvedAgent: "prometheus",
+          source: "message.updated",
+        },
+      ])
+      expect(autoRetryCalls).toEqual([])
+    })
+  }
 })

@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test"
 
 import {
   classifyErrorType,
+  containsLocalToolAbortPart,
   extractAutoRetrySignal,
   extractStatusCode,
   getErrorMessage,
+  isAbortWrapperError,
   isRetryableError,
   isTransientForbiddenError,
 } from "./error-classifier"
@@ -175,6 +177,30 @@ describe("runtime-fallback error classifier", () => {
 
     expect(getErrorMessage(error)).toBe("tool execution aborted")
     expect(isRetryableError(error, [402, 403, 429, 500, 502, 503, 504, 529])).toBe(true)
+  })
+
+  test("detects aborted-process wrappers emitted around local tool aborts", () => {
+    expect(isAbortWrapperError({ name: "MessageAbortedError", message: "Aborted process" })).toBe(true)
+    expect(isAbortWrapperError({ message: "Request not allowed" })).toBe(false)
+  })
+
+  test("detects tool execution aborted inside assistant tool parts", () => {
+    expect(
+      containsLocalToolAbortPart([
+        {
+          type: "tool",
+          state: { status: "error", error: "Tool execution aborted" },
+        },
+      ]),
+    ).toBe(true)
+    expect(
+      containsLocalToolAbortPart([
+        {
+          type: "tool",
+          state: { status: "error", error: "Permission denied" },
+        },
+      ]),
+    ).toBe(false)
   })
 
   test("treats remote compact 403 forbidden errors as transient forbidden failures", () => {

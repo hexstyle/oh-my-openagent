@@ -209,6 +209,38 @@ export function isGatewayBlockedForbiddenError(error: unknown): boolean {
   return statusCode === 403 || /\bforbidden\b/i.test(message) || /\b403\b/.test(serializedError)
 }
 
+export function isAbortWrapperError(error: unknown): boolean {
+  const errorName = extractErrorName(error)?.toLowerCase()
+  const message = getErrorMessage(error)
+
+  return errorName === "messageabortederror"
+    || /\baborted process\b/i.test(message)
+    || /\bmessageabortederror\b/i.test(message)
+}
+
+export function containsLocalToolAbortPart(
+  parts: Array<{
+    type?: string
+    text?: string
+    state?: {
+      error?: string
+      status?: string
+    }
+  }> | undefined,
+): boolean {
+  return (parts ?? []).some((part) => {
+    if (part?.type === "error" && typeof part.text === "string") {
+      return /tool execution aborted/i.test(part.text)
+    }
+
+    if (part?.type !== "tool") {
+      return false
+    }
+
+    return typeof part.state?.error === "string" && /tool execution aborted/i.test(part.state.error)
+  })
+}
+
 export interface AutoRetrySignal {
   signal: string
 }

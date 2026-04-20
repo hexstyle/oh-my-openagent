@@ -2,8 +2,8 @@ import type { HookDeps } from "./types"
 import type { AutoRetryHelpers } from "./auto-retry"
 import { HOOK_NAME, resolveLongRunningProgressTimeoutMs } from "./constants"
 import { log } from "../../shared/logger"
-import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, extractAutoRetrySignal, containsErrorContent } from "./error-classifier"
-import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, markLimitError, markSessionError } from "./fallback-state"
+import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, extractAutoRetrySignal, containsErrorContent, containsLocalToolAbortPart, isAbortWrapperError } from "./error-classifier"
+import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, markLimitError, markLocalToolAbort, markSessionError, isRecentLocalToolAbort } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
@@ -363,21 +363,6 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       if (retrySignal && timeoutEnabled) {
         log(`[${HOOK_NAME}] Detected provider auto-retry signal`, { sessionID, model })
       }
-      const retryable = isRetryableError(error, config.retry_on_errors)
-      const retryAction = retryable
-        ? getRuntimeFallbackAction(error, config.retry_on_errors)
-        : undefined
-
-      if (
-        isSameModelRetryAction(retryAction ?? "fallback_chain")
-        && sessionTransientRetryTimeouts.has(sessionID)
-      ) {
-        log(`[${HOOK_NAME}] message.updated transient retry already scheduled; preserving existing timer`, {
-          sessionID,
-          model,
-        })
-        return
-      }
 
       if (!retrySignal) {
         helpers.clearSessionFallbackTimeout(sessionID)
@@ -391,23 +376,12 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         errorType: classifyErrorType(error),
       })
 
-      if (!retryable) {
-        log(`[${HOOK_NAME}] message.updated error not retryable, skipping fallback`, {
-          sessionID,
-          statusCode: extractStatusCode(error, config.retry_on_errors),
-          errorName: extractErrorName(error),
-          errorType: classifyErrorType(error),
-        })
-        return
-      }
-
-      const action = retryAction ?? getRuntimeFallbackAction(error, config.retry_on_errors)
-
       let state = sessionStates.get(sessionID)
       const agent = info?.agent as string | undefined
       const liveResolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent)
       const resolvedAgent = liveResolvedAgent ?? state?.resolvedAgent
       const fallbackModels = getFallbackModelsForSession(sessionID, resolvedAgent, pluginConfig)
+      const hasWrappedLocalToolAbort = containsLocalToolAbortPart(parts)
 
       if (fallbackModels.length === 0) {
         return
@@ -469,33 +443,68 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         state.resolvedAgent = resolvedAgent
       }
 
-      markSessionError(state)
-
-      if (action === "limit_fallback") {
-        markLimitError(state)
+      if (hasWrappedLocalToolAbort) {
+        markLocalToolAbort(state)
       }
+
+      const effectiveError =
+        isAbortWrapperError(error) && isRecentLocalToolAbort(state)
+          ? { name: "LocalToolAbortWrappedError", message: "Tool execution aborted" }
+          : error
+
+      const retryable = isRetryableError(effectiveError, config.retry_on_errors)
+
+      if (
+        retryable
+        && isSameModelRetryAction(getRuntimeFallbackAction(effectiveError, config.retry_on_errors))
+        && sessionTransientRetryTimeouts.has(sessionID)
+      ) {
+        log(`[${HOOK_NAME}] message.updated transient retry already scheduled; preserving existing timer`, {
+          sessionID,
+          model,
+        })
+        return
+      }
+
+      if (!retryable) {
+        log(`[${HOOK_NAME}] message.updated error not retryable, skipping fallback`, {
+          sessionID,
+          statusCode: extractStatusCode(effectiveError, config.retry_on_errors),
+          errorName: extractErrorName(effectiveError),
+          errorType: classifyErrorType(effectiveError),
+        })
+        return
+      }
+
+      const action = getRuntimeFallbackAction(effectiveError, config.retry_on_errors)
+
+      markSessionError(state)
 
       logTrackedProvider403({
         source: "message.updated.assistant.error",
         sessionID,
         model: state.currentModel,
         resolvedAgent,
-        error,
-        action,
+        error: effectiveError,
+        action: getRuntimeFallbackAction(effectiveError, config.retry_on_errors),
       })
 
       if (await maybePauseForManualProviderClearance(deps, helpers, {
         sessionID,
         resolvedAgent,
         model: state.currentModel,
-        error,
+        error: effectiveError,
         source: "message.updated.assistant.error",
       })) {
         return
       }
 
+      if (action === "limit_fallback") {
+        markLimitError(state)
+      }
+
       if (isSameModelRetryAction(action)) {
-        const maxAttempts = getSameModelRetryAttemptLimit(error, action)
+        const maxAttempts = getSameModelRetryAttemptLimit(effectiveError, action)
         const retried = await helpers.retryCurrentModel(sessionID, resolvedAgent, "message.updated", {
           immediate: action === "retry_same_model",
           persistent: isPersistentSameModelRetryAction(action),

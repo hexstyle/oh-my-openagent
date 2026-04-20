@@ -55,6 +55,7 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     lastLimitErrorAt: undefined,
     lastMeaningfulProgressAt: undefined,
     lastErrorAt: undefined,
+    lastLocalToolAbortAt: undefined,
     lastActiveStatusRefreshAt: undefined,
     lastTerminalIdleAt: undefined,
     stoppedAt: undefined,
@@ -66,6 +67,7 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
 }
 
 const LIMIT_ERROR_SIGNAL_WINDOW_MS = 5 * 60 * 1000
+const LOCAL_TOOL_ABORT_SIGNAL_WINDOW_MS = 5 * 60 * 1000
 const STOP_INHIBIT_WINDOW_MS = 15_000
 
 export function markLimitError(state: FallbackState, now = Date.now()): void {
@@ -78,6 +80,23 @@ export function clearLimitError(state: FallbackState): void {
 
 export function markSessionError(state: FallbackState, now = Date.now()): void {
   state.lastErrorAt = now
+}
+
+export function markLocalToolAbort(state: FallbackState, now = Date.now()): void {
+  state.lastLocalToolAbortAt = now
+}
+
+export function clearLocalToolAbort(state: FallbackState): void {
+  state.lastLocalToolAbortAt = undefined
+}
+
+export function isRecentLocalToolAbort(
+  state: FallbackState,
+  windowMs = LOCAL_TOOL_ABORT_SIGNAL_WINDOW_MS,
+  now = Date.now(),
+): boolean {
+  if (state.lastLocalToolAbortAt === undefined) return false
+  return now - state.lastLocalToolAbortAt < windowMs
 }
 
 export function isRecentLimitError(
@@ -122,6 +141,7 @@ export function markFallbackResponseSuccess(state: FallbackState): void {
   state.attemptCount = 0
   state.fullChainCyclesCompleted = 0
   clearLimitError(state)
+  clearLocalToolAbort(state)
   state.lastErrorAt = undefined
   state.lastActiveStatusRefreshAt = undefined
   resetTransientRetryState(state)
@@ -130,6 +150,7 @@ export function markFallbackResponseSuccess(state: FallbackState): void {
 export function markMeaningfulProgress(state: FallbackState, now = Date.now()): void {
   state.lastMeaningfulProgressAt = now
   clearLimitError(state)
+  clearLocalToolAbort(state)
   state.lastErrorAt = undefined
   state.lastActiveStatusRefreshAt = undefined
   clearManualProviderClearance(state)
