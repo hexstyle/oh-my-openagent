@@ -8,7 +8,7 @@ import {
 import { resolveRecentActiveStatusTimeoutOverride } from "./active-status-timeout"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, isAbortWrapperError } from "./error-classifier"
-import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, resetTransientRetryState, markLimitError, markLocalToolAbort, markSessionStopped, isRecentLimitError, isRecentLocalToolAbort, markSessionError } from "./fallback-state"
+import { createFallbackState, hasMeaningfulProgressSinceLastError, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, resetTransientRetryState, markLimitError, markLocalToolAbort, markSessionStopped, isRecentLimitError, isRecentLocalToolAbort, markSessionError } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
@@ -408,7 +408,14 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     const state = sessionStates.get(sessionID)
     const hasTransientRetryTimer = sessionTransientRetryTimeouts.has(sessionID)
     if (state?.pendingTransientRetry || hasTransientRetryTimer) {
-      if (!hasTransientRetryTimer && state?.pendingTransientRetry) {
+      if (state && hasMeaningfulProgressSinceLastError(state)) {
+        helpers.clearSessionTransientRetryTimeout(sessionID)
+        state.pendingTransientRetry = false
+        state.persistentTransientRetry = false
+        log(`[${HOOK_NAME}] session.idle cleared stale transient retry after successful progress`, {
+          sessionID,
+        })
+      } else if (!hasTransientRetryTimer && state?.pendingTransientRetry) {
         const resolvedAgent = await helpers.resolveAgentForSessionFromContext(
           sessionID,
           props?.agent as string | undefined,
@@ -426,12 +433,17 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
           })
           return
         }
-      }
 
-      log(`[${HOOK_NAME}] session.idle while delayed transient retry is pending; preserving retry state`, {
-        sessionID,
-      })
-      return
+        log(`[${HOOK_NAME}] session.idle while delayed transient retry is pending; preserving retry state`, {
+          sessionID,
+        })
+        return
+      } else {
+        log(`[${HOOK_NAME}] session.idle while delayed transient retry is pending; preserving retry state`, {
+          sessionID,
+        })
+        return
+      }
     }
 
     const hadTimeout = sessionFallbackTimeouts.has(sessionID)

@@ -133,6 +133,11 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
     return hasSameModelIdentity(args.model, state.pendingFallbackModel)
   }
 
+  const hasTerminalAssistantFinish = (info: Record<string, unknown> | undefined): boolean => {
+    const finish = typeof info?.finish === "string" ? info.finish : undefined
+    return finish !== undefined && finish !== "tool-calls" && finish !== "unknown"
+  }
+
   return async (props: Record<string, unknown> | undefined) => {
     const info = props?.info as Record<string, unknown> | undefined
     const sessionID = info?.sessionID as string | undefined
@@ -219,12 +224,14 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
           parts,
         },
       )
+      const hasTerminalFinish = hasTerminalAssistantFinish(info)
 
       if (currentEventHasVisibleResponse) {
         sessionLastAccess.set(sessionID, Date.now())
         sessionSilentAssistantUpdateCounts?.delete(sessionID)
         sessionAwaitingFallbackResult.delete(sessionID)
         sessionStatusRetryKeys.delete(sessionID)
+        helpers.clearSessionTransientRetryTimeout(sessionID)
         resetInternalContinuationLoopForVisibleAssistant(deps, sessionID)
         const state = sessionStates.get(sessionID)
         if (state) {
@@ -234,7 +241,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         }
 
         const timeoutMsOverride = resolveRecentActiveStatusTimeoutOverride(deps, sessionID)
-        if (timeoutMsOverride !== undefined) {
+        if (timeoutMsOverride !== undefined && !hasTerminalFinish) {
           await armActiveSessionWatchdog({
             sessionID,
             role,
@@ -305,6 +312,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         sessionSilentAssistantUpdateCounts?.delete(sessionID)
         sessionAwaitingFallbackResult.delete(sessionID)
         sessionStatusRetryKeys.delete(sessionID)
+        helpers.clearSessionTransientRetryTimeout(sessionID)
         helpers.clearSessionFallbackTimeout(sessionID)
         resetInternalContinuationLoopForVisibleAssistant(deps, sessionID)
         const state = sessionStates.get(sessionID)

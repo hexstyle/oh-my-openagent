@@ -1878,6 +1878,7 @@ fi
 
   return {
     abortSessionRequest,
+    clearSessionTransientRetryTimeout,
     clearSessionFallbackTimeout,
     scheduleSessionFallbackTimeout,
     autoRetryWithFallback,

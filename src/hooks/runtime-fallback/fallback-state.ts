@@ -168,6 +168,13 @@ export function markActiveStatusRefresh(state: FallbackState, now = Date.now()):
   state.lastActiveStatusRefreshAt = now
 }
 
+export function hasMeaningfulProgressSinceLastError(state: FallbackState): boolean {
+  const lastMeaningfulProgressAt = state.lastMeaningfulProgressAt ?? 0
+  const lastErrorAt = state.lastErrorAt ?? 0
+
+  return lastMeaningfulProgressAt > 0 && lastMeaningfulProgressAt >= lastErrorAt
+}
+
 export function resetTransientRetryState(state: FallbackState): void {
   state.transientRetryCount = 0
   state.transientRetryStartedAt = undefined

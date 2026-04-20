@@ -6,6 +6,7 @@ import { createEventHandler } from "./event-handler"
 
 type TestHelpers = AutoRetryHelpers & {
   __scheduleCallsForTest: Array<{ sessionID: string; source?: string; resolvedAgent?: string; timeoutMsOverride?: number }>
+  __clearTransientCallsForTest: string[]
   __retryCurrentModelCallsForTest: Array<{
     sessionID: string
     resolvedAgent?: string
@@ -69,6 +70,7 @@ function createDeps(): HookDeps {
 
 function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[]): TestHelpers {
   const scheduleCalls: Array<{ sessionID: string; source?: string; resolvedAgent?: string; timeoutMsOverride?: number }> = []
+  const clearTransientCalls: string[] = []
   const retryCurrentModelCalls: Array<{
     sessionID: string
     resolvedAgent?: string
@@ -86,9 +88,14 @@ function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[
     abortSessionRequest: async (sessionID: string) => {
       abortCalls.push(sessionID)
     },
+    clearSessionTransientRetryTimeout: (sessionID: string) => {
+      clearTransientCalls.push(sessionID)
+      deps.sessionTransientRetryTimeouts.delete(sessionID)
+    },
     clearSessionFallbackTimeout: (sessionID: string) => {
       clearCalls.push(sessionID)
       deps.sessionFallbackTimeouts.delete(sessionID)
+      deps.sessionTransientRetryTimeouts.delete(sessionID)
     },
     scheduleSessionFallbackTimeout: (
       sessionID: string,
@@ -125,6 +132,7 @@ function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[
     cleanupStaleSessions: () => {},
     recoverPreferredModels: async () => {},
     __scheduleCallsForTest: scheduleCalls,
+    __clearTransientCallsForTest: clearTransientCalls,
     __retryCurrentModelCallsForTest: retryCurrentModelCalls,
     __freshRetryCallsForTest: freshRetryCalls,
   }
@@ -229,6 +237,36 @@ describe("createEventHandler", () => {
     expect(state.pendingTransientRetry).toBe(true)
     expect(deps.sessionTransientRetryTimeouts.has(sessionID)).toBe(true)
     expect(deps.sessionStatusRetryKeys.get(sessionID)).toBe("retry:1")
+  })
+
+  it("#given a delayed transient retry but successful progress already happened #when session.idle fires #then stale retry state is cleared and completion proceeds", async () => {
+    // given
+    const sessionID = "session-idle-transient-retry-completed"
+    const deps = createDeps()
+    const abortCalls: string[] = []
+    const clearCalls: string[] = []
+    const state = createFallbackState("anthropic/claude-opus-4-6")
+    state.pendingTransientRetry = true
+    state.lastErrorAt = 100
+    state.lastMeaningfulProgressAt = 200
+    deps.sessionStates.set(sessionID, state)
+    deps.sessionTransientRetryTimeouts.set(sessionID, 1)
+    deps.sessionFallbackTimeouts.set(sessionID, 2)
+    deps.sessionStatusRetryKeys.set(sessionID, "retry:1")
+    const helpers = createHelpers(deps, abortCalls, clearCalls)
+    const handler = createEventHandler(deps, helpers)
+
+    // when
+    await handler({ event: { type: "session.idle", properties: { sessionID } } })
+
+    // then
+    expect(helpers.__clearTransientCallsForTest).toEqual([sessionID])
+    expect(clearCalls).toEqual([sessionID])
+    expect(deps.sessionTransientRetryTimeouts.has(sessionID)).toBe(false)
+    expect(state.pendingTransientRetry).toBe(false)
+    expect(state.persistentTransientRetry).toBe(false)
+    expect(abortCalls).toEqual([])
+    expect(deps.sessionStatusRetryKeys.has(sessionID)).toBe(false)
   })
 
   describe("#given an armed active-session watchdog", () => {

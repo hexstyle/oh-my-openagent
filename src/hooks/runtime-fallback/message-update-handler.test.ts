@@ -82,11 +82,27 @@ function createDeps(messagesResponse: unknown): HookDeps {
 
 function createHelpers(
   scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }>,
-  overrides?: Partial<AutoRetryHelpers>,
+  clearCallsOrOverrides?: string[] | Partial<AutoRetryHelpers>,
+  clearTransientCallsOrOverrides?: string[] | Partial<AutoRetryHelpers>,
+  overridesArg?: Partial<AutoRetryHelpers>,
 ): AutoRetryHelpers {
+  const clearCalls = Array.isArray(clearCallsOrOverrides) ? clearCallsOrOverrides : undefined
+  const clearTransientCalls = Array.isArray(clearTransientCallsOrOverrides) ? clearTransientCallsOrOverrides : undefined
+  const overrides = (
+    Array.isArray(clearCallsOrOverrides)
+      ? overridesArg
+      : clearCallsOrOverrides
+  ) ?? {}
+
   return {
     abortSessionRequest: async () => {},
-    clearSessionFallbackTimeout: () => {},
+    clearSessionTransientRetryTimeout: (sessionID: string) => {
+      clearTransientCalls?.push(sessionID)
+    },
+    clearSessionFallbackTimeout: (sessionID: string) => {
+      clearCalls?.push(sessionID)
+      clearTransientCalls?.push(sessionID)
+    },
     scheduleSessionFallbackTimeout: (
       sessionID: string,
       args?: { timeoutMsOverride?: number },
@@ -369,6 +385,80 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     })
 
     expect(scheduleCalls).toEqual([{ sessionID, timeoutMsOverride: 120_000 }])
+  })
+
+  it("#given a delayed transient retry and visible assistant progress #when the response is still non-terminal #then the retry timer is cleared but the extended watchdog window is preserved", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?clear-transient-visible-progress-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-visible-progress-clears-transient"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const clearCalls: string[] = []
+    const clearTransientCalls: string[] = []
+    const deps = createDeps({ data: [] })
+    const state = createFallbackState("anthropic/claude-opus-4-6")
+    state.pendingTransientRetry = true
+    deps.sessionStates.set(sessionID, state)
+    deps.sessionRecentActiveStatusUntil?.set(sessionID, Date.now() + 5_000)
+    const handler = createMessageUpdateHandler(
+      deps,
+      createHelpers(scheduleCalls, clearCalls, clearTransientCalls),
+    )
+
+    await handler({
+      info: {
+        id: "msg-visible-progress",
+        sessionID,
+        role: "assistant",
+        finish: "tool-calls",
+        agent: "Prometheus (Plan Builder)",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+        },
+      },
+      parts: [{ type: "text", text: "Working through the result now." }],
+    })
+
+    expect(clearTransientCalls).toEqual([sessionID])
+    expect(clearCalls).toEqual([])
+    expect(scheduleCalls).toEqual([{ sessionID, timeoutMsOverride: 120_000 }])
+    expect(state.pendingTransientRetry).toBe(false)
+  })
+
+  it("#given a delayed transient retry and a terminal assistant response #when message.updated sees finish=stop #then it clears the retry timer and the fallback timeout instead of preserving the active window", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?terminal-finish-clears-retry-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-terminal-finish-clears-retry"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const clearCalls: string[] = []
+    const clearTransientCalls: string[] = []
+    const deps = createDeps({ data: [] })
+    const state = createFallbackState("anthropic/claude-opus-4-6")
+    state.pendingTransientRetry = true
+    deps.sessionStates.set(sessionID, state)
+    deps.sessionRecentActiveStatusUntil?.set(sessionID, Date.now() + 5_000)
+    const handler = createMessageUpdateHandler(
+      deps,
+      createHelpers(scheduleCalls, clearCalls, clearTransientCalls),
+    )
+
+    await handler({
+      info: {
+        id: "msg-terminal-finish",
+        sessionID,
+        role: "assistant",
+        finish: "stop",
+        agent: "Prometheus (Plan Builder)",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+        },
+      },
+      parts: [{ type: "text", text: "All research is complete." }],
+    })
+
+    expect(clearTransientCalls).toEqual([sessionID, sessionID])
+    expect(clearCalls).toEqual([sessionID])
+    expect(scheduleCalls).toEqual([])
+    expect(state.pendingTransientRetry).toBe(false)
   })
 
   it("#given a second empty assistant update #when no first token has arrived yet #then watchdog upgrades to the extended quiet window", async () => {

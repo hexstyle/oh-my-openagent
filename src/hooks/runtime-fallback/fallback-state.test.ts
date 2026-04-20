@@ -5,6 +5,7 @@ import {
   clearLocalToolAbort,
   createFallbackState,
   getNextTransientRetryDelayMs,
+  hasMeaningfulProgressSinceLastError,
   isRecentLocalToolAbort,
   markFallbackResponseSuccess,
   markLimitError,
@@ -152,6 +153,17 @@ describe("runtime fallback state recovery", () => {
     markLocalToolAbort(state, 789)
     markFallbackResponseSuccess(state)
     expect(state.lastLocalToolAbortAt).toBeUndefined()
+  })
+
+  it("treats visible progress after an error as settled progress", () => {
+    const state = createFallbackState("openai/gpt-5.4")
+    state.lastErrorAt = 100
+    state.lastMeaningfulProgressAt = 200
+
+    expect(hasMeaningfulProgressSinceLastError(state)).toBe(true)
+
+    state.lastMeaningfulProgressAt = 50
+    expect(hasMeaningfulProgressSinceLastError(state)).toBe(false)
   })
 
   it("expires recent local tool-abort context outside the signal window", () => {
