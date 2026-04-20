@@ -141,8 +141,14 @@ function assistantMessageHasVisibleContent(parts: RecoveryMessagePart[] | undefi
     if (!type) continue;
 
     if (
-      type === "thinking" ||
-      type === "reasoning" ||
+      (type === "thinking" || type === "reasoning")
+      && typeof part.text === "string"
+      && part.text.trim().length > 0
+    ) {
+      return true;
+    }
+
+    if (
       type === "redacted_thinking" ||
       type === "meta" ||
       type === "step-start" ||

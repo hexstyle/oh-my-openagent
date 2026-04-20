@@ -197,7 +197,7 @@ describe("runtime-fallback recent completion replay guard", () => {
     expect(promptAsyncCalls).toEqual([])
     expect(
       logCalls.filter((call) => call.msg.includes("Suppressed stale runtime-fallback re-arm after recent session completion")),
-    ).toHaveLength(3)
+    ).toHaveLength(2)
   })
 
   test("allows a fresh user turn inside the suppression window when the message id changes", async () => {

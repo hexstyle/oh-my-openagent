@@ -167,4 +167,54 @@ describe("createEventHandler idle empty assistant recovery", () => {
     expect(fixEmptyMessagesWithSDKMock).toHaveBeenCalledTimes(1)
     expect(promptAsyncMock).toHaveBeenCalledTimes(1)
   })
+
+  test("does not recover when idle session ends with a reasoning-only assistant turn", async () => {
+    //#given
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_reasoning_only",
+          role: "user",
+          agent: "Prometheus (Plan Builder)",
+          model: {
+            providerID: "anthropic",
+            modelID: "claude-opus-4-6",
+          },
+        },
+        parts: [{ type: "text", text: "continue" }],
+      },
+      {
+        info: {
+          id: "msg_reasoning_only",
+          role: "assistant",
+          finish: "other",
+        },
+        parts: [
+          {
+            type: "reasoning",
+            text: "I have all prerequisite findings and can now synthesize them into the plan.",
+          },
+          {
+            type: "step-finish",
+            reason: "other",
+          },
+        ],
+      },
+    ])
+
+    //#when
+    await handler({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionID: "ses_reasoning_only",
+          status: { type: "idle" },
+        },
+      },
+    })
+
+    //#then
+    expect(fixEmptyMessagesWithSDKMock).not.toHaveBeenCalled()
+    expect(promptAsyncMock).not.toHaveBeenCalled()
+  })
 })
