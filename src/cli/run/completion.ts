@@ -13,6 +13,11 @@ function isBlockingChildStatus(type: string | undefined): boolean {
 type CompletionProbeMessagePart = {
   type?: string
   text?: string
+  tool?: string
+  state?: {
+    status?: string
+    output?: string
+  }
 }
 
 type CompletionProbeMessage = {
@@ -25,6 +30,112 @@ type CompletionProbeMessage = {
 }
 
 const NON_TERMINAL_FINISH_REASONS = new Set(["tool-calls", "unknown"])
+const BACKGROUND_TASK_ID_PATTERN = /\bbg_[a-zA-Z0-9_-]+\b/g
+const BACKGROUND_TASK_STATUS_LINE_PATTERN = /`(bg_[a-zA-Z0-9_-]+)`:[^\n]*\[(RUNNING|PENDING|COMPLETED|ERROR|CANCELLED|INTERRUPTED)\]/g
+const BACKGROUND_TASK_STATUS_TABLE_ID_PATTERN = /\|\s*Task ID\s*\|\s*`?(bg_[a-zA-Z0-9_-]+)`?\s*\|/i
+const BACKGROUND_TASK_STATUS_TABLE_STATE_PATTERN = /\|\s*Status\s*\|\s*\*\*(running|pending|completed|error|cancelled|interrupt(?:ed)?)\*\*\s*\|/i
+const BACKGROUND_TASK_ACTIVE_COUNT_PATTERN = /\*\*Active background tasks:\*\*\s*(\d+)/i
+
+type BackgroundTaskActivity = {
+  hasActiveTasks: boolean
+}
+
+function normalizeBackgroundTaskTerminalStatus(rawStatus: string | undefined): "active" | "inactive" | null {
+  switch ((rawStatus ?? "").toLowerCase()) {
+    case "running":
+    case "pending":
+      return "active"
+    case "completed":
+    case "error":
+    case "cancelled":
+    case "interrupt":
+    case "interrupted":
+      return "inactive"
+    default:
+      return null
+  }
+}
+
+function extractBackgroundTaskIDs(text: string): string[] {
+  return [...text.matchAll(BACKGROUND_TASK_ID_PATTERN)].map((match) => match[0])
+}
+
+function inspectBackgroundTaskActivity(messages: CompletionProbeMessage[]): BackgroundTaskActivity {
+  const unresolvedTaskIDs = new Set<string>()
+  let hasAnonymousActiveTasks = false
+
+  const markTasks = (taskIDs: Iterable<string>, active: boolean): void => {
+    for (const taskID of taskIDs) {
+      if (active) {
+        unresolvedTaskIDs.add(taskID)
+      } else {
+        unresolvedTaskIDs.delete(taskID)
+      }
+    }
+  }
+
+  for (const message of messages) {
+    for (const part of message.parts ?? []) {
+      if (part.type === "text") {
+        const text = (part.text ?? "").trim()
+        if (!text) continue
+
+        if (
+          text.includes("[ALL BACKGROUND TASKS COMPLETE]") ||
+          text.includes("[ALL BACKGROUND TASKS FINISHED")
+        ) {
+          unresolvedTaskIDs.clear()
+          hasAnonymousActiveTasks = false
+          continue
+        }
+
+        if (text.includes("[BACKGROUND TASK STATUS]")) {
+          const activeCountMatch = text.match(BACKGROUND_TASK_ACTIVE_COUNT_PATTERN)
+          if (activeCountMatch) {
+            hasAnonymousActiveTasks = Number(activeCountMatch[1]) > 0
+          }
+
+          for (const [, taskID, rawStatus] of text.matchAll(BACKGROUND_TASK_STATUS_LINE_PATTERN)) {
+            const normalized = normalizeBackgroundTaskTerminalStatus(rawStatus)
+            if (normalized === "active") unresolvedTaskIDs.add(taskID)
+            if (normalized === "inactive") unresolvedTaskIDs.delete(taskID)
+          }
+          continue
+        }
+
+        if (
+          text.includes("[BACKGROUND TASK COMPLETED]") ||
+          text.includes("[BACKGROUND TASK ERROR]") ||
+          text.includes("[BACKGROUND TASK CANCELLED]") ||
+          text.includes("[BACKGROUND TASK INTERRUPTED]")
+        ) {
+          markTasks(extractBackgroundTaskIDs(text), false)
+        }
+      }
+
+      const toolOutput = (part.state?.output ?? "").trim()
+      if (!toolOutput) continue
+
+      if (toolOutput.includes("Background task launched")) {
+        markTasks(extractBackgroundTaskIDs(toolOutput), true)
+      }
+
+      const tableTaskID = toolOutput.match(BACKGROUND_TASK_STATUS_TABLE_ID_PATTERN)?.[1]
+      const tableTaskStatus = normalizeBackgroundTaskTerminalStatus(
+        toolOutput.match(BACKGROUND_TASK_STATUS_TABLE_STATE_PATTERN)?.[1],
+      )
+      if (tableTaskID && tableTaskStatus === "active") {
+        unresolvedTaskIDs.add(tableTaskID)
+      } else if (tableTaskID && tableTaskStatus === "inactive") {
+        unresolvedTaskIDs.delete(tableTaskID)
+      }
+    }
+  }
+
+  return {
+    hasActiveTasks: hasAnonymousActiveTasks || unresolvedTaskIDs.size > 0,
+  }
+}
 
 function hasVisibleAssistantContent(messages: CompletionProbeMessage[]): boolean {
   return messages.some((message) => {
@@ -36,7 +147,40 @@ function hasVisibleAssistantContent(messages: CompletionProbeMessage[]): boolean
   })
 }
 
+function hasOpenAssistantExecution(message: CompletionProbeMessage | undefined): boolean {
+  if (!message || message.info?.role !== "assistant") {
+    return false
+  }
+
+  let hasUnclosedStep = false
+
+  for (const part of message.parts ?? []) {
+    if (part.type === "step-start") {
+      hasUnclosedStep = true
+      continue
+    }
+
+    if (part.type === "step-finish") {
+      hasUnclosedStep = false
+      continue
+    }
+
+    if (part.type === "tool") {
+      const status = part.state?.status
+      if (status === "running" || status === "pending") {
+        return true
+      }
+    }
+  }
+
+  return hasUnclosedStep
+}
+
 function isSessionSettledFromMessages(messages: CompletionProbeMessage[]): boolean {
+  if (inspectBackgroundTaskActivity(messages).hasActiveTasks) {
+    return false
+  }
+
   let lastUser: CompletionProbeMessage | undefined
   let lastAssistant: CompletionProbeMessage | undefined
 
@@ -55,7 +199,40 @@ function isSessionSettledFromMessages(messages: CompletionProbeMessage[]): boole
     return true
   }
 
-  return !lastAssistant?.info?.finish && hasVisibleAssistantContent(messages)
+  if (lastAssistant?.info?.finish) {
+    return false
+  }
+
+  if (!hasVisibleAssistantContent(messages)) {
+    return false
+  }
+
+  return !hasOpenAssistantExecution(lastAssistant)
+}
+
+async function fetchSessionMessages(
+  ctx: RunContext,
+  sessionID: string,
+): Promise<CompletionProbeMessage[]> {
+  const messagesRes = await ctx.client.session.messages({
+    path: { id: sessionID },
+    query: { directory: ctx.directory },
+  })
+
+  return normalizeSDKResponse(messagesRes, [] as CompletionProbeMessage[])
+}
+
+async function isSessionTranscriptSettled(
+  ctx: RunContext,
+  sessionID: string,
+  options: { allowEmptyTranscript?: boolean } = {},
+): Promise<boolean> {
+  const messages = await fetchSessionMessages(ctx, sessionID)
+  if (messages.length === 0) {
+    return options.allowEmptyTranscript === true
+  }
+
+  return isSessionSettledFromMessages(messages)
 }
 
 export async function checkCompletionConditions(ctx: RunContext): Promise<boolean> {
@@ -77,6 +254,11 @@ export async function checkCompletionConditions(ctx: RunContext): Promise<boolea
     }
 
     if (!areContinuationHooksIdle(ctx, continuationState)) {
+      return false
+    }
+
+    if (!await isSessionTranscriptSettled(ctx, ctx.sessionID)) {
+      logWaiting(ctx, "root session transcript is not settled")
       return false
     }
 
@@ -156,13 +338,15 @@ async function areAllDescendantsIdle(
     }
 
     if (!status) {
-      const messagesRes = await ctx.client.session.messages({
-        path: { id: child.id },
-      })
-      const messages = normalizeSDKResponse(messagesRes, [] as CompletionProbeMessage[])
-
-      if (!isSessionSettledFromMessages(messages)) {
+      if (!await isSessionTranscriptSettled(ctx, child.id)) {
         logWaiting(ctx, `session ${child.id.slice(0, 8)}... status unavailable`)
+        return false
+      }
+    }
+
+    if (status?.type === "idle") {
+      if (!await isSessionTranscriptSettled(ctx, child.id, { allowEmptyTranscript: true })) {
+        logWaiting(ctx, `session ${child.id.slice(0, 8)}... has unfinished assistant work`)
         return false
       }
     }

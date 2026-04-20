@@ -25,7 +25,15 @@ const createMockContext = (overrides: {
     todo = [],
     childrenBySession = { "test-session": [] },
     statuses = {},
-    messagesBySession = {},
+    messagesBySession = {
+      "test-session": [
+        { info: { id: "msg-user-root", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+        {
+          info: { id: "msg-assistant-root", role: "assistant", finish: "stop" },
+          parts: [{ type: "text", text: "All tasks completed." }],
+        },
+      ],
+    },
   } = overrides
 
   return {
@@ -165,6 +173,133 @@ describe("pollForCompletion", () => {
     })
 
     //#then - run should remain active because the child is still unresolved
+    expect(result).toBe(130)
+  })
+
+  it("does not exit while a child session reports idle but its latest assistant message still has an open step", async () => {
+    //#given - child status flickered to idle, but transcript shows execution still in progress
+    const ctx = createMockContext({
+      childrenBySession: {
+        "test-session": [{ id: "child-1" }],
+        "child-1": [],
+      },
+      statuses: {
+        "child-1": { type: "idle" },
+      },
+      messagesBySession: {
+        "child-1": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "inspect plans" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant" },
+            parts: [
+              { type: "text", text: "I found one incomplete plan." },
+              { type: "step-start" },
+            ],
+          },
+        ],
+      },
+    })
+    const eventState = createEventState()
+    eventState.mainSessionIdle = true
+    eventState.hasReceivedMeaningfulWork = true
+    const abortController = new AbortController()
+
+    //#when
+    abortAfter(abortController, 80)
+    const result = await pollForCompletion(ctx, eventState, abortController, {
+      pollIntervalMs: 10,
+      requiredConsecutive: 1,
+      minStabilizationMs: 10,
+    })
+
+    //#then
+    expect(result).toBe(130)
+  })
+
+  it("does not exit while the root session transcript is still unfinished", async () => {
+    //#given - root session looks idle, but latest assistant message still has an open step
+    const ctx = createMockContext({
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant" },
+            parts: [
+              { type: "text", text: "Waiting on the remaining evidence check." },
+              { type: "step-start" },
+            ],
+          },
+        ],
+      },
+    })
+    const eventState = createEventState()
+    eventState.mainSessionIdle = true
+    eventState.hasReceivedMeaningfulWork = true
+    const abortController = new AbortController()
+
+    //#when
+    abortAfter(abortController, 80)
+    const result = await pollForCompletion(ctx, eventState, abortController, {
+      pollIntervalMs: 10,
+      requiredConsecutive: 1,
+      minStabilizationMs: 10,
+    })
+
+    //#then
+    expect(result).toBe(130)
+  })
+
+  it("does not exit while the root transcript still has active background tasks", async () => {
+    //#given - root emitted a terminal stop message, but background task lineage is still active
+    const ctx = createMockContext({
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant-tools", role: "assistant", finish: "tool-calls" },
+            parts: [
+              {
+                type: "tool",
+                tool: "task",
+                state: {
+                  status: "completed",
+                  output:
+                    "Background task launched.\n\nBackground Task ID: bg_plan_1\nDescription: Inspect plans",
+                },
+              },
+            ],
+          },
+          {
+            info: { id: "msg-system", role: "assistant" },
+            parts: [
+              {
+                type: "text",
+                text:
+                  "<system-reminder>\n[BACKGROUND TASK STATUS]\n**Active background tasks:** 1\n\n- `bg_plan_1`: Inspect plans [RUNNING]\n</system-reminder>",
+              },
+            ],
+          },
+          {
+            info: { id: "msg-assistant-final", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "I'm waiting for the background inspection." }],
+          },
+        ],
+      },
+    })
+    const eventState = createEventState()
+    eventState.mainSessionIdle = true
+    eventState.hasReceivedMeaningfulWork = true
+    const abortController = new AbortController()
+
+    //#when
+    abortAfter(abortController, 80)
+    const result = await pollForCompletion(ctx, eventState, abortController, {
+      pollIntervalMs: 10,
+      requiredConsecutive: 1,
+      minStabilizationMs: 10,
+    })
+
+    //#then
     expect(result).toBe(130)
   })
 

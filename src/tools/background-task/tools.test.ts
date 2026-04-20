@@ -299,6 +299,34 @@ describe("background_output full_session", () => {
     expect(output).toContain("# Full Session Output")
   })
 
+  test("does not force thinking or tool results into running full_session output by default", async () => {
+    // #given
+    const task = createTask({ status: "running" })
+    const manager = createMockManager(task)
+    const client = createMockClient({
+      "ses-1": [
+        {
+          id: "m1",
+          info: { role: "assistant", time: "2026-01-01T00:00:00Z", agent: "test" },
+          parts: [
+            { type: "text", text: "visible summary" },
+            { type: "thinking", thinking: "internal reasoning" },
+            { type: "tool_result", content: "raw tool output that should stay hidden" },
+          ],
+        },
+      ],
+    })
+    const tool = createBackgroundOutput(manager, client)
+
+    // #when
+    const output = await tool.execute({ task_id: "task-1", full_session: true }, mockContext)
+
+    // #then
+    expect(output).toContain("visible summary")
+    expect(output).not.toContain("internal reasoning")
+    expect(output).not.toContain("raw tool output that should stay hidden")
+  })
+
   test("keeps legacy status output when full_session is explicitly false on running task", async () => {
     // #given
     const task = createTask({ status: "running" })
@@ -375,6 +403,40 @@ describe("background_output full_session", () => {
     // #then
     expect(output).toContain("[thinking] " + "y".repeat(2000) + "...")
     expect(output).not.toContain("y".repeat(2100))
+  })
+
+  test("sanitizes provider challenge blobs in tool results", async () => {
+    // #given
+    const task = createTask()
+    const manager = createMockManager(task)
+    const client = createMockClient({
+      "ses-1": [
+        {
+          id: "m1",
+          info: { role: "assistant", time: "2026-01-01T00:00:00Z" },
+          parts: [
+            {
+              type: "tool_result",
+              content: "<html><body><p>Unable to load site</p><span>Please try again later.</span><span>[IP:109.252.37.138 | Ray ID:9ef13c4e2a7ae919]</span><script>window.__CF$cv$params={r:'9ef13c4e2a7ae919'};a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';</script></body></html>",
+            },
+          ],
+        },
+      ],
+    })
+    const tool = createBackgroundOutput(manager, client)
+
+    // #when
+    const output = await tool.execute({
+      task_id: "task-1",
+      full_session: true,
+      include_tool_results: true,
+    }, mockContext)
+
+    // #then
+    expect(output).toContain("[tool result] [provider challenge omitted: OpenAI/Codex 403")
+    expect(output).toContain("Ray ID: 9ef13c4e2a7ae919")
+    expect(output).not.toContain("cdn-cgi/challenge-platform")
+    expect(output).not.toContain("<html>")
   })
 })
 

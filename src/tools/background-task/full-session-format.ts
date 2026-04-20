@@ -7,6 +7,50 @@ import { formatTaskStatus } from "./task-status-format"
 
 const MAX_MESSAGE_LIMIT = 100
 const THINKING_MAX_CHARS = 2000
+const TOOL_RESULT_MAX_CHARS = 4000
+
+function extractRayId(text: string): string | undefined {
+  const match = text.match(/\bRay ID[:\s]*([A-Za-z0-9-]+)/i)
+  return match?.[1]
+}
+
+function summarizeProviderChallenge(text: string): string | undefined {
+  const normalized = text.trim()
+  if (!normalized) return undefined
+
+  const looksLikeOpenAIChallenge =
+    /unable to load site/i.test(normalized)
+    && (
+      /cdn-cgi\/challenge-platform/i.test(normalized)
+      || /\bRay ID\b/i.test(normalized)
+      || /chatgpt\.com/i.test(normalized)
+      || /__cf_bm/i.test(normalized)
+    )
+
+  if (!looksLikeOpenAIChallenge) {
+    return undefined
+  }
+
+  const rayId = extractRayId(normalized)
+  return rayId
+    ? `[provider challenge omitted: OpenAI/Codex 403 Cloudflare block | Ray ID: ${rayId}]`
+    : "[provider challenge omitted: OpenAI/Codex 403 Cloudflare block]"
+}
+
+function formatVisibleText(text: string): string {
+  const normalized = text.trim()
+  return summarizeProviderChallenge(normalized) ?? normalized
+}
+
+function formatToolResultText(text: string): string {
+  const normalized = text.trim()
+  const summarized = summarizeProviderChallenge(normalized)
+  if (summarized) {
+    return summarized
+  }
+
+  return truncateText(normalized, TOOL_RESULT_MAX_CHARS)
+}
 
 function extractToolResultText(part: NonNullable<BackgroundOutputMessage["parts"]>[number]): string[] {
   if (typeof part.content === "string" && part.content.length > 0) {
@@ -130,7 +174,7 @@ export async function formatFullSession(
 
     for (const part of message.parts ?? []) {
       if (part.type === "text" && part.text) {
-        lines.push(part.text.trim())
+        lines.push(formatVisibleText(part.text))
       } else if (part.type === "thinking" && part.thinking) {
         lines.push(`[thinking] ${truncateText(part.thinking, thinkingMaxChars)}`)
       } else if (part.type === "reasoning" && part.text) {
@@ -138,7 +182,7 @@ export async function formatFullSession(
       } else if (part.type === "tool_result") {
         const toolTexts = extractToolResultText(part)
         for (const toolText of toolTexts) {
-          lines.push(`[tool result] ${toolText}`)
+          lines.push(`[tool result] ${formatToolResultText(toolText)}`)
         }
       }
     }

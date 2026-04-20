@@ -11,7 +11,15 @@ const createMockContext = (overrides: {
     todo = [],
     childrenBySession = { "test-session": [] },
     statuses = {},
-    messagesBySession = {},
+    messagesBySession = {
+      "test-session": [
+        { info: { id: "msg-user-root", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+        {
+          info: { id: "msg-assistant-root", role: "assistant", finish: "stop" },
+          parts: [{ type: "text", text: "All tasks completed." }],
+        },
+      ],
+    },
   } = overrides
 
   return {
@@ -37,7 +45,17 @@ describe("checkCompletionConditions", () => {
   it("returns true when no todos and no children", async () => {
     // given
     spyOn(console, "log").mockImplementation(() => {})
-    const ctx = createMockContext()
+    const ctx = createMockContext({
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All tasks completed." }],
+          },
+        ],
+      },
+    })
     const { checkCompletionConditions } = await import("./completion")
 
     // when
@@ -73,6 +91,15 @@ describe("checkCompletionConditions", () => {
         { id: "1", content: "Done", status: "completed", priority: "high" },
         { id: "2", content: "Skip", status: "cancelled", priority: "medium" },
       ],
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All tasks completed." }],
+          },
+        ],
+      },
     })
     const { checkCompletionConditions } = await import("./completion")
 
@@ -114,6 +141,15 @@ describe("checkCompletionConditions", () => {
       statuses: {
         "child-1": { type: "idle" },
         "child-2": { type: "idle" },
+      },
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All tasks completed." }],
+          },
+        ],
       },
     })
     const { checkCompletionConditions } = await import("./completion")
@@ -181,6 +217,15 @@ describe("checkCompletionConditions", () => {
         "child-1": [],
       },
       statuses: { "child-1": { type: "interrupted" } },
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All tasks completed." }],
+          },
+        ],
+      },
     })
     const { checkCompletionConditions } = await import("./completion")
 
@@ -200,6 +245,15 @@ describe("checkCompletionConditions", () => {
         "child-1": [],
       },
       statuses: { "child-1": { type: "mystery" } },
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All tasks completed." }],
+          },
+        ],
+      },
     })
     const { checkCompletionConditions } = await import("./completion")
 
@@ -220,6 +274,13 @@ describe("checkCompletionConditions", () => {
       },
       statuses: {},
       messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user-root", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant-root", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All tasks completed." }],
+          },
+        ],
         "child-1": [
           { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "inspect plans" }] },
           {
@@ -248,11 +309,133 @@ describe("checkCompletionConditions", () => {
       },
       statuses: {},
       messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user-root", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant-root", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All tasks completed." }],
+          },
+        ],
         "child-1": [
           { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "inspect plans" }] },
           {
             info: { id: "msg-assistant", role: "assistant" },
             parts: [{ type: "text", text: "I found one incomplete plan." }],
+          },
+        ],
+      },
+    })
+    const { checkCompletionConditions } = await import("./completion")
+
+    // when
+    const result = await checkCompletionConditions(ctx)
+
+    // then
+    expect(result).toBe(true)
+  })
+
+  it("returns false when child status is missing but the latest assistant message still has an open step", async () => {
+    // given
+    spyOn(console, "log").mockImplementation(() => {})
+    const ctx = createMockContext({
+      childrenBySession: {
+        "test-session": [{ id: "child-1" }],
+        "child-1": [],
+      },
+      statuses: {},
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user-root", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant-root", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All tasks completed." }],
+          },
+        ],
+        "child-1": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "inspect plans" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant" },
+            parts: [
+              { type: "text", text: "I found one incomplete plan." },
+              { type: "step-start" },
+            ],
+          },
+        ],
+      },
+    })
+    const { checkCompletionConditions } = await import("./completion")
+
+    // when
+    const result = await checkCompletionConditions(ctx)
+
+    // then
+    expect(result).toBe(false)
+  })
+
+  it("returns false when child status is idle but the latest assistant message still has an open step", async () => {
+    // given
+    spyOn(console, "log").mockImplementation(() => {})
+    const ctx = createMockContext({
+      childrenBySession: {
+        "test-session": [{ id: "child-1" }],
+        "child-1": [],
+      },
+      statuses: {
+        "child-1": { type: "idle" },
+      },
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user-root", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant-root", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All tasks completed." }],
+          },
+        ],
+        "child-1": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "inspect plans" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant" },
+            parts: [
+              { type: "reasoning", text: "Checking evidence completeness" },
+              { type: "step-start" },
+            ],
+          },
+        ],
+      },
+    })
+    const { checkCompletionConditions } = await import("./completion")
+
+    // when
+    const result = await checkCompletionConditions(ctx)
+
+    // then
+    expect(result).toBe(false)
+  })
+
+  it("returns true when child status is idle and the latest assistant content is a stale settled tail", async () => {
+    // given
+    spyOn(console, "log").mockImplementation(() => {})
+    const ctx = createMockContext({
+      childrenBySession: {
+        "test-session": [{ id: "child-1" }],
+        "child-1": [],
+      },
+      statuses: {
+        "child-1": { type: "idle" },
+      },
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user-root", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant-root", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All tasks completed." }],
+          },
+        ],
+        "child-1": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "inspect plans" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant" },
+            parts: [{ type: "text", text: "All plans inspected." }],
           },
         ],
       },
@@ -278,6 +461,15 @@ describe("checkCompletionConditions", () => {
       statuses: {
         "grandchild-1": { type: "busy" },
       },
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user-root", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant-root", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All tasks completed." }],
+          },
+        ],
+      },
     })
     const { checkCompletionConditions } = await import("./completion")
 
@@ -302,6 +494,132 @@ describe("checkCompletionConditions", () => {
         "child-1": { type: "idle" },
         "grandchild-1": { type: "idle" },
         "great-grandchild-1": { type: "idle" },
+      },
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user-root", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant-root", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All tasks completed." }],
+          },
+        ],
+      },
+    })
+    const { checkCompletionConditions } = await import("./completion")
+
+    // when
+    const result = await checkCompletionConditions(ctx)
+
+    // then
+    expect(result).toBe(true)
+  })
+
+  it("returns false when the root session transcript is not settled", async () => {
+    // given
+    spyOn(console, "log").mockImplementation(() => {})
+    const ctx = createMockContext({
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant" },
+            parts: [{ type: "text", text: "Still checking..." }, { type: "step-start" }],
+          },
+        ],
+      },
+    })
+    const { checkCompletionConditions } = await import("./completion")
+
+    // when
+    const result = await checkCompletionConditions(ctx)
+
+    // then
+    expect(result).toBe(false)
+  })
+
+  it("returns false when the root transcript launched background tasks but all-complete was never emitted", async () => {
+    // given
+    spyOn(console, "log").mockImplementation(() => {})
+    const ctx = createMockContext({
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant-tools", role: "assistant", finish: "tool-calls" },
+            parts: [
+              {
+                type: "tool",
+                tool: "task",
+                state: {
+                  status: "completed",
+                  output:
+                    "Background task launched.\n\nBackground Task ID: bg_plan_1\nDescription: Inspect plans",
+                },
+              },
+            ],
+          },
+          {
+            info: { id: "msg-system", role: "assistant" },
+            parts: [
+              {
+                type: "text",
+                text:
+                  "<system-reminder>\n[BACKGROUND TASK STATUS]\n**Active background tasks:** 1\n\n- `bg_plan_1`: Inspect plans [RUNNING]\n</system-reminder>",
+              },
+            ],
+          },
+          {
+            info: { id: "msg-assistant-final", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "I'm gathering the remaining evidence in parallel." }],
+          },
+        ],
+      },
+    })
+    const { checkCompletionConditions } = await import("./completion")
+
+    // when
+    const result = await checkCompletionConditions(ctx)
+
+    // then
+    expect(result).toBe(false)
+  })
+
+  it("returns true when background tasks launched earlier were later cleared by all-complete", async () => {
+    // given
+    spyOn(console, "log").mockImplementation(() => {})
+    const ctx = createMockContext({
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant-tools", role: "assistant", finish: "tool-calls" },
+            parts: [
+              {
+                type: "tool",
+                tool: "task",
+                state: {
+                  status: "completed",
+                  output:
+                    "Background task launched.\n\nBackground Task ID: bg_plan_1\nDescription: Inspect plans",
+                },
+              },
+            ],
+          },
+          {
+            info: { id: "msg-system-complete", role: "assistant" },
+            parts: [
+              {
+                type: "text",
+                text:
+                  "<system-reminder>\n[ALL BACKGROUND TASKS COMPLETE]\n\n**Completed:**\n- `bg_plan_1`: Inspect plans\n</system-reminder>",
+              },
+            ],
+          },
+          {
+            info: { id: "msg-assistant-final", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All prerequisite inspection finished." }],
+          },
+        ],
       },
     })
     const { checkCompletionConditions } = await import("./completion")
