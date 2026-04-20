@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs"
+import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs"
 import os from "node:os"
 import { join, resolve } from "node:path"
 import { createOpencodeClient, createOpencodeServer } from "@opencode-ai/sdk"
@@ -311,12 +311,17 @@ export function interpretSmokeMessages(messages: SmokeMessage[] | unknown): Smok
   return { output, state: "pending" }
 }
 
+export function createSmokeWorkspace(baseDir = os.tmpdir()): string {
+  return mkdtempSync(join(baseDir, "oh-my-openagent-verify-smoke-"))
+}
+
 async function runSmoke(agentName: string): Promise<SmokeResult> {
   const port = 44000 + Math.floor(Math.random() * 1000)
   const server = await createOpencodeServer({ port, timeout: 30_000 })
+  const smokeDirectory = createSmokeWorkspace()
   const client = createOpencodeClient({
     baseUrl: server.url,
-    directory: repoRoot,
+    directory: smokeDirectory,
   })
   const timeoutAt = Date.now() + 5 * 60 * 1000
   let latestOutput = ""
@@ -329,7 +334,7 @@ async function runSmoke(agentName: string): Promise<SmokeResult> {
           { permission: "question", action: "deny", pattern: "*" },
         ],
       } as Record<string, unknown>,
-      query: { directory: repoRoot },
+      query: { directory: smokeDirectory },
     })
     const session = normalizeSdkResponse(created, {} as { id?: string })
     const sessionID = typeof session.id === "string" ? session.id : undefined
@@ -346,13 +351,13 @@ async function runSmoke(agentName: string): Promise<SmokeResult> {
         agent: agentName,
         parts: [{ type: "text", text: "Reply with OK only." }],
       },
-      query: { directory: repoRoot },
+      query: { directory: smokeDirectory },
     })
 
     while (Date.now() < timeoutAt) {
       const messagesResponse = await client.session.messages({
         path: { id: sessionID },
-        query: { directory: repoRoot },
+        query: { directory: smokeDirectory },
       })
       const messages = normalizeSdkResponse(messagesResponse, [] as SmokeMessage[])
       const outcome = interpretSmokeMessages(messages)
@@ -378,6 +383,7 @@ async function runSmoke(agentName: string): Promise<SmokeResult> {
   } finally {
     server.close()
     killOpencodeServerOnPort(port)
+    rmSync(smokeDirectory, { recursive: true, force: true })
   }
 }
 

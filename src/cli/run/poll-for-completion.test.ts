@@ -19,11 +19,13 @@ const createMockContext = (overrides: {
   todo?: Todo[]
   childrenBySession?: Record<string, ChildSession[]>
   statuses?: Record<string, SessionStatus>
+  messagesBySession?: Record<string, unknown[]>
 } = {}): RunContext => {
   const {
     todo = [],
     childrenBySession = { "test-session": [] },
     statuses = {},
+    messagesBySession = {},
   } = overrides
 
   return {
@@ -34,6 +36,9 @@ const createMockContext = (overrides: {
           Promise.resolve({ data: childrenBySession[opts.path.id] ?? [] })
         ),
         status: mock(() => Promise.resolve({ data: statuses })),
+        messages: mock((opts: { path: { id: string } }) =>
+          Promise.resolve({ data: messagesBySession[opts.path.id] ?? [] })
+        ),
       },
     } as unknown as RunContext["client"],
     sessionID: "test-session",
@@ -130,6 +135,37 @@ describe("pollForCompletion", () => {
     expect(result).toBe(130)
     const todoCallCount = (ctx.client.session.todo as ReturnType<typeof mock>).mock.calls.length
     expect(todoCallCount).toBe(0)
+  })
+
+  it("does not exit while a child session has no status entry and no settled transcript", async () => {
+    //#given - root is idle, but an active child exists with missing status and no terminal transcript
+    const ctx = createMockContext({
+      childrenBySession: {
+        "test-session": [{ id: "child-1" }],
+        "child-1": [],
+      },
+      statuses: {},
+      messagesBySession: {
+        "child-1": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "inspect plans" }] },
+        ],
+      },
+    })
+    const eventState = createEventState()
+    eventState.mainSessionIdle = true
+    eventState.hasReceivedMeaningfulWork = true
+    const abortController = new AbortController()
+
+    //#when - abort after enough time to prove the poller didn't terminate early
+    abortAfter(abortController, 80)
+    const result = await pollForCompletion(ctx, eventState, abortController, {
+      pollIntervalMs: 10,
+      requiredConsecutive: 1,
+      minStabilizationMs: 10,
+    })
+
+    //#then - run should remain active because the child is still unresolved
+    expect(result).toBe(130)
   })
 
   it("resets consecutive counter when session becomes busy between checks", async () => {

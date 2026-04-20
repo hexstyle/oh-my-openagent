@@ -26,6 +26,7 @@ function createContext(): RuntimeFallbackPluginInput {
     client: {
       session: {
         abort: async () => ({}),
+        update: async () => ({}),
         messages: async () => ({ data: [] }),
         promptAsync: async () => ({}),
       },
@@ -659,6 +660,83 @@ describe("createEventHandler", () => {
         source: "session.error",
       },
     ])
+  })
+
+  it("#given a tracked paid 403 before any meaningful progress #when the event model belongs to internal title generation #then runtime-fallback retries the resolved agent model in-place and primes the root session title", async () => {
+    const sessionID = "session-error-title-prelude-openai-403"
+    const deps = createDeps()
+    deps.pluginConfig = {
+      agents: {
+        prometheus: {
+          model: "anthropic/claude-opus-4-6",
+          fallback_models: [
+            "anthropic/claude-opus-4-6",
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5.3-codex-spark",
+          ],
+        },
+      },
+    }
+    const abortCalls: string[] = []
+    const clearCalls: string[] = []
+    const updateCalls: Array<{ path?: { id: string }; body?: { title: string }; query?: { directory: string } }> = []
+    deps.ctx.client.session.update = async (input) => {
+      updateCalls.push(input)
+      return {}
+    }
+    const helpers = createHelpers(deps, abortCalls, clearCalls)
+    helpers.resolveAgentForSessionFromContext = async () => "prometheus"
+    helpers.retryCurrentModel = async (retrySessionID, retryResolvedAgent, source, options) => {
+      helpers.__retryCurrentModelCallsForTest.push({
+        sessionID: retrySessionID,
+        resolvedAgent: retryResolvedAgent,
+        source,
+        immediate: options?.immediate,
+        persistent: options?.persistent,
+      })
+      return true
+    }
+    const handler = createEventHandler(deps, helpers)
+
+    await handler({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID,
+          model: "openai/gpt-5.4",
+          error: {
+            name: "AI_APICallError",
+            data: {
+              statusCode: 403,
+              message: "Forbidden: request was blocked by a gateway or proxy.",
+              responseBody: "<html><body><p>Unable to load site</p></body></html>",
+            },
+          },
+        },
+      },
+    })
+
+    expect(clearCalls).toEqual([sessionID])
+    expect(abortCalls).toEqual([])
+    expect(updateCalls).toEqual([
+      {
+        path: { id: sessionID },
+        body: { title: "Prometheus (Plan Builder)" },
+        query: { directory: "/test/dir" },
+      },
+    ])
+    expect(deps.sessionStates.get(sessionID)?.currentModel).toBe("anthropic/claude-opus-4-6")
+    expect(helpers.__retryCurrentModelCallsForTest).toEqual([
+      {
+        sessionID,
+        resolvedAgent: "prometheus",
+        source: "session.error.prelude",
+        immediate: true,
+        persistent: false,
+      },
+    ])
+    expect(helpers.__freshRetryCallsForTest).toEqual([])
   })
 
   for (const currentModel of ["anthropic/claude-opus-4-6", "openai/gpt-5.4"]) {

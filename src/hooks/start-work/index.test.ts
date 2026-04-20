@@ -147,6 +147,36 @@ describe("start-work hook", () => {
       expect(lowerText).toContain("do not spend multiple read/bash")
     })
 
+    test("should clear stale boulder state when existing active plan is already complete", async () => {
+      const plansDir = join(testDir, ".sisyphus", "plans")
+      mkdirSync(plansDir, { recursive: true })
+
+      const completedPlanPath = join(plansDir, "project-completion.md")
+      writeFileSync(completedPlanPath, "# Completed Plan\n- [x] Task 1\n- [x] Task 2")
+
+      const state: BoulderState = {
+        active_plan: completedPlanPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: ["session-1"],
+        plan_name: "project-completion",
+      }
+      writeBoulderState(testDir, state)
+
+      const hook = createStartWorkHook(createMockPluginInput())
+      const output = {
+        parts: [{ type: "text", text: "<session-context></session-context>" }],
+      }
+
+      await hook["chat.message"](
+        { sessionID: "session-123" },
+        output
+      )
+
+      expect(output.parts[0].text).toContain("Previous Work Complete")
+      expect(output.parts[0].text).toContain("All Plans Complete")
+      expect(readBoulderState(testDir)).toBeNull()
+    })
+
     test("should resume when checked tasks are still missing required evidence", async () => {
       const planPath = join(testDir, ".sisyphus", "plans", "evidence-gated-plan.md")
       mkdirSync(join(testDir, ".sisyphus", "plans"), { recursive: true })

@@ -10,6 +10,54 @@ function isBlockingChildStatus(type: string | undefined): boolean {
   return type === "busy" || type === "retry" || type === "running"
 }
 
+type CompletionProbeMessagePart = {
+  type?: string
+  text?: string
+}
+
+type CompletionProbeMessage = {
+  info?: {
+    id?: string
+    role?: string
+    finish?: string
+  }
+  parts?: CompletionProbeMessagePart[]
+}
+
+const NON_TERMINAL_FINISH_REASONS = new Set(["tool-calls", "unknown"])
+
+function hasVisibleAssistantContent(messages: CompletionProbeMessage[]): boolean {
+  return messages.some((message) => {
+    if (message.info?.role !== "assistant") return false
+    return (message.parts ?? []).some((part) => {
+      if (part.type !== "text" && part.type !== "reasoning") return false
+      return (part.text ?? "").trim().length > 0
+    })
+  })
+}
+
+function isSessionSettledFromMessages(messages: CompletionProbeMessage[]): boolean {
+  let lastUser: CompletionProbeMessage | undefined
+  let lastAssistant: CompletionProbeMessage | undefined
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (!lastAssistant && message.info?.role === "assistant") lastAssistant = message
+    if (!lastUser && message.info?.role === "user") lastUser = message
+    if (lastUser && lastAssistant) break
+  }
+
+  if (
+    lastAssistant?.info?.finish &&
+    !NON_TERMINAL_FINISH_REASONS.has(lastAssistant.info.finish) &&
+    lastUser
+  ) {
+    return true
+  }
+
+  return !lastAssistant?.info?.finish && hasVisibleAssistantContent(messages)
+}
+
 export async function checkCompletionConditions(ctx: RunContext): Promise<boolean> {
   try {
     const continuationState = getContinuationState(ctx.directory, ctx.sessionID)
@@ -105,6 +153,18 @@ async function areAllDescendantsIdle(
     if (status && isBlockingChildStatus(status.type)) {
       logWaiting(ctx, `session ${child.id.slice(0, 8)}... is ${status.type}`)
       return false
+    }
+
+    if (!status) {
+      const messagesRes = await ctx.client.session.messages({
+        path: { id: child.id },
+      })
+      const messages = normalizeSDKResponse(messagesRes, [] as CompletionProbeMessage[])
+
+      if (!isSessionSettledFromMessages(messages)) {
+        logWaiting(ctx, `session ${child.id.slice(0, 8)}... status unavailable`)
+        return false
+      }
     }
 
     const descendantsIdle = await areAllDescendantsIdle(

@@ -27,9 +27,10 @@ import {
 import { logTrackedProvider403, shouldPreferFreshTrackedProvider403Handoff } from "./provider-403-diagnostics"
 import { maybePauseForManualProviderClearance } from "./manual-provider-clearance"
 import { isRuntimeFallbackScopedHandoffTitle } from "../../shared/runtime-fallback-session-titles"
+import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
 
 export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
-  const { config, options, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRecentActiveStatusUntil, sessionSilentAssistantUpdateCounts, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionFallbackTimeouts, sessionTransientRetryTimeouts, sessionStatusRetryKeys } = deps
+  const { ctx, config, options, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRecentActiveStatusUntil, sessionSilentAssistantUpdateCounts, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionFallbackTimeouts, sessionTransientRetryTimeouts, sessionStatusRetryKeys } = deps
   const sessionStatusHandler = createSessionStatusHandler(deps, helpers, sessionStatusRetryKeys)
   const timeoutEnabled = config.timeout_seconds > 0
 
@@ -550,6 +551,20 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       return
     }
 
+    const primeSessionTitleForRetry = async () => {
+      const updateSession = ctx.client.session.update
+      if (!updateSession) {
+        return
+      }
+
+      const fallbackTitle = normalizeAgentForDisplay(resolvedAgent) ?? resolvedAgent ?? "Session"
+      await updateSession({
+        path: { id: sessionID },
+        body: { title: fallbackTitle },
+        query: { directory: ctx.directory },
+      }).catch(() => {})
+    }
+
     let state = sessionStates.get(sessionID)
     const fallbackModels = getFallbackModelsForSession(sessionID, resolvedAgent, pluginConfig)
 
@@ -558,17 +573,46 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       return
     }
 
+    let bootstrappedFromAgentModelForPrelude403 = false
+
     if (!state) {
+      const agentConfiguredModel = resolveFallbackBootstrapModel({
+        sessionID,
+        source: "session.error.agent-config",
+        resolvedAgent,
+        pluginConfig,
+      })
+      const shouldPreferAgentConfiguredModel =
+        typeof eventModel === "string"
+        && typeof agentConfiguredModel === "string"
+        && !hasSameModelIdentity(eventModel, agentConfiguredModel)
+        && getRuntimeFallbackTier(eventModel) === "paid"
+        && shouldPreferFreshTrackedProvider403Handoff({
+          model: eventModel,
+          error: effectiveError,
+          isScopedFallbackChild: false,
+        })
+
       const initialModel = resolveFallbackBootstrapModel({
         sessionID,
         source: "session.error",
-        eventModel,
+        eventModel: shouldPreferAgentConfiguredModel ? undefined : eventModel,
         resolvedAgent,
         pluginConfig,
       })
       if (!initialModel) {
         log(`[${HOOK_NAME}] No model info available, cannot fallback`, { sessionID })
         return
+      }
+
+      if (shouldPreferAgentConfiguredModel) {
+        bootstrappedFromAgentModelForPrelude403 = true
+        log(`[${HOOK_NAME}] Ignoring internal prelude model while bootstrapping tracked paid 403 recovery`, {
+          sessionID,
+          eventModel,
+          resolvedAgent,
+          bootstrappedModel: initialModel,
+        })
       }
 
       state = createFallbackState(initialModel)
@@ -625,8 +669,24 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
         error: effectiveError,
         isScopedFallbackChild: state.isScopedFallbackChild,
       })
+    const shouldPreferInPlacePreludeRetry =
+      bootstrappedFromAgentModelForPrelude403
+      && state.lastMeaningfulProgressAt === undefined
+      && !state.isScopedFallbackChild
 
     if (isSameModelRetryAction(action)) {
+      if (shouldPreferInPlacePreludeRetry) {
+        await primeSessionTitleForRetry()
+        const retried = await helpers.retryCurrentModel(sessionID, resolvedAgent, "session.error.prelude", {
+          immediate: true,
+          persistent: false,
+          maxAttempts: 1,
+        })
+        if (retried) {
+          return
+        }
+      }
+
       if (preferFreshTrackedProvider403Handoff) {
         const freshRetried = await helpers.retryCurrentModelInFreshSession(
           sessionID,

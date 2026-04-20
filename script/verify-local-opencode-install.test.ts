@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test"
+import { existsSync, mkdirSync, rmSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
 
 import {
   assertSmokeSucceededOrSkippable,
+  createSmokeWorkspace,
   interpretSmokeMessages,
   isSkippableProviderQuotaSmokeFailure,
 } from "./verify-local-opencode-install"
@@ -84,5 +88,19 @@ describe("verify-local-opencode-install smoke handling", () => {
       output: "OK",
       state: "success",
     })
+  })
+
+  test("creates isolated smoke workspace outside the plugin repo state", () => {
+    const baseDir = join(tmpdir(), "verify-local-opencode-install-test")
+    mkdirSync(baseDir, { recursive: true })
+    const workspace = createSmokeWorkspace(baseDir)
+
+    try {
+      expect(existsSync(workspace)).toBe(true)
+      expect(workspace.startsWith(baseDir)).toBe(true)
+      expect(workspace).not.toContain("/proj/hexstyle-oh-my-openagent")
+    } finally {
+      rmSync(baseDir, { recursive: true, force: true })
+    }
   })
 })

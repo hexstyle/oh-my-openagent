@@ -5,11 +5,13 @@ const createMockContext = (overrides: {
   todo?: Todo[]
   childrenBySession?: Record<string, ChildSession[]>
   statuses?: Record<string, SessionStatus>
+  messagesBySession?: Record<string, unknown[]>
 } = {}): RunContext => {
   const {
     todo = [],
     childrenBySession = { "test-session": [] },
     statuses = {},
+    messagesBySession = {},
   } = overrides
 
   return {
@@ -20,6 +22,9 @@ const createMockContext = (overrides: {
           Promise.resolve({ data: childrenBySession[opts.path.id] ?? [] })
         ),
         status: mock(() => Promise.resolve({ data: statuses })),
+        messages: mock((opts: { path: { id: string } }) =>
+          Promise.resolve({ data: messagesBySession[opts.path.id] ?? [] })
+        ),
       },
     } as unknown as RunContext["client"],
     sessionID: "test-session",
@@ -143,7 +148,7 @@ describe("checkCompletionConditions", () => {
     expect(result).toBe(false)
   })
 
-  it("returns true when child status is missing but descendants are idle", async () => {
+  it("returns false when child status is missing and the child transcript is not settled", async () => {
     // given
     spyOn(console, "log").mockImplementation(() => {})
     const ctx = createMockContext({
@@ -152,6 +157,11 @@ describe("checkCompletionConditions", () => {
         "child-1": [],
       },
       statuses: {},
+      messagesBySession: {
+        "child-1": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "inspect plans" }] },
+        ],
+      },
     })
     const { checkCompletionConditions } = await import("./completion")
 
@@ -159,7 +169,7 @@ describe("checkCompletionConditions", () => {
     const result = await checkCompletionConditions(ctx)
 
     // then
-    expect(result).toBe(true)
+    expect(result).toBe(false)
   })
 
   it("returns true when child session is interrupted", async () => {
@@ -190,6 +200,62 @@ describe("checkCompletionConditions", () => {
         "child-1": [],
       },
       statuses: { "child-1": { type: "mystery" } },
+    })
+    const { checkCompletionConditions } = await import("./completion")
+
+    // when
+    const result = await checkCompletionConditions(ctx)
+
+    // then
+    expect(result).toBe(true)
+  })
+
+  it("returns true when child status is missing but the child has a terminal assistant finish", async () => {
+    // given
+    spyOn(console, "log").mockImplementation(() => {})
+    const ctx = createMockContext({
+      childrenBySession: {
+        "test-session": [{ id: "child-1" }],
+        "child-1": [],
+      },
+      statuses: {},
+      messagesBySession: {
+        "child-1": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "inspect plans" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All plans inspected." }],
+          },
+        ],
+      },
+    })
+    const { checkCompletionConditions } = await import("./completion")
+
+    // when
+    const result = await checkCompletionConditions(ctx)
+
+    // then
+    expect(result).toBe(true)
+  })
+
+  it("returns true when child status is missing but the child already emitted visible assistant content", async () => {
+    // given
+    spyOn(console, "log").mockImplementation(() => {})
+    const ctx = createMockContext({
+      childrenBySession: {
+        "test-session": [{ id: "child-1" }],
+        "child-1": [],
+      },
+      statuses: {},
+      messagesBySession: {
+        "child-1": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "inspect plans" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant" },
+            parts: [{ type: "text", text: "I found one incomplete plan." }],
+          },
+        ],
+      },
     })
     const { checkCompletionConditions } = await import("./completion")
 

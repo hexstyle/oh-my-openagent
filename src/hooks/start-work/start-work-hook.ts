@@ -226,6 +226,7 @@ ${delegationKickoffBlock}`
 
 The previous plan (${existingState.plan_name}) has been completed.
 Looking for new plans...`
+          clearBoulderState(ctx.directory)
         }
       }
 

@@ -152,6 +152,7 @@ function buildExistingSessionContext(params: {
   const { existingState, sessionId, activeAgent, worktreePath, worktreeBlock, directory } = params
   const progress = getPlanProgress(existingState.active_plan)
   if (progress.isComplete) {
+    clearBoulderState(directory)
     return `
 ## Previous Work Complete
 
