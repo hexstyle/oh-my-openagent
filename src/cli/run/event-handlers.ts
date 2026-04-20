@@ -72,6 +72,28 @@ function clearRecoveredSessionError(state: EventState): void {
   state.mainSessionError = false
 }
 
+function isRecoveringAssistantPart(
+  part: NonNullable<MessagePartUpdatedProps["part"]>,
+  state: EventState,
+): boolean {
+  if (part.type === "text") {
+    const text = part.text ?? ""
+    return text.length > 0 && text !== state.lastPartText
+  }
+
+  if (part.type === "reasoning") {
+    const reasoningText = part.text ?? ""
+    return reasoningText.length > 0 && reasoningText !== state.lastReasoningText
+  }
+
+  if (part.type === "tool") {
+    const status = part.state?.status
+    return status === "running" || status === "completed" || status === "error"
+  }
+
+  return false
+}
+
 export function handleSessionIdle(ctx: RunContext, payload: EventPayload, state: EventState): void {
   if (payload.type !== "session.idle") return
 
@@ -127,10 +149,12 @@ export function handleMessagePartUpdated(ctx: RunContext, payload: EventPayload,
   const part = props?.part
   if (!part) return
 
-  clearRecoveredSessionError(state)
-
   if (part.id && part.type) {
     state.partTypesById[part.id] = part.type
+  }
+
+  if (isRecoveringAssistantPart(part, state)) {
+    clearRecoveredSessionError(state)
   }
 
   if (part.type === "reasoning") {
@@ -191,9 +215,8 @@ export function handleMessagePartDelta(ctx: RunContext, payload: EventPayload, s
   const delta = props.delta ?? ""
   if (!delta) return
 
-  clearRecoveredSessionError(state)
-
   if (partType === "reasoning") {
+    clearRecoveredSessionError(state)
     ensureThinkBlockOpen(state)
     const padded = writePaddedText(delta, state.thinkingAtLineStart)
     process.stdout.write(pc.dim(padded.output))
@@ -203,6 +226,7 @@ export function handleMessagePartDelta(ctx: RunContext, payload: EventPayload, s
     return
   }
 
+  clearRecoveredSessionError(state)
   closeThinkBlockIfNeeded(state)
 
   const padded = writePaddedText(delta, state.textAtLineStart)
@@ -260,8 +284,6 @@ export function handleMessageUpdated(ctx: RunContext, payload: EventPayload, sta
 
   if (props?.info?.role !== "assistant") return
 
-  clearRecoveredSessionError(state)
-
   const isNewMessage = !messageID || messageID !== state.currentMessageId
   if (isNewMessage) {
     state.currentMessageId = messageID
@@ -297,6 +319,7 @@ export function handleToolExecute(ctx: RunContext, payload: EventPayload, state:
   const props = payload.properties as ToolExecuteProps | undefined
   if (getSessionId(props) !== ctx.sessionID) return
 
+  clearRecoveredSessionError(state)
   closeThinkBlockIfNeeded(state)
 
   if (state.currentTool !== null) return
@@ -316,6 +339,7 @@ export function handleToolResult(ctx: RunContext, payload: EventPayload, state: 
   const props = payload.properties as ToolResultProps | undefined
   if (getSessionId(props) !== ctx.sessionID) return
 
+  clearRecoveredSessionError(state)
   closeThinkBlockIfNeeded(state)
 
   if (state.currentTool === null) return

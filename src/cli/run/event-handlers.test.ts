@@ -1,7 +1,14 @@
 const { describe, it, expect, spyOn } = require("bun:test")
 import type { RunContext } from "./types"
 import { createEventState } from "./events"
-import { handleSessionError, handleSessionStatus, handleMessagePartUpdated, handleMessageUpdated, handleTuiToast } from "./event-handlers"
+import {
+  handleSessionError,
+  handleSessionStatus,
+  handleMessagePartUpdated,
+  handleMessageUpdated,
+  handleToolExecute,
+  handleTuiToast,
+} from "./event-handlers"
 
 const createMockContext = (sessionID: string = "test-session"): RunContext => ({
   sessionID,
@@ -290,6 +297,33 @@ describe("handleMessagePartUpdated", () => {
     stdoutSpy.mockRestore()
   })
 
+  it("does not clear a transient main-session error for patch-only bookkeeping after forbidden", () => {
+    //#given - session.error fired and the only follow-up assistant part is a patch side effect
+    const ctx = createMockContext("ses_main")
+    const state = createEventState()
+    state.mainSessionError = true
+    state.lastError = "Forbidden: Request not allowed"
+
+    const payload = {
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "part_patch",
+          sessionID: "ses_main",
+          messageID: "msg_1",
+          type: "patch",
+        },
+      },
+    }
+
+    //#when
+    handleMessagePartUpdated(ctx, payload as any, state)
+
+    //#then
+    expect(state.mainSessionError).toBe(true)
+    expect(state.hasReceivedMeaningfulWork).toBe(false)
+  })
+
   it("prints completion metadata once when assistant text part is completed", () => {
     // given
     const nowSpy = spyOn(Date, "now").mockReturnValue(3400)
@@ -361,6 +395,65 @@ describe("handleMessagePartUpdated", () => {
 
     stdoutSpy.mockRestore()
     nowSpy.mockRestore()
+  })
+})
+
+describe("handleMessageUpdated", () => {
+  it("does not clear a transient main-session error for assistant bookkeeping updates without visible output", () => {
+    //#given - session.error fired and the assistant message metadata refreshes, but no real recovery output arrived yet
+    const ctx = createMockContext("ses_main")
+    const state = createEventState()
+    state.mainSessionError = true
+    state.lastError = "Forbidden: Request not allowed"
+
+    const payload = {
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "msg_1",
+          sessionID: "ses_main",
+          role: "assistant",
+          agent: "Prometheus (Plan Builder)",
+          modelID: "claude-opus-4-6",
+        },
+      },
+    }
+
+    //#when
+    handleMessageUpdated(ctx, payload as any, state)
+
+    //#then
+    expect(state.mainSessionError).toBe(true)
+    expect(state.currentMessageId).toBe("msg_1")
+    expect(state.currentAgent).toBe("Prometheus (Plan Builder)")
+  })
+})
+
+describe("handleToolExecute", () => {
+  it("clears a transient main-session error when tool execution resumes", () => {
+    //#given - session.error fired but the same session resumed with a real tool execution
+    const ctx = createMockContext("ses_main")
+    const state = createEventState()
+    state.mainSessionError = true
+    state.lastError = "Forbidden: Request not allowed"
+    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation(() => true)
+
+    const payload = {
+      type: "tool.execute",
+      properties: {
+        sessionID: "ses_main",
+        name: "read",
+        input: { filePath: "/tmp/foo.ts" },
+      },
+    }
+
+    //#when
+    handleToolExecute(ctx, payload as any, state)
+
+    //#then
+    expect(state.mainSessionError).toBe(false)
+    expect(state.currentTool).toBe("read")
+    stdoutSpy.mockRestore()
   })
 })
 
