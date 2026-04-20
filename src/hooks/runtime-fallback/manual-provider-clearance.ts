@@ -5,14 +5,11 @@ import {
   isManualProviderClearanceActive,
 } from "./fallback-state"
 import {
-  classifyTracked403ProviderFamily,
-  getTrackedProvider403ClearanceUrl,
+  getTrackedProvider403Details,
 } from "./provider-403-diagnostics"
 import {
   extractStatusCode,
   getErrorMessage,
-  isGatewayBlockedForbiddenError,
-  isTransientForbiddenError,
 } from "./error-classifier"
 import { HOOK_NAME } from "./constants"
 import { log } from "../../shared/logger"
@@ -23,26 +20,14 @@ function isTrackedProvider403(args: {
   model: string | undefined
   error: unknown
 }): { providerFamily: "claude" | "codex"; url: string } | undefined {
-  const providerFamily = classifyTracked403ProviderFamily(args.model)
-  if (!providerFamily) {
-    return undefined
-  }
-
+  const tracked403 = getTrackedProvider403Details(args)
   const statusCode = extractStatusCode(args.error, [403])
   const message = getErrorMessage(args.error)
-  const isTrackedForbidden =
-    isGatewayBlockedForbiddenError(args.error) || isTransientForbiddenError(args.error)
-  if (!isTrackedForbidden && statusCode !== 403 && !/\b403\b/.test(message)) {
+  if (!tracked403 && statusCode !== 403 && !/\b403\b/.test(message)) {
     return undefined
   }
 
-  return {
-    providerFamily,
-    url: getTrackedProvider403ClearanceUrl({
-      providerFamily,
-      error: args.error,
-    }),
-  }
+  return tracked403
 }
 
 function formatManualProviderClearanceMessage(args: {

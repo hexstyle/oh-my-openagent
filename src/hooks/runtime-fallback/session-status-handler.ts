@@ -22,7 +22,7 @@ import {
   selectFallbackModelsForAction,
 } from "./fallback-policy"
 import { isQuotaAutoRetrySignal } from "./error-classifier"
-import { logTrackedProvider403 } from "./provider-403-diagnostics"
+import { logTrackedProvider403, shouldPreferFreshTrackedProvider403Handoff } from "./provider-403-diagnostics"
 import { maybePauseForManualProviderClearance } from "./manual-provider-clearance"
 import {
   clearRecentCompletionState,
@@ -262,8 +262,28 @@ export function createSessionStatusHandler(
       return
     }
 
+    const preferFreshTrackedProvider403Handoff =
+      getRuntimeFallbackTier(state.currentModel) === "paid"
+      && shouldPreferFreshTrackedProvider403Handoff({
+        model: state.currentModel,
+        error: { message: retryMessage },
+        isScopedFallbackChild: state.isScopedFallbackChild,
+      })
+
     if (isSameModelRetryAction(retryAction)) {
       const maxAttempts = getSameModelRetryAttemptLimit({ message: retryMessage }, retryAction)
+      if (preferFreshTrackedProvider403Handoff) {
+        await helpers.abortSessionRequest(sessionID, "session.status.tracked-provider-403")
+        const freshRetried = await helpers.retryCurrentModelInFreshSession(
+          sessionID,
+          resolvedAgent,
+          "session.status",
+        )
+        if (freshRetried) {
+          return
+        }
+      }
+
       await helpers.abortSessionRequest(sessionID, "session.status.transient-retry")
 
       const retried = await helpers.retryCurrentModel(
@@ -280,7 +300,7 @@ export function createSessionStatusHandler(
         return
       }
 
-      if (getRuntimeFallbackTier(state.currentModel) === "paid") {
+      if (!preferFreshTrackedProvider403Handoff && getRuntimeFallbackTier(state.currentModel) === "paid") {
         const freshRetried = await helpers.retryCurrentModelInFreshSession(
           sessionID,
           resolvedAgent,

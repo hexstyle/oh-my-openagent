@@ -365,7 +365,7 @@ describe("createSessionStatusHandler", () => {
     ])
   })
 
-  it("#given a request-not-allowed 403 retry status #when the handler sees it #then it schedules a delayed same-model retry and emits a provider diagnostic log", async () => {
+  it("#given a request-not-allowed 403 retry status on a paid model #when the handler sees it #then it opens a fresh same-model handoff and emits a provider diagnostic log", async () => {
     const sessionID = "session-status-transient-forbidden"
     SessionCategoryRegistry.clear()
     SessionCategoryRegistry.register(sessionID, "test")
@@ -395,18 +395,15 @@ describe("createSessionStatusHandler", () => {
     })
 
     expect(abortCalls).toEqual([sessionID])
-    expect(sameModelRetryCalls).toEqual([
+    expect(sameModelRetryCalls).toEqual([])
+    expect(retryCalls).toEqual([])
+    expect(freshRetryCalls).toEqual([
       {
         sessionID,
-        source: "session.status.transient_same_model",
-        immediate: false,
-        persistent: false,
         resolvedAgent: undefined,
-        maxAttempts: 3,
+        source: "session.status",
       },
     ])
-    expect(retryCalls).toEqual([])
-    expect(freshRetryCalls).toEqual([])
     expect(scheduleCalls).toEqual([])
     expect(state.currentModel).toBe("anthropic/claude-opus-4-6")
 
@@ -461,16 +458,7 @@ describe("createSessionStatusHandler", () => {
     })
 
     expect(abortCalls).toEqual([sessionID])
-    expect(sameModelRetryCalls).toEqual([
-      {
-        sessionID,
-        source: "session.status.transient_same_model",
-        immediate: false,
-        persistent: false,
-        resolvedAgent: "sisyphus-junior",
-        maxAttempts: 3,
-      },
-    ])
+    expect(sameModelRetryCalls).toEqual([])
     expect(freshRetryCalls).toEqual([
       {
         sessionID,

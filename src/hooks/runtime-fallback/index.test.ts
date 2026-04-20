@@ -28,6 +28,8 @@ describe("runtime-fallback", () => {
       messages?: (args: unknown) => Promise<unknown>
       promptAsync?: (args: unknown) => Promise<unknown>
       abort?: (args: unknown) => Promise<unknown>
+      create?: (args: unknown) => Promise<unknown>
+      get?: (args: unknown) => Promise<unknown>
     }
   }) {
     return {
@@ -45,6 +47,8 @@ describe("runtime-fallback", () => {
           messages: overrides?.session?.messages ?? (async () => ({ data: [] })),
           promptAsync: overrides?.session?.promptAsync ?? (async () => ({})),
           abort: overrides?.session?.abort ?? (async () => ({})),
+          create: overrides?.session?.create,
+          get: overrides?.session?.get,
         },
       },
       directory: "/test/dir",
@@ -519,6 +523,8 @@ describe("runtime-fallback", () => {
             messages: async () => ({
               data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
             }),
+            create: async () => ({ data: { id: "ses_fresh_child" } }),
+            get: async () => ({ data: { directory: "/test/dir" } }),
             promptAsync: async (input) => {
               promptCalls.push(input as Record<string, unknown>)
               return {}
@@ -580,7 +586,7 @@ describe("runtime-fallback", () => {
       expect(fallbackLogs).toHaveLength(0)
     })
 
-    test("tool execution aborted wrapper around request-not-allowed 403 schedules a delayed same-model retry for codex models", async () => {
+    test("tool execution aborted wrapper around request-not-allowed 403 opens a fresh same-model handoff for codex models", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(
         createMockPluginInput({
@@ -588,6 +594,8 @@ describe("runtime-fallback", () => {
             messages: async () => ({
               data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
             }),
+            create: async () => ({ data: { id: "ses_fresh_child" } }),
+            get: async () => ({ data: { directory: "/test/dir" } }),
             promptAsync: async (input) => {
               promptCalls.push(input as Record<string, unknown>)
               return {}
@@ -632,10 +640,6 @@ describe("runtime-fallback", () => {
         },
       })
 
-      expect(promptCalls).toHaveLength(0)
-
-      await new Promise((resolve) => setTimeout(resolve, 20))
-
       expect(promptCalls).toHaveLength(1)
       expect(
         (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
@@ -643,6 +647,7 @@ describe("runtime-fallback", () => {
         providerID: "openai",
         modelID: "gpt-5.4",
       })
+      expect((promptCalls[0].path as { id?: string } | undefined)?.id).toBe("ses_fresh_child")
 
       const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
       expect(fallbackLogs).toHaveLength(0)
@@ -665,6 +670,8 @@ describe("runtime-fallback", () => {
             messages: async () => ({
               data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
             }),
+            create: async () => ({ data: { id: "ses_fresh_child" } }),
+            get: async () => ({ data: { directory: "/test/dir" } }),
             promptAsync: async (input) => {
               promptCalls.push(input as Record<string, unknown>)
               return {}
@@ -721,7 +728,7 @@ describe("runtime-fallback", () => {
       expect(fallbackLogs).toHaveLength(0)
     })
 
-    test("embedded forbidden request-not-allowed wrapper messages schedule a delayed same-model retry", async () => {
+    test("embedded forbidden request-not-allowed wrapper messages open a fresh same-model handoff", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(
         createMockPluginInput({
@@ -729,6 +736,8 @@ describe("runtime-fallback", () => {
             messages: async () => ({
               data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
             }),
+            create: async () => ({ data: { id: "ses_fresh_child" } }),
+            get: async () => ({ data: { directory: "/test/dir" } }),
             promptAsync: async (input) => {
               promptCalls.push(input as Record<string, unknown>)
               return {}
@@ -769,10 +778,6 @@ describe("runtime-fallback", () => {
         },
       })
 
-      expect(promptCalls).toHaveLength(0)
-
-      await new Promise((resolve) => setTimeout(resolve, 20))
-
       expect(promptCalls).toHaveLength(1)
       expect(
         (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
@@ -780,12 +785,13 @@ describe("runtime-fallback", () => {
         providerID: "openai",
         modelID: "gpt-5.4",
       })
+      expect((promptCalls[0].path as { id?: string } | undefined)?.id).toBe("ses_fresh_child")
 
       const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
       expect(fallbackLogs).toHaveLength(0)
     })
 
-    test("request-not-allowed 403 falls through to the next paid model when the transient retry window is disabled", async () => {
+    test("request-not-allowed 403 still opens a fresh same-model handoff when the transient retry window is disabled", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(
         createMockPluginInput({
@@ -793,6 +799,8 @@ describe("runtime-fallback", () => {
             messages: async () => ({
               data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
             }),
+            create: async () => ({ data: { id: "ses_fresh_child" } }),
+            get: async () => ({ data: { directory: "/test/dir" } }),
             promptAsync: async (input) => {
               promptCalls.push(input as Record<string, unknown>)
               return {}
@@ -841,11 +849,12 @@ describe("runtime-fallback", () => {
         (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
       ).toEqual({
         providerID: "openai",
-        modelID: "gpt-5.3-codex-spark",
+        modelID: "gpt-5.4",
       })
+      expect((promptCalls[0].path as { id?: string } | undefined)?.id).toBe("ses_fresh_child")
 
       const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
-      expect(fallbackLogs.length).toBeGreaterThan(0)
+      expect(fallbackLogs).toHaveLength(0)
     })
 
     test("tool execution aborted wrapper around transient 500 retries the current model immediately", async () => {
@@ -856,6 +865,8 @@ describe("runtime-fallback", () => {
             messages: async () => ({
               data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
             }),
+            create: async () => ({ data: { id: "ses_fresh_child" } }),
+            get: async () => ({ data: { directory: "/test/dir" } }),
             promptAsync: async (input) => {
               promptCalls.push(input as Record<string, unknown>)
               return {}
@@ -1032,7 +1043,7 @@ describe("runtime-fallback", () => {
       expect(fallbackLogs).toHaveLength(0)
     })
 
-    test("request-not-allowed 403 on claude schedules a delayed same-model retry and session.idle does not duplicate it", async () => {
+    test("request-not-allowed 403 on claude opens a fresh same-model handoff and session.idle does not duplicate it", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(
         createMockPluginInput({
@@ -1040,6 +1051,8 @@ describe("runtime-fallback", () => {
             messages: async () => ({
               data: [{ info: { role: "user" }, parts: [{ type: "text", text: "hello" }] }],
             }),
+            create: async () => ({ data: { id: "ses_fresh_child" } }),
+            get: async () => ({ data: { directory: "/test/dir" } }),
             promptAsync: async (input) => {
               promptCalls.push(input as Record<string, unknown>)
               return {}
@@ -1088,8 +1101,6 @@ describe("runtime-fallback", () => {
         },
       })
 
-      expect(promptCalls).toHaveLength(0)
-
       const provider403Log = logCalls.find((call) => call.msg.includes("Observed tracked provider 403"))
       expect(provider403Log?.data).toMatchObject({
         sessionID,
@@ -1099,8 +1110,6 @@ describe("runtime-fallback", () => {
         statusCode: 403,
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 20))
-
       expect(promptCalls).toHaveLength(1)
       expect(
         (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
@@ -1108,6 +1117,7 @@ describe("runtime-fallback", () => {
         providerID: "anthropic",
         modelID: "claude-opus-4-6",
       })
+      expect((promptCalls[0].path as { id?: string } | undefined)?.id).toBe("ses_fresh_child")
 
       await hook.event({
         event: {
@@ -1117,9 +1127,6 @@ describe("runtime-fallback", () => {
       })
 
       expect(promptCalls).toHaveLength(1)
-
-      await new Promise((resolve) => setTimeout(resolve, 20))
-
       expect(promptCalls).toHaveLength(1)
 
       const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
@@ -1540,7 +1547,7 @@ describe("runtime-fallback", () => {
       expect(body?.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" })
     })
 
-    test("gateway/proxy-blocked 403 in message.updated assistant error schedules a delayed same-model retry", async () => {
+    test("gateway/proxy-blocked 403 in message.updated assistant error opens a fresh same-model handoff", async () => {
       const promptCalls: Array<Record<string, unknown>> = []
       const hook = createRuntimeFallbackHook(
         createMockPluginInput({
@@ -1548,6 +1555,8 @@ describe("runtime-fallback", () => {
             messages: async () => ({
               data: [{ info: { role: "user" }, parts: [{ type: "text", text: "Continue the parity work." }] }],
             }),
+            create: async () => ({ data: { id: "ses_fresh_child" } }),
+            get: async () => ({ data: { directory: "/test/dir" } }),
             promptAsync: async (input) => {
               promptCalls.push(input as Record<string, unknown>)
               return {}
@@ -1600,8 +1609,6 @@ describe("runtime-fallback", () => {
         },
       })
 
-      expect(promptCalls).toHaveLength(0)
-
       const provider403Log = logCalls.find((call) => call.msg.includes("Observed tracked provider 403"))
       expect(provider403Log?.data).toMatchObject({
         sessionID,
@@ -1611,20 +1618,10 @@ describe("runtime-fallback", () => {
         statusCode: 403,
       })
 
-      await waitFor(() => promptCalls.length === 1)
-
       expect(promptCalls).toHaveLength(1)
       const body = promptCalls[0]?.body as { model?: { providerID?: string; modelID?: string } } | undefined
       expect(body?.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" })
-
-      const delayedRetryLog = logCalls.find((call) =>
-        call.msg.includes("Scheduling delayed transient retry on current model"),
-      )
-      expect(delayedRetryLog?.data).toMatchObject({
-        sessionID,
-        currentModel: "openai/gpt-5.4",
-        persistent: false,
-      })
+      expect((promptCalls[0]?.path as { id?: string } | undefined)?.id).toBe("ses_fresh_child")
     })
 
     test("should bootstrap session.error fallback from session category model and preserve variant", async () => {

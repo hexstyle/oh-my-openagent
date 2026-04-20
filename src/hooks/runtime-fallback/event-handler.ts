@@ -24,7 +24,7 @@ import {
   isSameModelRetryAction,
   selectFallbackModelsForAction,
 } from "./fallback-policy"
-import { logTrackedProvider403 } from "./provider-403-diagnostics"
+import { logTrackedProvider403, shouldPreferFreshTrackedProvider403Handoff } from "./provider-403-diagnostics"
 import { maybePauseForManualProviderClearance } from "./manual-provider-clearance"
 import { isRuntimeFallbackScopedHandoffTitle } from "../../shared/runtime-fallback-session-titles"
 
@@ -618,7 +618,26 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       markLimitError(state)
     }
 
+    const preferFreshTrackedProvider403Handoff =
+      getRuntimeFallbackTier(state.currentModel) === "paid"
+      && shouldPreferFreshTrackedProvider403Handoff({
+        model: state.currentModel,
+        error: effectiveError,
+        isScopedFallbackChild: state.isScopedFallbackChild,
+      })
+
     if (isSameModelRetryAction(action)) {
+      if (preferFreshTrackedProvider403Handoff) {
+        const freshRetried = await helpers.retryCurrentModelInFreshSession(
+          sessionID,
+          resolvedAgent,
+          "session.error",
+        )
+        if (freshRetried) {
+          return
+        }
+      }
+
       const maxAttempts = getSameModelRetryAttemptLimit(effectiveError, action)
       const retried = await helpers.retryCurrentModel(sessionID, resolvedAgent, "session.error", {
         immediate: action === "retry_same_model",
@@ -629,7 +648,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
         return
       }
 
-      if (getRuntimeFallbackTier(state.currentModel) === "paid") {
+      if (!preferFreshTrackedProvider403Handoff && getRuntimeFallbackTier(state.currentModel) === "paid") {
         const freshRetried = await helpers.retryCurrentModelInFreshSession(
           sessionID,
           resolvedAgent,

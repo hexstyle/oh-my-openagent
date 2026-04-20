@@ -1,8 +1,68 @@
 import { log } from "../../shared/logger"
 import { HOOK_NAME } from "./constants"
-import { classifyErrorType, extractErrorName, extractStatusCode, getErrorMessage } from "./error-classifier"
+import {
+  classifyErrorType,
+  extractErrorName,
+  extractStatusCode,
+  getErrorMessage,
+  isGatewayBlockedForbiddenError,
+} from "./error-classifier"
 
 type Tracked403ProviderFamily = "claude" | "codex"
+
+function isRequestNotAllowedForbiddenError(error: unknown): boolean {
+  const message = getErrorMessage(error)
+  if (/\brequest not allowed\b/i.test(message)) {
+    return true
+  }
+
+  try {
+    return /\brequest not allowed\b/i.test(JSON.stringify(error))
+  } catch {
+    return false
+  }
+}
+
+export function getTrackedProvider403Details(args: {
+  model: string | undefined
+  error: unknown
+}): { providerFamily: Tracked403ProviderFamily; url: string } | undefined {
+  const providerFamily = classifyTracked403ProviderFamily(args.model)
+  if (!providerFamily) {
+    return undefined
+  }
+
+  const isAccessBlocked403 =
+    isGatewayBlockedForbiddenError(args.error)
+    || isRequestNotAllowedForbiddenError(args.error)
+
+  if (!isAccessBlocked403) {
+    return undefined
+  }
+
+  return {
+    providerFamily,
+    url: getTrackedProvider403ClearanceUrl({
+      providerFamily,
+      error: args.error,
+    }),
+  }
+}
+
+export function shouldPreferFreshTrackedProvider403Handoff(args: {
+  model: string | undefined
+  error: unknown
+  isScopedFallbackChild?: boolean
+}): boolean {
+  if (args.isScopedFallbackChild) {
+    return false
+  }
+
+  return getTrackedProvider403Details({
+    model: args.model,
+    error: args.error,
+  }) !== undefined
+}
 
 export function classifyTracked403ProviderFamily(model: string | undefined): Tracked403ProviderFamily | undefined {
   const normalized = model?.trim().toLowerCase()

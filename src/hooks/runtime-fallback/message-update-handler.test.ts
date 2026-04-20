@@ -732,12 +732,13 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     ])
   })
 
-  it("#given a paid transient 403 exhausts same-model retries #when message.updated handles the assistant error #then runtime-fallback opens a fresh same-model handoff before paid fallback", async () => {
+  it("#given a paid request-not-allowed 403 #when message.updated handles the assistant error #then runtime-fallback opens a fresh same-model handoff before any same-session retry", async () => {
     const { createMessageUpdateHandler } = await import(`./message-update-handler?fresh-paid-retry-${Date.now()}-${Math.random()}`)
     const sessionID = "session-fresh-paid-retry"
     const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
     const autoRetryCalls: Array<{ sessionID: string; model: string; source: string }> = []
     const freshRetryCalls: Array<{ sessionID: string; resolvedAgent?: string; source: string }> = []
+    const retryCurrentModelCalls: Array<{ sessionID: string; resolvedAgent?: string; source: string }> = []
     const deps = createDeps({
       data: [
         { info: { role: "user" }, parts: [{ type: "text", text: "Continue the task." }] },
@@ -761,7 +762,10 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     deps.sessionStates.set(sessionID, state)
 
     const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls, {
-      retryCurrentModel: async () => false,
+      retryCurrentModel: async (retrySessionID, resolvedAgent, source) => {
+        retryCurrentModelCalls.push({ sessionID: retrySessionID, resolvedAgent, source })
+        return false
+      },
       retryCurrentModelInFreshSession: async (retrySessionID, resolvedAgent, source) => {
         freshRetryCalls.push({ sessionID: retrySessionID, resolvedAgent, source })
         return true
@@ -796,6 +800,7 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
         source: "message.updated",
       },
     ])
+    expect(retryCurrentModelCalls).toEqual([])
     expect(autoRetryCalls).toEqual([])
   })
 
