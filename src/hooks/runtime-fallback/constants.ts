@@ -68,6 +68,7 @@ export const FALLBACK_CONTINUATION_PROMPT = "[runtime-fallback] Continue the cur
 export const LONG_RUNNING_PROGRESS_TIMEOUT_MULTIPLIER = 4
 export const ACTIVE_STATUS_MESSAGE_UPDATE_GRACE_MS = 5_000
 const LONG_RUNNING_PENDING_TOOL_NAMES = new Set(["task", "call_omo_agent"])
+const LONG_RUNNING_PREEXECUTION_TOOL_NAMES = new Set(["write", "apply_patch", "todowrite"])
 const LONG_RUNNING_REGROUP_TOOL_NAMES = new Set(["write", "apply_patch", "todowrite"])
 const LONG_RUNNING_TERMINAL_TOOL_STATUSES = new Set(["completed", "error", "aborted", "interrupted"])
 
@@ -89,6 +90,7 @@ export function isLongRunningAssistantProgress(args: {
     || (
       args.partType === "tool" && (
         args.toolStatus === "running"
+        || isPreExecutionRegroupToolProgress(args)
         || (
           args.toolStatus === "pending"
           && LONG_RUNNING_PENDING_TOOL_NAMES.has(args.toolName ?? "")
@@ -99,6 +101,18 @@ export function isLongRunningAssistantProgress(args: {
         )
       )
     )
+  )
+}
+
+export function isPreExecutionRegroupToolProgress(args: {
+  partType?: string
+  toolStatus?: string
+  toolName?: string
+}): boolean {
+  return (
+    args.partType === "tool"
+    && (args.toolStatus === undefined || args.toolStatus === "pending")
+    && LONG_RUNNING_PREEXECUTION_TOOL_NAMES.has(args.toolName ?? "")
   )
 }
 
