@@ -11,6 +11,13 @@ function getMarkerPath(directory: string, sessionID: string): string {
   return join(directory, CONTINUATION_MARKER_DIR, `${sessionID}.json`)
 }
 
+function shouldPersistMarker(marker: ContinuationMarker): boolean {
+  return Object.values(marker.sources).some((entry) => {
+    const state = entry?.state
+    return state === "active" || state === "stopped"
+  })
+}
+
 export function readContinuationMarker(
   directory: string,
   sessionID: string,
@@ -51,6 +58,12 @@ export function setContinuationMarkerSource(
   }
 
   const markerPath = getMarkerPath(directory, sessionID)
+
+  if (!shouldPersistMarker(next)) {
+    clearContinuationMarker(directory, sessionID)
+    return next
+  }
+
   mkdirSync(join(directory, CONTINUATION_MARKER_DIR), { recursive: true })
   writeFileSync(markerPath, JSON.stringify(next, null, 2), "utf-8")
   return next

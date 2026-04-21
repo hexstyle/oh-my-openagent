@@ -307,6 +307,28 @@ describe("todo-continuation-enforcer", () => {
     expect(promptCalls[0].text).toContain("TODO CONTINUATION")
   }, { timeout: 15000 })
 
+  test("should inject continuation when idle uses camelCase sessionId", async () => {
+    fakeTimers.restore()
+    // given
+    const sessionID = "main-camel-idle"
+    setMainSession(sessionID)
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {
+      backgroundManager: createMockBackgroundManager(false),
+    })
+
+    // when
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionId: sessionID } },
+    })
+
+    // then
+    await wait(2500)
+    expect(promptCalls.length).toBe(1)
+    expect(promptCalls[0].sessionID).toBe(sessionID)
+    expect(promptCalls[0].text).toContain("TODO CONTINUATION")
+  }, { timeout: 15000 })
+
   test("should mark todo continuation active during countdown and clear it on assistant activity", async () => {
     // given - idle session with incomplete todos starting continuation countdown
     const sessionID = "main-marker"
@@ -334,8 +356,8 @@ describe("todo-continuation-enforcer", () => {
       },
     })
 
-    // then - the marker is cleared back to idle
-    expect(readContinuationMarker(currentDirectory, sessionID)?.sources.todo?.state).toBe("idle")
+    // then - idle todo markers should be removed instead of leaking one file per session
+    expect(readContinuationMarker(currentDirectory, sessionID)).toBeNull()
   })
 
   test("should not inject when all todos are complete", async () => {
@@ -2144,8 +2166,8 @@ describe("todo-continuation-enforcer", () => {
     expect(promptCalls).toHaveLength(0)
   })
 
-  test("should skip injection when prometheus agent is after compaction", async () => {
-    // given - prometheus session that was compacted
+  test("should inject continuation when prometheus agent is after compaction", async () => {
+    // given - prometheus session that was compacted and still has incomplete planning todos
     const sessionID = "main-prometheus-compacted"
     setMainSession(sessionID)
 
@@ -2195,8 +2217,10 @@ describe("todo-continuation-enforcer", () => {
 
      await fakeTimers.advanceBy(3000)
 
-     // then - no continuation (prometheus found after filtering compaction, prometheus is in skipAgents)
-    expect(promptCalls).toHaveLength(0)
+     // then - continuation injects for Prometheus planning work
+    expect(promptCalls).toHaveLength(1)
+    expect(promptCalls[0].sessionID).toBe(sessionID)
+    expect(promptCalls[0].text).toContain("TODO CONTINUATION")
   })
 
   test("should inject when agent info is undefined but skipAgents is empty", async () => {

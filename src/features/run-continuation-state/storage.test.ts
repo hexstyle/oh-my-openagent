@@ -75,6 +75,33 @@ describe("run-continuation-state storage", () => {
     expect(isActive).toBe(false)
   })
 
+  it("removes idle-only marker files instead of accumulating one per session", () => {
+    // given
+    const directory = createTempDir()
+    const sessionID = "ses_idle_only"
+
+    // when
+    setContinuationMarkerSource(directory, sessionID, "todo", "active", "pending")
+    setContinuationMarkerSource(directory, sessionID, "todo", "idle")
+    const marker = readContinuationMarker(directory, sessionID)
+
+    // then
+    expect(marker).toBeNull()
+  })
+
+  it("preserves stopped markers for explicit stop-continuation state", () => {
+    // given
+    const directory = createTempDir()
+    const sessionID = "ses_stopped"
+
+    // when
+    setContinuationMarkerSource(directory, sessionID, "stop", "stopped", "user requested stop")
+    const marker = readContinuationMarker(directory, sessionID)
+
+    // then
+    expect(marker?.sources.stop?.state).toBe("stopped")
+  })
+
   it("clears marker for a session", () => {
     // given
     const directory = createTempDir()
