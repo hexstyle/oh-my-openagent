@@ -28,6 +28,8 @@ import {
   clearRecentCompletionState,
   shouldSuppressRecentCompletionReplay,
 } from "./recent-completion-guard"
+import { getRuntimeFallbackSessionID } from "./session-id"
+import { applyScopedFallbackSessionHint } from "./scoped-fallback-hints"
 
 const ACTIVE_SESSION_STATUS_TYPES = new Set(["busy", "running"])
 
@@ -48,7 +50,7 @@ export function createSessionStatusHandler(
   } = deps
 
   return async (props: Record<string, unknown> | undefined) => {
-    const sessionID = props?.sessionID as string | undefined
+    const sessionID = getRuntimeFallbackSessionID(props)
     const status = props?.status as { type?: string; message?: string; attempt?: number } | undefined
     const agent = props?.agent as string | undefined
     const model = props?.model as string | undefined
@@ -82,6 +84,7 @@ export function createSessionStatusHandler(
 
         if (initialModel) {
           state = createFallbackState(initialModel)
+          applyScopedFallbackSessionHint(deps, sessionID, state)
           sessionStates.set(sessionID, state)
         }
       }
@@ -184,6 +187,7 @@ export function createSessionStatusHandler(
       }
 
       state = createFallbackState(initialModel)
+      applyScopedFallbackSessionHint(deps, sessionID, state)
       sessionStates.set(sessionID, state)
     }
 

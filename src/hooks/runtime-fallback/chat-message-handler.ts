@@ -2,6 +2,7 @@ import type { HookDeps } from "./types"
 import { HOOK_NAME } from "./constants"
 import { log } from "../../shared/logger"
 import { createFallbackState, recoverPreferredModel } from "./fallback-state"
+import { applyScopedFallbackSessionHint } from "./scoped-fallback-hints"
 
 export function createChatMessageHandler(deps: HookDeps) {
   const { config, sessionStates, sessionLastAccess } = deps
@@ -43,6 +44,7 @@ export function createChatMessageHandler(deps: HookDeps) {
         to: requestedModel,
       })
       state = createFallbackState(requestedModel)
+      applyScopedFallbackSessionHint(deps, sessionID, state)
       sessionStates.set(sessionID, state)
       return
     }

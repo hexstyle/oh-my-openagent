@@ -103,6 +103,16 @@ export interface FallbackState {
   /** Timestamp of the last real assistant/tool progress that should allow
    *  the active session.status path to extend the watchdog once more. */
   lastMeaningfulProgressAt?: number
+  /** Timestamp of the last durable assistant progress marker stored from
+   *  message.updated / message.part.updated events. Delta-only streaming churn
+   *  may refresh the watchdog for a bounded grace window, but should not keep
+   *  a stalled session alive forever without any persisted transcript change. */
+  lastDurableAssistantProgressAt?: number
+  /** Absolute deadline for an already-earned long-running assistant progress
+   *  window. Shorter follow-up bookkeeping updates should not immediately
+   *  collapse the watchdog back to the base timeout while the model is still
+   *  transitioning into a local write/apply_patch/todowrite step. */
+  longRunningProgressUntil?: number
   /** Timestamp of the last assistant/session error. Used to distinguish
    *  a clean terminal idle from an idle event that merely followed an abort. */
   lastErrorAt?: number
@@ -176,6 +186,7 @@ export interface HookDeps {
   sessionRecentCompletionUntil: Map<string, number>
   sessionRecentActiveStatusUntil?: Map<string, number>
   sessionSilentAssistantUpdateCounts?: Map<string, number>
+  sessionScopedFallbackHints?: Set<string>
   sessionRetryInFlight: Set<string>
   sessionAwaitingFallbackResult: Set<string>
   sessionFallbackTimeouts: Map<string, RuntimeFallbackTimeout>

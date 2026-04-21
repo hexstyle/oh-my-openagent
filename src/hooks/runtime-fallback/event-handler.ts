@@ -3,6 +3,7 @@ import type { AutoRetryHelpers } from "./auto-retry"
 import {
   HOOK_NAME,
   isLongRunningAssistantProgress,
+  isPreExecutionRegroupToolProgress,
   resolveLongRunningProgressTimeoutMs,
 } from "./constants"
 import { resolveRecentActiveStatusTimeoutOverride } from "./active-status-timeout"
@@ -26,8 +27,13 @@ import {
 } from "./fallback-policy"
 import { logTrackedProvider403, shouldPreferFreshTrackedProvider403Handoff } from "./provider-403-diagnostics"
 import { maybePauseForManualProviderClearance } from "./manual-provider-clearance"
-import { isRuntimeFallbackScopedHandoffTitle } from "../../shared/runtime-fallback-session-titles"
 import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
+import { getRuntimeFallbackSessionID } from "./session-id"
+import {
+  applyScopedFallbackSessionHint,
+  clearScopedFallbackSessionHint,
+  rememberScopedFallbackSessionHint,
+} from "./scoped-fallback-hints"
 
 export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   const { ctx, config, options, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRecentActiveStatusUntil, sessionSilentAssistantUpdateCounts, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionFallbackTimeouts, sessionTransientRetryTimeouts, sessionStatusRetryKeys } = deps
@@ -61,12 +67,15 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       return false
     }
 
-    sessionStates.set(args.sessionID, createFallbackState(model))
+    const state = createFallbackState(model)
+    applyScopedFallbackSessionHint(deps, args.sessionID, state)
+    sessionStates.set(args.sessionID, state)
     log(`[${HOOK_NAME}] Bootstrapped fallback state for active-session watchdog`, {
       sessionID: args.sessionID,
       source: args.source,
       model,
       eventAgent: args.eventAgent,
+      isScopedFallbackChild: state.isScopedFallbackChild,
     })
     return true
   }
@@ -76,11 +85,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
 
     const info = props?.info as Record<string, unknown> | undefined
     const part = props?.part as Record<string, unknown> | undefined
-    const sessionID =
-      (info?.sessionID as string | undefined) ??
-      (part?.sessionID as string | undefined) ??
-      (props?.sessionID as string | undefined) ??
-      (props?.sessionId as string | undefined)
+    const sessionID = getRuntimeFallbackSessionID(props)
     const role = (info?.role as string | undefined) ?? "assistant"
     if (!sessionID || role !== "assistant") return
 
@@ -103,16 +108,54 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
 
     const partType = typeof part?.type === "string" ? part.type : undefined
     const toolName = typeof part?.tool === "string" ? part.tool : undefined
-    const toolStatus = typeof part?.state === "object" && part.state
-      ? (part.state as { status?: string }).status
+    const toolState = typeof part?.state === "object" && part.state
+      ? (part.state as Record<string, unknown>)
       : undefined
-    const toolError = typeof part?.state === "object" && part.state
-      ? (part.state as { error?: string }).error
+    const toolStatus = toolState
+      ? (toolState as { status?: string }).status
+      : undefined
+    const toolError = toolState
+      ? (toolState as { error?: string }).error
       : undefined
     const partText = typeof part?.text === "string" ? part.text.trim() : ""
     const delta = typeof props?.delta === "string" ? props.delta : ""
     const field = typeof props?.field === "string" ? props.field : undefined
     const state = sessionStates.get(sessionID)
+    const now = Date.now()
+    const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
+    const isTextDeltaProgress =
+      source === "message.part.delta"
+      && field === "text"
+      && delta.trim().length > 0
+    if (isTextDeltaProgress && state) {
+      const durableAnchor = state.lastDurableAssistantProgressAt
+      if (
+        durableAnchor !== undefined
+        && now - durableAnchor >= baseTimeoutMs
+      ) {
+        log(`[${HOOK_NAME}] Ignored delta-only assistant churn after durable progress window expired`, {
+          sessionID,
+          source,
+          resolvedAgent: state.resolvedAgent,
+          durableAnchorAgeMs: now - durableAnchor,
+        })
+        return
+      }
+      if (durableAnchor === undefined) {
+        state.lastDurableAssistantProgressAt = now
+      }
+    }
+    const malformedPendingTool =
+      partType === "tool"
+      && toolStatus === "pending"
+      && ["write", "apply_patch", "todowrite"].includes(toolName ?? "")
+      && (() => {
+        const raw = typeof toolState?.raw === "string" ? toolState.raw.trim() : ""
+        const input = typeof toolState?.input === "object" && toolState.input !== null
+          ? (toolState.input as Record<string, unknown>)
+          : undefined
+        return raw.length === 0 && (!input || Object.keys(input).length === 0)
+      })()
     const reasoningHasFreshWatchdogBudget =
       partType === "reasoning"
       && (partText.length > 0 || delta.trim().length > 0)
@@ -141,13 +184,23 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
 
     sessionLastAccess.set(sessionID, Date.now())
 
-    const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
-    const timeoutMsOverride = isLongRunningAssistantProgress({
+    const longRunningTimeoutMs = resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
+    const isLongRunningProgress = isLongRunningAssistantProgress({
       partType,
       toolStatus,
       toolName,
     })
-      ? resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
+    const isPreExecutionRegroupTool = isPreExecutionRegroupToolProgress({
+      partType,
+      toolStatus,
+      toolName,
+    })
+    const inheritedLongRunningTimeoutMs =
+      typeof state?.longRunningProgressUntil === "number" && state.longRunningProgressUntil > now
+        ? Math.max(1, state.longRunningProgressUntil - now)
+        : undefined
+    const timeoutMsOverride = isLongRunningProgress
+      ? longRunningTimeoutMs
       : (
         (
           (field === "text" && delta.trim().length > 0)
@@ -167,13 +220,26 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
         state.resolvedAgent = resolvedAgent
       }
       state.lastTerminalIdleAt = undefined
-      markMeaningfulProgress(state)
+      markMeaningfulProgress(state, now)
+      if (isPreExecutionRegroupTool) {
+        state.longRunningProgressUntil = now + longRunningTimeoutMs
+      } else if (typeof inheritedLongRunningTimeoutMs === "number") {
+        state.longRunningProgressUntil = now + inheritedLongRunningTimeoutMs
+      } else {
+        state.longRunningProgressUntil = undefined
+      }
+      if (!isTextDeltaProgress) {
+        state.lastDurableAssistantProgressAt = now
+      }
     }
 
     helpers.scheduleSessionFallbackTimeout(sessionID, {
       resolvedAgent,
       source: `${source}.progress`,
-      timeoutMsOverride,
+      timeoutMsOverride: Math.max(
+        timeoutMsOverride ?? 0,
+        inheritedLongRunningTimeoutMs ?? 0,
+      ) || undefined,
     })
 
     if (partType === "tool" && toolStatus === "error" && typeof toolError === "string" && toolError.trim().length > 0) {
@@ -224,6 +290,49 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       }
     }
 
+    if (malformedPendingTool) {
+      if (state) {
+        markLocalToolAbort(state)
+      }
+      const preferFreshPaidRetry =
+        !!state
+        && getRuntimeFallbackTier(state.currentModel) === "paid"
+        && !state.isScopedFallbackChild
+      const retried = preferFreshPaidRetry
+        ? false
+        : await helpers.retryCurrentModel(
+          sessionID,
+          resolvedAgent,
+          `${source}.malformed-tool-pending`,
+          {
+            immediate: false,
+            persistent: true,
+            maxAttempts: 1,
+          },
+        )
+      let freshRetried = false
+      if (
+        !retried
+        && state
+        && getRuntimeFallbackTier(state.currentModel) === "paid"
+        && !state.isScopedFallbackChild
+      ) {
+        freshRetried = await helpers.retryCurrentModelInFreshSession(
+          sessionID,
+          resolvedAgent,
+          `${source}.malformed-tool-pending`,
+        )
+      }
+      log(`[${HOOK_NAME}] Observed malformed pending regroup tool payload during assistant progress`, {
+        sessionID,
+        source,
+        toolName,
+        resolvedAgent,
+        retried,
+        freshRetried,
+      })
+    }
+
     if (sessionAwaitingFallbackResult.has(sessionID)) {
       sessionAwaitingFallbackResult.delete(sessionID)
       sessionStatusRetryKeys.delete(sessionID)
@@ -251,7 +360,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   ) => {
     if (!timeoutEnabled) return
 
-    const sessionID = props?.sessionID as string | undefined
+    const sessionID = getRuntimeFallbackSessionID(props)
     const toolName = props?.tool as string | undefined
     if (!sessionID || !toolName) return
 
@@ -324,9 +433,13 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       variant: sessionInfo?.variant,
     })
 
+    if (sessionID) {
+      rememberScopedFallbackSessionHint(deps, sessionID, title)
+    }
+
     if (sessionID && model) {
       const state = createFallbackState(model)
-      state.isScopedFallbackChild = isRuntimeFallbackScopedHandoffTitle(title)
+      applyScopedFallbackSessionHint(deps, sessionID, state)
       log(`[${HOOK_NAME}] Session created with model`, { sessionID, model })
       sessionStates.set(sessionID, state)
       sessionLastAccess.set(sessionID, Date.now())
@@ -345,6 +458,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       sessionRecentCompletionUntil.delete(sessionID)
       sessionRecentActiveStatusUntil?.delete(sessionID)
       sessionSilentAssistantUpdateCounts?.delete(sessionID)
+      clearScopedFallbackSessionHint(deps, sessionID)
       sessionRetryInFlight.delete(sessionID)
       sessionAwaitingFallbackResult.delete(sessionID)
       helpers.clearSessionFallbackTimeout(sessionID)
@@ -354,7 +468,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   }
 
   const handleSessionStop = async (props: Record<string, unknown> | undefined) => {
-    const sessionID = props?.sessionID as string | undefined
+    const sessionID = getRuntimeFallbackSessionID(props)
     if (!sessionID) return
 
     clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
@@ -382,7 +496,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   }
 
   const handleSessionIdle = async (props: Record<string, unknown> | undefined) => {
-    const sessionID = props?.sessionID as string | undefined
+    const sessionID = getRuntimeFallbackSessionID(props)
     if (!sessionID) return
 
     if (sessionAwaitingFallbackResult.has(sessionID)) {
@@ -468,7 +582,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   }
 
   const handleSessionError = async (props: Record<string, unknown> | undefined) => {
-    const sessionID = props?.sessionID as string | undefined
+    const sessionID = getRuntimeFallbackSessionID(props)
     const error = props?.error
     const agent = props?.agent as string | undefined
     const eventModel = extractEventModelString({
@@ -566,13 +680,6 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     }
 
     let state = sessionStates.get(sessionID)
-    const fallbackModels = getFallbackModelsForSession(sessionID, resolvedAgent, pluginConfig)
-
-    if (fallbackModels.length === 0) {
-      log(`[${HOOK_NAME}] No fallback models configured`, { sessionID, agent })
-      return
-    }
-
     let bootstrappedFromAgentModelForPrelude403 = false
 
     if (!state) {
@@ -616,6 +723,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       }
 
       state = createFallbackState(initialModel)
+      applyScopedFallbackSessionHint(deps, sessionID, state)
       sessionStates.set(sessionID, state)
       sessionLastAccess.set(sessionID, Date.now())
     } else {
@@ -675,7 +783,6 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       && !state.isScopedFallbackChild
     const shouldPreferInlinePreludeRetryOnFreshHandoffFailure =
       preferFreshTrackedProvider403Handoff
-      && state.lastMeaningfulProgressAt === undefined
       && !state.isScopedFallbackChild
 
     if (isSameModelRetryAction(action)) {
@@ -740,6 +847,17 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       isSameModelRetryAction(action)
         ? "fallback_chain"
         : action
+    const fallbackModels = getFallbackModelsForSession(sessionID, resolvedAgent, pluginConfig)
+    if (fallbackModels.length === 0) {
+      log(`[${HOOK_NAME}] No fallback models configured`, {
+        sessionID,
+        agent,
+        resolvedAgent,
+        action,
+        effectiveAction,
+      })
+      return
+    }
     const errorAwareFallbackModels = selectFallbackModelsForAction({
       currentModel: state.currentModel,
       fallbackModels,

@@ -1,5 +1,6 @@
 import type { OhMyOpenCodeConfig } from "../config";
 import type { PluginContext } from "./types";
+import { PROMETHEUS_FINAL_ARTIFACT_RECOVERY_TEXT } from "../agents/prometheus/final-artifact-recovery";
 
 import {
   clearSessionAgent,
@@ -18,16 +19,24 @@ import {
 } from "../hooks/model-fallback/hook";
 import { fixEmptyMessagesWithSDK } from "../hooks/anthropic-context-window-limit-recovery/empty-content-recovery-sdk";
 import { extractResumeConfig, findLastUserMessage, resumeSession } from "../hooks/session-recovery/resume";
+import {
+  getMessageAgent,
+  getMessageError,
+  getMessageID,
+  getMessageModel,
+  getMessageRole,
+} from "../hooks/session-recovery/message-accessors";
 import { getRawFallbackModels } from "../hooks/runtime-fallback/fallback-models";
 import {
   clearBackgroundOutputConsumptionsForParentSession,
   clearBackgroundOutputConsumptionsForTaskSession,
   restoreBackgroundOutputConsumption,
 } from "../shared/background-output-consumption";
-import { normalizeSDKResponse, resetMessageCursor } from "../shared";
+import { createInternalAgentTextPart, normalizeSDKResponse, resetMessageCursor } from "../shared";
 import { getAgentConfigKey } from "../shared/agent-display-names";
 import { readConnectedProvidersCache } from "../shared/connected-providers-cache";
 import { log } from "../shared/logger";
+import { wasRecentRuntimeFallbackContinuationDispatched } from "../shared/recent-runtime-fallback-continuation";
 import { shouldRetryError, shouldSwitchFallback } from "../shared/model-error-classifier"
 import { buildFallbackChainFromModels } from "../shared/fallback-chain-from-models";
 import { extractRetryAttempt, normalizeRetryStatusMessage } from "../shared/retry-status-utils";
@@ -35,6 +44,7 @@ import { clearSessionModel, getSessionModel, setSessionModel } from "../shared/s
 import { clearSessionPromptParams } from "../shared/session-prompt-params-state";
 import { deleteSessionTools } from "../shared/session-tools-store";
 import { lspManager } from "../tools";
+import { getRuntimeFallbackSessionID } from "../hooks/runtime-fallback/session-id";
 
 import type { CreatedHooks } from "../create-hooks";
 import type { Managers } from "../create-managers";
@@ -112,9 +122,30 @@ function extractProviderModelFromErrorMessage(message: string): { providerID?: s
   return {};
 }
 
+function isProviderBlockedErrorText(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("request not allowed")
+    || normalized.includes("forbidden")
+    || normalized.includes("unable to load site")
+    || normalized.includes("cloudflare")
+  );
+}
+
 type RecoveryMessagePart = {
   type?: string;
   text?: string;
+  tool?: string;
+  raw?: string;
+  state?: {
+    status?: string;
+    input?: unknown;
+    output?: unknown;
+    error?: unknown;
+    metadata?: {
+      interrupted?: boolean;
+    };
+  };
 }
 
 type RecoveryMessage = {
@@ -122,6 +153,7 @@ type RecoveryMessage = {
     id?: string;
     role?: string;
     agent?: string;
+    finish?: string;
     model?: { providerID: string; modelID: string };
     tools?: Record<string, boolean>;
     error?: unknown;
@@ -129,9 +161,184 @@ type RecoveryMessage = {
   parts?: RecoveryMessagePart[];
 }
 
+type RecoveryResumeSessionApi = {
+  promptAsync?: (args: {
+    path: { id: string };
+    body: { parts: Array<Record<string, unknown>> };
+    query?: { directory: string };
+  }) => Promise<unknown>;
+  prompt?: (args: {
+    path: { id: string };
+    body: { parts: Array<Record<string, unknown>> };
+    query?: { directory: string };
+  }) => Promise<unknown>;
+}
+
 const EMPTY_ASSISTANT_PLACEHOLDER_TEXT = "[recovered empty assistant message]";
 const EMPTY_ASSISTANT_RECOVERY_DELAY_MS = 5000;
+const PROMETHEUS_STREAMING_DELTA_RECOVERY_DELAY_MS = 120000;
+const PROMETHEUS_ABORTED_TOOL_RECOVERY_DELAY_MS = 500;
+const PROMETHEUS_PROVIDER_BLOCKED_SAME_MODEL_WINDOW_MS = 10 * 60 * 1000;
+const PROMETHEUS_EMPTY_TOOL_RECOVERY_TEXT = [
+  "[session recovered - retry the interrupted plan write now]",
+  "Your previous planning tool call was emitted without the required arguments and never executed.",
+  "Do not add another explanatory assistant turn before the tool call.",
+  "Immediately emit the correct tool call with complete arguments.",
+  "If using Write, include the full filePath and complete markdown content.",
+  "If the final payload is too large, complete the draft first and then promote it to .sisyphus/plans/{name}.md.",
+  "After the write succeeds, read the final plan file and verify the ## TODOs section is populated.",
+  PROMETHEUS_FINAL_ARTIFACT_RECOVERY_TEXT,
+].join("\n");
+const PROMETHEUS_REASONING_ONLY_RECOVERY_TEXT = [
+  "[session recovered - complete plan generation now]",
+  "You are in Prometheus plan-generation mode.",
+  "Do not stop at reasoning.",
+  "Immediately perform the next missing concrete action:",
+  "1. If plan-generation todos were not registered yet, run TodoWrite now.",
+  "2. If the final .sisyphus/plans/*.md plan artifact was not written or updated, write or update it now.",
+  "3. Read back the final plan file and verify the ## TODOs section is populated.",
+  "Only stop after the final plan artifact exists and you have produced a user-facing summary.",
+  PROMETHEUS_FINAL_ARTIFACT_RECOVERY_TEXT,
+].join("\n");
+const PROMETHEUS_INTERRUPTED_VISIBLE_TURN_RECOVERY_TEXT = [
+  "[session recovered - resume interrupted plan generation now]",
+  "Your previous Prometheus turn ended prematurely before the final plan artifact was produced.",
+  "Continue from the exact point of interruption instead of restarting the analysis from scratch.",
+  "If there are still unread plan fragments or drafts, read them now.",
+  "Then finish synthesizing the unified CI plan and write the final .sisyphus/plans/*.md artifact.",
+  "Only stop after the final plan file exists, has populated ## TODOs, and you provide a concise user-facing summary.",
+  PROMETHEUS_FINAL_ARTIFACT_RECOVERY_TEXT,
+].join("\n");
 const recoveredEmptyAssistantMessageBySession = new Map<string, string>();
+const recoveredPendingEmptyToolMessageBySession = new Map<string, string>();
+const recoveredPlannerReasoningOnlyMessageBySession = new Map<string, string>();
+const recoveredInterruptedPlannerVisibleMessageBySession = new Map<string, string>();
+const recoveredProviderBlockedErrorMessageBySession = new Map<string, string>();
+const prometheusProviderBlockedRetryStateBySession = new Map<string, {
+  providerID: string;
+  modelID: string;
+  startedAt: number;
+  attempts: number;
+}>();
+const recentRecoverablePrometheusSnapshotBySession = new Map<string, AssistantRecoverySnapshot>();
+type AssistantRecoverySnapshot = {
+  messageID: string;
+  agent?: string;
+  hasVisibleContent: boolean;
+  hasUserFacingContent: boolean;
+  hasRecoverablePlannerInternalParts: boolean;
+  hasStreamingDelta: boolean;
+  pendingPrometheusTool?: string;
+};
+const assistantRecoverySnapshotBySession = new Map<string, AssistantRecoverySnapshot>();
+const RECOVERABLE_PENDING_PROMETHEUS_TOOLS = new Set(["write", "edit", "todowrite"]);
+
+function normalizeProviderBlockedModelID(modelID: string | undefined): string | undefined {
+  return typeof modelID === "string" && modelID.length > 0
+    ? normalizeFallbackModelID(modelID)
+    : undefined;
+}
+
+function touchPrometheusProviderBlockedRetryState(
+  sessionID: string,
+  currentModel: { providerID: string; modelID: string } | undefined,
+): void {
+  if (!currentModel?.providerID || !currentModel.modelID) {
+    return;
+  }
+
+  const now = Date.now();
+  const existingState = prometheusProviderBlockedRetryStateBySession.get(sessionID);
+  const sameBlockedModel =
+    !!existingState
+    && existingState.providerID === currentModel.providerID
+    && normalizeProviderBlockedModelID(existingState.modelID) === normalizeProviderBlockedModelID(currentModel.modelID);
+
+  prometheusProviderBlockedRetryStateBySession.set(sessionID, {
+    providerID: currentModel.providerID,
+    modelID: currentModel.modelID,
+    startedAt: sameBlockedModel && existingState ? existingState.startedAt : now,
+    attempts: sameBlockedModel && existingState ? existingState.attempts : 0,
+  });
+}
+
+function hasActivePrometheusProviderBlockedRetryWindow(sessionID: string): boolean {
+  const existingState = prometheusProviderBlockedRetryStateBySession.get(sessionID);
+  if (!existingState) {
+    return false;
+  }
+
+  if (Date.now() - existingState.startedAt >= PROMETHEUS_PROVIDER_BLOCKED_SAME_MODEL_WINDOW_MS) {
+    prometheusProviderBlockedRetryStateBySession.delete(sessionID);
+    return false;
+  }
+
+  return true;
+}
+
+function isPrometheusPlannerAgent(agent: string | undefined): boolean {
+  if (!agent) return false;
+  const normalizedAgent = agent.toLowerCase();
+  return normalizedAgent.includes("prometheus") || normalizedAgent.includes("plan builder");
+}
+
+function assistantMessageHasUserFacingContent(parts: RecoveryMessagePart[] | undefined): boolean {
+  if (!Array.isArray(parts) || parts.length === 0) return false;
+
+  for (const part of parts) {
+    const type = part?.type;
+    if (!type) continue;
+
+    if (type === "text") {
+      if (typeof part.text === "string" && part.text.trim().length > 0) {
+        return true;
+      }
+      continue;
+    }
+
+    if (type === "tool" || type === "tool_use" || type === "tool_result") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function assistantMessageHasRecoverablePlannerInternalParts(parts: RecoveryMessagePart[] | undefined): boolean {
+  if (!Array.isArray(parts) || parts.length === 0) return false;
+
+  for (const part of parts) {
+    const type = part?.type;
+    if (!type) continue;
+
+    if (type === "text") {
+      if (typeof part.text === "string" && part.text.trim().length > 0) {
+        return false;
+      }
+      continue;
+    }
+
+    if (type === "tool" || type === "tool_use" || type === "tool_result") {
+      return false;
+    }
+
+    if (
+      type === "thinking" ||
+      type === "reasoning" ||
+      type === "redacted_thinking" ||
+      type === "meta" ||
+      type === "step-start" ||
+      type === "step-finish" ||
+      type === "patch"
+    ) {
+      return true;
+    }
+
+    return true;
+  }
+
+  return false;
+}
 
 function assistantMessageHasVisibleContent(parts: RecoveryMessagePart[] | undefined): boolean {
   if (!Array.isArray(parts) || parts.length === 0) return false;
@@ -175,12 +382,424 @@ function assistantMessageHasVisibleContent(parts: RecoveryMessagePart[] | undefi
   return false;
 }
 
+async function promptSimpleRecoveryContinuation(
+  session: RecoveryResumeSessionApi | undefined,
+  sessionID: string,
+  directory: string | undefined,
+  continuationText: string,
+): Promise<boolean> {
+  const promptInput = {
+    path: { id: sessionID },
+    body: { parts: [createInternalAgentTextPart(continuationText)] },
+    ...(directory ? { query: { directory } } : {}),
+  };
+
+  try {
+    if (typeof session?.promptAsync === "function") {
+      await session.promptAsync(promptInput);
+      return true;
+    }
+  } catch {}
+
+  try {
+    if (typeof session?.prompt === "function") {
+      await session.prompt(promptInput);
+      return true;
+    }
+  } catch {}
+
+  return false;
+}
+
+async function resumeRecoveredPrometheusSession(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  continuationText: string,
+  resumeConfig: Parameters<typeof resumeSession>[1],
+  session?: RecoveryResumeSessionApi,
+): Promise<boolean> {
+  const resumed = await resumeSession(ctx.client as never, resumeConfig);
+  if (resumed) {
+    return true;
+  }
+
+  return promptSimpleRecoveryContinuation(session, sessionID, ctx.directory, continuationText);
+}
+
+function isEmptyRecord(value: unknown): boolean {
+  return isRecord(value) && Object.keys(value).length === 0;
+}
+
+function findRecoverablePendingPrometheusTool(
+  parts: RecoveryMessagePart[] | undefined,
+): { tool: string } | undefined {
+  if (!Array.isArray(parts) || parts.length === 0) return undefined;
+
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const part = parts[index];
+    if (part?.type !== "tool" || typeof part.tool !== "string") {
+      continue;
+    }
+
+    const tool = part.tool.trim().toLowerCase();
+    if (!RECOVERABLE_PENDING_PROMETHEUS_TOOLS.has(tool)) {
+      continue;
+    }
+
+    const status = part.state?.status;
+    const isInterruptedAbortedTool =
+      status === "error"
+      && (
+        part.state?.metadata?.interrupted === true
+        || (
+          typeof part.state?.error === "string"
+          && part.state.error.toLowerCase().includes("tool execution aborted")
+        )
+      );
+
+    if (status !== "pending" && !isInterruptedAbortedTool) {
+      continue;
+    }
+
+    const raw = typeof part.raw === "string" ? part.raw.trim() : "";
+    const input = part.state?.input;
+    if (raw.length === 0 && (input === undefined || isEmptyRecord(input))) {
+      return { tool };
+    }
+  }
+
+  return undefined;
+}
+
+function isInterruptedRecoverablePrometheusToolPart(
+  part: RecoveryMessagePart | undefined,
+): boolean {
+  if (part?.type !== "tool") {
+    return false;
+  }
+
+  const pendingTool = findRecoverablePendingPrometheusTool([part]);
+  if (!pendingTool) {
+    return false;
+  }
+
+  return part.state?.status === "error";
+}
+
+function upsertAssistantRecoverySnapshot(
+  sessionID: string,
+  messageID: string,
+  agent?: string,
+): AssistantRecoverySnapshot {
+  const existingSnapshot = assistantRecoverySnapshotBySession.get(sessionID);
+  if (existingSnapshot?.messageID === messageID) {
+    if (agent) {
+      existingSnapshot.agent = agent;
+    } else if (!existingSnapshot.agent) {
+      existingSnapshot.agent = getSessionAgent(sessionID);
+    }
+    return existingSnapshot;
+  }
+
+  const snapshot: AssistantRecoverySnapshot = {
+    messageID,
+    agent: agent ?? existingSnapshot?.agent ?? getSessionAgent(sessionID),
+    hasVisibleContent: false,
+    hasUserFacingContent: false,
+    hasRecoverablePlannerInternalParts: false,
+    hasStreamingDelta: false,
+  };
+  assistantRecoverySnapshotBySession.set(sessionID, snapshot);
+  return snapshot;
+}
+
+function getAssistantRecoverySnapshot(
+  sessionID: string,
+  expectedMessageID?: string,
+): AssistantRecoverySnapshot | undefined {
+  const snapshot = assistantRecoverySnapshotBySession.get(sessionID);
+  if (!snapshot) return undefined;
+  if (expectedMessageID && snapshot.messageID !== expectedMessageID) return undefined;
+  return snapshot;
+}
+
+function rememberRecoverablePrometheusSnapshot(
+  sessionID: string,
+  snapshot: AssistantRecoverySnapshot | undefined,
+): void {
+  if (!snapshot || !isPrometheusPlannerAgent(snapshot.agent)) {
+    return;
+  }
+
+  if (!snapshot.hasUserFacingContent && !snapshot.hasRecoverablePlannerInternalParts) {
+    return;
+  }
+
+  recentRecoverablePrometheusSnapshotBySession.set(sessionID, { ...snapshot });
+}
+
+async function resumeCachedPendingPrometheusToolRecovery(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  source: string,
+  snapshot: AssistantRecoverySnapshot,
+  agent: string | undefined,
+  logLabel: string,
+): Promise<boolean> {
+  if (!snapshot.pendingPrometheusTool || !isPrometheusPlannerAgent(agent)) {
+    return false;
+  }
+
+  const lastRecoveredMessageID = recoveredPendingEmptyToolMessageBySession.get(sessionID);
+  if (lastRecoveredMessageID === snapshot.messageID) {
+    log(`[event] ${logLabel} skipped: message already recovered`, {
+      sessionID,
+      source,
+      lastMessageID: snapshot.messageID,
+      tool: snapshot.pendingPrometheusTool,
+    });
+    return false;
+  }
+
+  const sessionApi = ctx.client as {
+    session?: {
+      abort?: (args: { path: { id: string } }) => Promise<unknown>;
+      promptAsync?: (args: {
+        path: { id: string };
+        body: { parts: Array<Record<string, unknown>> };
+        query?: { directory: string };
+      }) => Promise<unknown>;
+      prompt?: (args: {
+        path: { id: string };
+        body: { parts: Array<Record<string, unknown>> };
+        query?: { directory: string };
+      }) => Promise<unknown>;
+    };
+  };
+
+  await sessionApi.session?.abort?.({ path: { id: sessionID } }).catch(() => {});
+
+  const resumed = await resumeRecoveredPrometheusSession(
+    ctx,
+    sessionID,
+    PROMETHEUS_EMPTY_TOOL_RECOVERY_TEXT,
+    {
+      sessionID,
+      directory: ctx.directory,
+      agent,
+      model: getSessionModel(sessionID),
+      continuationText: PROMETHEUS_EMPTY_TOOL_RECOVERY_TEXT,
+    },
+    sessionApi.session as RecoveryResumeSessionApi | undefined,
+  );
+
+  if (resumed) {
+    recoveredPendingEmptyToolMessageBySession.set(sessionID, snapshot.messageID);
+    log(`[event] recovered ${logLabel}`, {
+      sessionID,
+      source,
+      messageID: snapshot.messageID,
+      tool: snapshot.pendingPrometheusTool,
+      agent,
+    });
+  }
+
+  return resumed;
+}
+
+function updateAssistantRecoverySnapshotPart(
+  sessionID: string,
+  messageID: string,
+  part: RecoveryMessagePart | undefined,
+): void {
+  if (!part) return;
+
+  const snapshot = upsertAssistantRecoverySnapshot(sessionID, messageID);
+  const type = part.type;
+  if (!type) return;
+
+  if (type === "text") {
+    if (typeof part.text === "string" && part.text.trim().length > 0) {
+      snapshot.hasVisibleContent = true;
+      snapshot.hasUserFacingContent = true;
+      snapshot.hasStreamingDelta = false;
+    }
+    rememberRecoverablePrometheusSnapshot(sessionID, snapshot);
+    return;
+  }
+
+  if (type === "tool") {
+    const pendingTool = findRecoverablePendingPrometheusTool([part]);
+    if (pendingTool) {
+      snapshot.pendingPrometheusTool = pendingTool.tool;
+      rememberRecoverablePrometheusSnapshot(sessionID, snapshot);
+      return;
+    }
+
+    snapshot.hasVisibleContent = true;
+    snapshot.hasUserFacingContent = true;
+    snapshot.hasStreamingDelta = false;
+    rememberRecoverablePrometheusSnapshot(sessionID, snapshot);
+    return;
+  }
+
+  if (type === "tool_use" || type === "tool_result") {
+    snapshot.hasVisibleContent = true;
+    snapshot.hasUserFacingContent = true;
+    snapshot.hasStreamingDelta = false;
+    rememberRecoverablePrometheusSnapshot(sessionID, snapshot);
+    return;
+  }
+
+  if (
+    (type === "thinking" || type === "reasoning")
+    && typeof part.text === "string"
+    && part.text.trim().length > 0
+  ) {
+    snapshot.hasVisibleContent = true;
+    snapshot.hasRecoverablePlannerInternalParts = true;
+    rememberRecoverablePrometheusSnapshot(sessionID, snapshot);
+    return;
+  }
+
+  if (
+    type === "thinking"
+    || type === "reasoning"
+    || type === "redacted_thinking"
+    || type === "meta"
+    || type === "step-start"
+    || type === "step-finish"
+    || type === "patch"
+  ) {
+    snapshot.hasRecoverablePlannerInternalParts = true;
+    rememberRecoverablePrometheusSnapshot(sessionID, snapshot);
+    return;
+  }
+
+  snapshot.hasVisibleContent = true;
+  snapshot.hasUserFacingContent = true;
+  rememberRecoverablePrometheusSnapshot(sessionID, snapshot);
+}
+
+function updateAssistantRecoverySnapshotDelta(
+  sessionID: string,
+  messageID: string | undefined,
+  delta: unknown,
+): AssistantRecoverySnapshot | undefined {
+  if (typeof delta !== "string" || delta.trim().length === 0) {
+    return getAssistantRecoverySnapshot(sessionID, messageID);
+  }
+
+  const snapshot = messageID
+    ? upsertAssistantRecoverySnapshot(sessionID, messageID)
+    : getAssistantRecoverySnapshot(sessionID);
+  if (!snapshot) {
+    return undefined;
+  }
+
+  snapshot.hasVisibleContent = true;
+  snapshot.hasStreamingDelta = true;
+  return snapshot;
+}
+
+function getEmptyAssistantRecoveryDelayMs(sessionID: string, messageID: string): number {
+  const snapshot = getAssistantRecoverySnapshot(sessionID, messageID);
+  if (
+    snapshot
+    && snapshot.hasStreamingDelta
+    && !snapshot.hasUserFacingContent
+    && isPrometheusPlannerAgent(snapshot.agent ?? getSessionAgent(sessionID))
+  ) {
+    return PROMETHEUS_STREAMING_DELTA_RECOVERY_DELAY_MS;
+  }
+
+  return EMPTY_ASSISTANT_RECOVERY_DELAY_MS;
+}
+
+function getEventPropertiesSessionID(properties: unknown): string | undefined {
+  return isRecord(properties)
+    ? getRuntimeFallbackSessionID(properties)
+    : undefined;
+}
+
+function getMessagePartUpdatedSessionID(
+  properties: Record<string, unknown> | undefined,
+  part: (RecoveryMessagePart & {
+    sessionID?: string;
+    sessionId?: string;
+  }) | undefined,
+): string | undefined {
+  if (typeof part?.sessionID === "string" && part.sessionID.length > 0) {
+    return part.sessionID;
+  }
+
+  if (typeof part?.sessionId === "string" && part.sessionId.length > 0) {
+    return part.sessionId;
+  }
+
+  return getEventPropertiesSessionID(properties);
+}
+
+function getMessagePartUpdatedMessageID(
+  properties: Record<string, unknown> | undefined,
+  part: (RecoveryMessagePart & {
+    messageID?: string;
+    messageId?: string;
+  }) | undefined,
+  sessionID?: string,
+): string | undefined {
+  if (typeof part?.messageID === "string" && part.messageID.length > 0) {
+    return part.messageID;
+  }
+
+  if (typeof part?.messageId === "string" && part.messageId.length > 0) {
+    return part.messageId;
+  }
+
+  if (typeof properties?.messageID === "string" && properties.messageID.length > 0) {
+    return properties.messageID;
+  }
+
+  if (typeof properties?.messageId === "string" && properties.messageId.length > 0) {
+    return properties.messageId;
+  }
+
+  const info = isRecord(properties?.info) ? properties.info : undefined;
+  if (info) {
+    if (typeof info.messageID === "string" && info.messageID.length > 0) {
+      return info.messageID;
+    }
+
+    if (typeof info.messageId === "string" && info.messageId.length > 0) {
+      return info.messageId;
+    }
+
+    if (typeof info.id === "string" && info.id.length > 0) {
+      return info.id;
+    }
+  }
+
+  if (!sessionID) {
+    return undefined;
+  }
+
+  return getAssistantRecoverySnapshot(sessionID)?.messageID;
+}
+
 async function maybeRecoverIdleEmptyAssistantMessage(
-  ctx: { client: Record<string, unknown> },
+  ctx: { client: Record<string, unknown>; directory: string },
   sessionID: string,
   expectedMessageID?: string,
   source = "session.status.idle",
 ): Promise<boolean> {
+  if (hasActivePrometheusProviderBlockedRetryWindow(sessionID)) {
+    log("[event] empty assistant recovery skipped: provider-blocked retry window active", {
+      sessionID,
+      source,
+    });
+    return false;
+  }
+
   const session = ctx.client["session"] as { messages?: (args: { path: { id: string } }) => Promise<unknown> } | undefined;
   const readMessages = session?.messages;
   if (typeof readMessages !== "function") {
@@ -195,7 +814,7 @@ async function maybeRecoverIdleEmptyAssistantMessage(
     preferResponseOnMissingData: true,
   });
   const lastMessage = messages[messages.length - 1];
-  const lastMessageID = lastMessage?.info?.id;
+  const lastMessageID = getMessageID(lastMessage);
 
   if (!lastMessageID) {
     log("[event] empty assistant recovery skipped: no last message", { sessionID, source });
@@ -210,16 +829,17 @@ async function maybeRecoverIdleEmptyAssistantMessage(
     });
     return false;
   }
-  if (lastMessage.info?.role !== "assistant") {
+  const lastMessageRole = getMessageRole(lastMessage);
+  if (lastMessageRole !== "assistant") {
     log("[event] empty assistant recovery skipped: latest message is not assistant", {
       sessionID,
       source,
       lastMessageID,
-      role: lastMessage.info?.role,
+      role: lastMessageRole,
     });
     return false;
   }
-  if (lastMessage.info?.error) {
+  if (getMessageError(lastMessage)) {
     log("[event] empty assistant recovery skipped: assistant message already has error", {
       sessionID,
       source,
@@ -272,7 +892,14 @@ async function maybeRecoverIdleEmptyAssistantMessage(
 
   const lastUser = findLastUserMessage(messages as never);
   const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
-  const resumed = await resumeSession(ctx.client as never, resumeConfig);
+  resumeConfig.directory = ctx.directory;
+  const resumed = await resumeRecoveredPrometheusSession(
+    ctx,
+    sessionID,
+    EMPTY_ASSISTANT_PLACEHOLDER_TEXT,
+    resumeConfig,
+    ctx.client["session"] as RecoveryResumeSessionApi | undefined,
+  );
 
   if (resumed) {
     recoveredEmptyAssistantMessageBySession.set(sessionID, lastMessageID);
@@ -293,6 +920,875 @@ async function maybeRecoverIdleEmptyAssistantMessage(
 
   return resumed;
 }
+
+async function maybeRecoverPrometheusReasoningOnlyAssistantMessage(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "session.status.idle",
+  options?: { abortBeforeResume?: boolean },
+): Promise<boolean> {
+  if (hasActivePrometheusProviderBlockedRetryWindow(sessionID)) {
+    log("[event] planner reasoning-only recovery skipped: provider-blocked retry window active", {
+      sessionID,
+      source,
+    });
+    return false;
+  }
+
+  const cachedSnapshot = getAssistantRecoverySnapshot(sessionID, expectedMessageID);
+  const cachedAgent = cachedSnapshot?.agent ?? getSessionAgent(sessionID);
+  const sessionApi = ctx.client as {
+    session?: {
+      abort?: (args: { path: { id: string } }) => Promise<unknown>;
+    };
+  };
+  if (
+    cachedSnapshot
+    && isPrometheusPlannerAgent(cachedAgent)
+    && !cachedSnapshot.hasUserFacingContent
+    && cachedSnapshot.hasRecoverablePlannerInternalParts
+  ) {
+    const lastRecoveredMessageID = recoveredPlannerReasoningOnlyMessageBySession.get(sessionID);
+    if (lastRecoveredMessageID === cachedSnapshot.messageID) {
+      log("[event] planner reasoning-only recovery skipped: message already recovered", {
+        sessionID,
+        source,
+        lastMessageID: cachedSnapshot.messageID,
+      });
+      return false;
+    }
+
+    if (options?.abortBeforeResume) {
+      await sessionApi.session?.abort?.({ path: { id: sessionID } }).catch(() => {});
+    }
+
+    const resumeConfig = {
+      sessionID,
+      directory: ctx.directory,
+      agent: cachedAgent,
+      model: getSessionModel(sessionID),
+      continuationText: PROMETHEUS_REASONING_ONLY_RECOVERY_TEXT,
+    };
+    const resumed = await resumeRecoveredPrometheusSession(
+      ctx,
+      sessionID,
+      PROMETHEUS_REASONING_ONLY_RECOVERY_TEXT,
+      resumeConfig,
+      sessionApi.session as RecoveryResumeSessionApi | undefined,
+    );
+    if (resumed) {
+      recoveredPlannerReasoningOnlyMessageBySession.set(sessionID, cachedSnapshot.messageID);
+      log("[event] recovered cached planner reasoning-only message", {
+        sessionID,
+        source,
+        messageID: cachedSnapshot.messageID,
+        agent: cachedAgent,
+      });
+    }
+
+    return resumed;
+  }
+
+  const session = ctx.client["session"] as {
+    messages?: (args: { path: { id: string } }) => Promise<unknown>;
+    abort?: (args: { path: { id: string } }) => Promise<unknown>;
+    promptAsync?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+    }) => Promise<unknown>;
+    prompt?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+    }) => Promise<unknown>;
+  } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    log("[event] planner reasoning-only recovery skipped: session.messages unavailable", { sessionID, source });
+    return false;
+  }
+
+  let response: unknown;
+  try {
+    response = await readMessages({
+      path: { id: sessionID },
+    });
+  } catch (error) {
+    log("[event] planner reasoning-only recovery skipped: session.messages failed", {
+      sessionID,
+      source,
+      error,
+    });
+    return false;
+  }
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = getMessageID(lastMessage);
+  const lastMessageAgent = getMessageAgent(lastMessage);
+
+  if (!lastMessageID) return false;
+  if (expectedMessageID && lastMessageID !== expectedMessageID) return false;
+  if (getMessageRole(lastMessage) !== "assistant") return false;
+  if (getMessageError(lastMessage)) return false;
+  if (!isPrometheusPlannerAgent(lastMessageAgent)) return false;
+  if (assistantMessageHasUserFacingContent(lastMessage.parts)) return false;
+  if (
+    !assistantMessageHasVisibleContent(lastMessage.parts)
+    && !assistantMessageHasRecoverablePlannerInternalParts(lastMessage.parts)
+  ) {
+    return false;
+  }
+
+  const lastRecoveredMessageID = recoveredPlannerReasoningOnlyMessageBySession.get(sessionID);
+  if (lastRecoveredMessageID === lastMessageID) {
+    log("[event] planner reasoning-only recovery skipped: message already recovered", {
+      sessionID,
+      source,
+      lastMessageID,
+    });
+    return false;
+  }
+
+  if (options?.abortBeforeResume) {
+    await session?.abort?.({ path: { id: sessionID } }).catch(() => {});
+  }
+
+  const lastUser = findLastUserMessage(messages as never);
+  const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+  resumeConfig.directory = ctx.directory;
+  resumeConfig.continuationText = PROMETHEUS_REASONING_ONLY_RECOVERY_TEXT;
+  const resumed = await resumeRecoveredPrometheusSession(
+    ctx,
+    sessionID,
+    PROMETHEUS_REASONING_ONLY_RECOVERY_TEXT,
+    resumeConfig,
+    session,
+  );
+
+  if (resumed) {
+    recoveredPlannerReasoningOnlyMessageBySession.set(sessionID, lastMessageID);
+    log("[event] recovered idle planner reasoning-only message", {
+      sessionID,
+      source,
+      messageID: lastMessageID,
+      agent: lastMessageAgent,
+    });
+  }
+
+  return resumed;
+}
+
+async function maybeRecoverPrometheusInterruptedVisibleAssistantMessage(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "session.status.idle",
+): Promise<boolean> {
+  if (hasActivePrometheusProviderBlockedRetryWindow(sessionID)) {
+    log("[event] planner interrupted-visible recovery skipped: provider-blocked retry window active", {
+      sessionID,
+      source,
+    });
+    return false;
+  }
+
+  const session = ctx.client["session"] as {
+    messages?: (args: { path: { id: string } }) => Promise<unknown>;
+  } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    log("[event] planner interrupted-visible recovery skipped: session.messages unavailable", { sessionID, source });
+    return false;
+  }
+
+  let response: unknown;
+  try {
+    response = await readMessages({
+      path: { id: sessionID },
+    });
+  } catch (error) {
+    log("[event] planner interrupted-visible recovery skipped: session.messages failed", {
+      sessionID,
+      source,
+      error,
+    });
+    return false;
+  }
+
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = getMessageID(lastMessage);
+  const lastMessageAgent = getMessageAgent(lastMessage);
+  const lastMessageFinish = isRecord(lastMessage?.info) && typeof lastMessage.info.finish === "string"
+    ? lastMessage.info.finish
+    : undefined;
+
+  if (!lastMessageID) return false;
+  if (expectedMessageID && lastMessageID !== expectedMessageID) return false;
+  if (getMessageRole(lastMessage) !== "assistant") return false;
+  if (getMessageError(lastMessage)) return false;
+  if (!isPrometheusPlannerAgent(lastMessageAgent)) return false;
+  if (lastMessageFinish !== "other") return false;
+  if (!assistantMessageHasUserFacingContent(lastMessage.parts)) return false;
+
+  const lastRecoveredMessageID = recoveredInterruptedPlannerVisibleMessageBySession.get(sessionID);
+  if (lastRecoveredMessageID === lastMessageID) {
+    log("[event] planner interrupted-visible recovery skipped: message already recovered", {
+      sessionID,
+      source,
+      lastMessageID,
+    });
+    return false;
+  }
+
+  const lastUser = findLastUserMessage(messages as never);
+  const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+  resumeConfig.directory = ctx.directory;
+  resumeConfig.continuationText = PROMETHEUS_INTERRUPTED_VISIBLE_TURN_RECOVERY_TEXT;
+  const resumed = await resumeRecoveredPrometheusSession(
+    ctx,
+    sessionID,
+    PROMETHEUS_INTERRUPTED_VISIBLE_TURN_RECOVERY_TEXT,
+    resumeConfig,
+    session as RecoveryResumeSessionApi | undefined,
+  );
+
+  if (resumed) {
+    recoveredInterruptedPlannerVisibleMessageBySession.set(sessionID, lastMessageID);
+    log("[event] recovered idle interrupted Prometheus visible turn", {
+      sessionID,
+      source,
+      messageID: lastMessageID,
+      agent: lastMessageAgent,
+    });
+  }
+
+  return resumed;
+}
+
+async function maybeRecoverPrometheusProviderBlockedTurn(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "session.error",
+  eventError?: unknown,
+  pluginConfig?: OhMyOpenCodeConfig,
+): Promise<boolean> {
+  const getRecoveryErrorMessageID = (lastPersistedErrorMessageID?: string): string | undefined => {
+    return expectedMessageID ?? lastPersistedErrorMessageID;
+  };
+
+  const pickAlternatePaidRecoveryModel = (
+    agentName: string | undefined,
+    currentModel: { providerID: string; modelID: string } | undefined,
+  ): { providerID: string; modelID: string } | undefined => {
+    if (!agentName || !pluginConfig || !currentModel) {
+      return undefined;
+    }
+
+    const rawFallbackModels = getRawFallbackModels(sessionID, agentName, pluginConfig);
+    const fallbackChain = buildFallbackChainFromModels(rawFallbackModels, currentModel.providerID);
+    if (!fallbackChain || fallbackChain.length === 0) {
+      return undefined;
+    }
+
+    const normalizeModel = (modelID: string): string => normalizeFallbackModelID(modelID);
+
+    for (const entry of fallbackChain) {
+      const providerID = entry.providers[0];
+      if (!providerID || providerID === "opencode") {
+        continue;
+      }
+
+      if (
+        providerID === currentModel.providerID
+        && normalizeModel(entry.model) === normalizeModel(currentModel.modelID)
+      ) {
+        continue;
+      }
+
+      return { providerID, modelID: entry.model };
+    }
+
+    return undefined;
+  };
+
+  const pickProviderBlockedRecoveryModel = (
+    agentName: string | undefined,
+    currentModel: { providerID: string; modelID: string } | undefined,
+  ): { providerID: string; modelID: string } | undefined => {
+    if (!currentModel) {
+      return undefined;
+    }
+
+    const now = Date.now();
+    const normalizeModel = (modelID: string): string => normalizeFallbackModelID(modelID);
+    const existingState = prometheusProviderBlockedRetryStateBySession.get(sessionID);
+    const isSameBlockedModel =
+      !!existingState
+      && existingState.providerID === currentModel.providerID
+      && normalizeModel(existingState.modelID) === normalizeModel(currentModel.modelID);
+
+    if (
+      !isSameBlockedModel
+      || !existingState
+      || now - existingState.startedAt < PROMETHEUS_PROVIDER_BLOCKED_SAME_MODEL_WINDOW_MS
+    ) {
+      prometheusProviderBlockedRetryStateBySession.set(sessionID, {
+        providerID: currentModel.providerID,
+        modelID: currentModel.modelID,
+        startedAt: isSameBlockedModel && existingState ? existingState.startedAt : now,
+        attempts: (isSameBlockedModel && existingState ? existingState.attempts : 0) + 1,
+      });
+      return currentModel;
+    }
+
+    const alternateRecoveryModel = pickAlternatePaidRecoveryModel(agentName, currentModel);
+    if (alternateRecoveryModel) {
+      prometheusProviderBlockedRetryStateBySession.set(sessionID, {
+        providerID: alternateRecoveryModel.providerID,
+        modelID: alternateRecoveryModel.modelID,
+        startedAt: now,
+        attempts: 0,
+      });
+      return alternateRecoveryModel;
+    }
+
+    return currentModel;
+  };
+
+  const session = ctx.client["session"] as {
+    messages?: (args: { path: { id: string } }) => Promise<unknown>;
+    promptAsync?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+    prompt?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+  } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    return false;
+  }
+
+  let response: unknown;
+  try {
+    response = await readMessages({
+      path: { id: sessionID },
+    });
+  } catch {
+    return false;
+  }
+
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = getMessageID(lastMessage);
+  const lastMessageError = getMessageError(lastMessage);
+  const lastMessageModel = getMessageModel(lastMessage);
+  const lastMessageErrorText = extractErrorMessage(lastMessageError).toLowerCase();
+  const eventErrorText = extractErrorMessage(eventError).toLowerCase();
+  const lastMessageIsPersistedProviderBlockedError =
+    !!lastMessageID
+    && !expectedMessageID
+    && getMessageRole(lastMessage) === "assistant"
+    && !!lastMessageError
+    && isProviderBlockedErrorText(lastMessageErrorText);
+  const lastMessageMatchesExpectedError =
+    !!lastMessageID
+    && !!expectedMessageID
+    && lastMessageID === expectedMessageID
+    && getMessageRole(lastMessage) === "assistant"
+    && !!lastMessageError
+    && isProviderBlockedErrorText(lastMessageErrorText);
+  const shouldRecoverFromPendingPersistedError =
+    !lastMessageMatchesExpectedError
+    && isProviderBlockedErrorText(eventErrorText);
+
+  if (
+    !lastMessageMatchesExpectedError
+    && !lastMessageIsPersistedProviderBlockedError
+    && !shouldRecoverFromPendingPersistedError
+  ) {
+    return false;
+  }
+
+  const recoveryErrorMessageID = getRecoveryErrorMessageID(lastMessageMatchesExpectedError ? lastMessageID : undefined);
+  if (recoveryErrorMessageID) {
+    const lastRecoveredProviderBlockedErrorMessageID =
+      recoveredProviderBlockedErrorMessageBySession.get(sessionID);
+    if (lastRecoveredProviderBlockedErrorMessageID === recoveryErrorMessageID) {
+      return false;
+    }
+  }
+
+  const blockedModel = lastMessageModel ?? getSessionModel(sessionID);
+  touchPrometheusProviderBlockedRetryState(sessionID, blockedModel);
+
+  if (wasRecentRuntimeFallbackContinuationDispatched(sessionID, {
+    guardMs: PROMETHEUS_PROVIDER_BLOCKED_SAME_MODEL_WINDOW_MS,
+  })) {
+    log("[event] provider-blocked Prometheus recovery skipped: runtime fallback continuation already dispatched", {
+      sessionID,
+      source,
+      errorMessageID: expectedMessageID ?? lastMessageID,
+      blockedModel,
+    });
+    return false;
+  }
+
+  const candidateStartIndex = lastMessageMatchesExpectedError ? messages.length - 2 : messages.length - 1;
+  for (let index = candidateStartIndex; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    const candidateID = getMessageID(candidate);
+    const candidateAgent = getMessageAgent(candidate);
+    if (!candidateID) continue;
+    if (expectedMessageID && candidateID === expectedMessageID) continue;
+    if (getMessageRole(candidate) !== "assistant") continue;
+    if (getMessageError(candidate)) continue;
+    if (!isPrometheusPlannerAgent(candidateAgent)) continue;
+
+    const candidateHasUserFacingContent = assistantMessageHasUserFacingContent(candidate.parts);
+    const candidateHasRecoverablePlannerInternalParts =
+      !candidateHasUserFacingContent
+      && (
+        assistantMessageHasVisibleContent(candidate.parts)
+        || assistantMessageHasRecoverablePlannerInternalParts(candidate.parts)
+      );
+    if (!candidateHasUserFacingContent && !candidateHasRecoverablePlannerInternalParts) {
+      continue;
+    }
+
+    const continuationText = candidateHasUserFacingContent
+      ? PROMETHEUS_INTERRUPTED_VISIBLE_TURN_RECOVERY_TEXT
+      : PROMETHEUS_REASONING_ONLY_RECOVERY_TEXT;
+
+    const lastUser = findLastUserMessage(messages as never);
+    const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+    const alternateRecoveryModel = pickProviderBlockedRecoveryModel(
+      candidateAgent,
+      blockedModel ?? resumeConfig.model,
+    );
+    if (alternateRecoveryModel) {
+      resumeConfig.model = alternateRecoveryModel;
+    }
+    resumeConfig.directory = ctx.directory;
+    resumeConfig.continuationText = continuationText;
+    const resumed = await resumeRecoveredPrometheusSession(
+      ctx,
+      sessionID,
+      continuationText,
+      resumeConfig,
+      session as RecoveryResumeSessionApi | undefined,
+    );
+
+    if (resumed) {
+      if (recoveryErrorMessageID) {
+        recoveredProviderBlockedErrorMessageBySession.set(sessionID, recoveryErrorMessageID);
+      }
+      log("[event] recovered provider-blocked Prometheus planning turn", {
+        sessionID,
+        source,
+        candidateID,
+        errorMessageID: expectedMessageID ?? lastMessageID,
+        recoveryMode: lastMessageMatchesExpectedError ? "persisted-error" : "event-error-race",
+        candidateType: candidateHasUserFacingContent ? "visible" : "reasoning-only",
+      });
+    }
+
+    return resumed;
+  }
+
+  const cachedRecoverableSnapshot = recentRecoverablePrometheusSnapshotBySession.get(sessionID);
+  if (
+    cachedRecoverableSnapshot
+    && cachedRecoverableSnapshot.messageID !== expectedMessageID
+    && cachedRecoverableSnapshot.messageID !== lastMessageID
+    && isPrometheusPlannerAgent(cachedRecoverableSnapshot.agent)
+  ) {
+    if (!recoveryErrorMessageID || recoveredProviderBlockedErrorMessageBySession.get(sessionID) !== recoveryErrorMessageID) {
+        const continuationText = cachedRecoverableSnapshot.hasUserFacingContent
+          ? PROMETHEUS_INTERRUPTED_VISIBLE_TURN_RECOVERY_TEXT
+          : cachedRecoverableSnapshot.hasRecoverablePlannerInternalParts
+          ? PROMETHEUS_REASONING_ONLY_RECOVERY_TEXT
+          : undefined;
+
+      if (continuationText) {
+        const lastUser = findLastUserMessage(messages as never);
+        const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+        const alternateRecoveryModel = pickProviderBlockedRecoveryModel(
+          cachedRecoverableSnapshot.agent,
+          blockedModel ?? resumeConfig.model,
+        );
+        if (alternateRecoveryModel) {
+          resumeConfig.model = alternateRecoveryModel;
+        }
+        resumeConfig.directory = ctx.directory;
+        resumeConfig.continuationText = continuationText;
+        const resumed = await resumeRecoveredPrometheusSession(
+          ctx,
+          sessionID,
+          continuationText,
+          resumeConfig,
+          session as RecoveryResumeSessionApi | undefined,
+        );
+
+        if (resumed) {
+          if (recoveryErrorMessageID) {
+            recoveredProviderBlockedErrorMessageBySession.set(sessionID, recoveryErrorMessageID);
+          }
+          log("[event] recovered provider-blocked Prometheus planning turn from cached snapshot", {
+            sessionID,
+            source,
+            candidateID: cachedRecoverableSnapshot.messageID,
+            errorMessageID: expectedMessageID ?? lastMessageID,
+            candidateType: cachedRecoverableSnapshot.hasUserFacingContent ? "cached-visible" : "cached-reasoning-only",
+          });
+        }
+
+        return resumed;
+      }
+    }
+  }
+
+  const lastUser = findLastUserMessage(messages as never);
+  const lastUserAgent = getMessageAgent(lastUser as never) ?? getSessionAgent(sessionID);
+  if (lastUser && isPrometheusPlannerAgent(lastUserAgent)) {
+    const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+    const alternateRecoveryModel = pickProviderBlockedRecoveryModel(
+      lastUserAgent,
+      blockedModel ?? resumeConfig.model,
+    );
+    if (alternateRecoveryModel) {
+      resumeConfig.model = alternateRecoveryModel;
+    }
+    resumeConfig.directory = ctx.directory;
+    resumeConfig.continuationText = PROMETHEUS_REASONING_ONLY_RECOVERY_TEXT;
+    const resumed = await resumeRecoveredPrometheusSession(
+      ctx,
+      sessionID,
+      PROMETHEUS_REASONING_ONLY_RECOVERY_TEXT,
+      resumeConfig,
+      session as RecoveryResumeSessionApi | undefined,
+    );
+
+    if (resumed) {
+      if (recoveryErrorMessageID) {
+        recoveredProviderBlockedErrorMessageBySession.set(sessionID, recoveryErrorMessageID);
+      }
+      log("[event] recovered provider-blocked Prometheus planning turn from root user prompt", {
+        sessionID,
+        source,
+        errorMessageID: expectedMessageID ?? lastMessageID,
+      });
+    }
+
+    return resumed;
+  }
+
+  return false;
+}
+
+async function maybeRecoverPrometheusPendingEmptyToolCall(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "message.updated.delayed",
+): Promise<boolean> {
+  const cachedSnapshot = getAssistantRecoverySnapshot(sessionID, expectedMessageID);
+  const cachedAgent = cachedSnapshot?.agent ?? getSessionAgent(sessionID);
+  const tryCachedSnapshotRecovery = async (reason: string): Promise<boolean> => {
+    if (!cachedSnapshot) {
+      return false;
+    }
+
+    return resumeCachedPendingPrometheusToolRecovery(
+      ctx,
+      sessionID,
+      `${source}:${reason}`,
+      cachedSnapshot,
+      cachedAgent,
+      "cached pending empty planning tool call",
+    );
+  };
+
+  const session = ctx.client["session"] as {
+    messages?: (args: { path: { id: string } }) => Promise<unknown>;
+    abort?: (args: { path: { id: string } }) => Promise<unknown>;
+    promptAsync?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+    prompt?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+  } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    log("[event] empty tool recovery skipped: session.messages unavailable", { sessionID, source });
+    return tryCachedSnapshotRecovery("session-messages-unavailable");
+  }
+
+  let response: unknown;
+  try {
+    response = await readMessages({
+      path: { id: sessionID },
+    });
+  } catch (error) {
+    log("[event] empty tool recovery skipped: session.messages failed", {
+      sessionID,
+      source,
+      error,
+    });
+    return tryCachedSnapshotRecovery("session-messages-failed");
+  }
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = getMessageID(lastMessage);
+  const lastMessageAgent = getMessageAgent(lastMessage);
+  const lastMessageError = getMessageError(lastMessage);
+  const lastMessageErrorName = extractErrorName(lastMessageError);
+  const lastMessageErrorText = extractErrorMessage(lastMessageError).toLowerCase();
+
+  if (!lastMessageID) {
+    return tryCachedSnapshotRecovery("missing-latest-message");
+  }
+  if (expectedMessageID && lastMessageID !== expectedMessageID) {
+    return false;
+  }
+  if (getMessageRole(lastMessage) !== "assistant") return false;
+  if (
+    lastMessageError
+    && lastMessageErrorName !== "MessageAbortedError"
+    && !lastMessageErrorText.includes("aborted")
+  ) {
+    return false;
+  }
+  if (!isPrometheusPlannerAgent(lastMessageAgent)) return false;
+
+  const pendingTool = findRecoverablePendingPrometheusTool(lastMessage.parts);
+  if (!pendingTool) {
+    return tryCachedSnapshotRecovery("live-transcript-missing-pending-tool");
+  }
+
+  const lastRecoveredMessageID = recoveredPendingEmptyToolMessageBySession.get(sessionID);
+  if (lastRecoveredMessageID === lastMessageID) {
+    log("[event] empty tool recovery skipped: message already recovered", {
+      sessionID,
+      source,
+      lastMessageID,
+      tool: pendingTool.tool,
+    });
+    return false;
+  }
+
+  await session?.abort?.({ path: { id: sessionID } }).catch(() => {});
+
+  const lastUser = findLastUserMessage(messages as never);
+  const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+  resumeConfig.directory = ctx.directory;
+  resumeConfig.continuationText = PROMETHEUS_EMPTY_TOOL_RECOVERY_TEXT;
+  const resumed = await resumeRecoveredPrometheusSession(
+    ctx,
+    sessionID,
+    PROMETHEUS_EMPTY_TOOL_RECOVERY_TEXT,
+    resumeConfig,
+    session as RecoveryResumeSessionApi | undefined,
+  );
+
+  if (resumed) {
+    recoveredPendingEmptyToolMessageBySession.set(sessionID, lastMessageID);
+    log("[event] recovered pending empty planning tool call", {
+      sessionID,
+      source,
+      messageID: lastMessageID,
+      tool: pendingTool.tool,
+    });
+  }
+
+  return resumed;
+}
+
+async function maybeRecoverPrometheusAbortedToolWrapper(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "message.updated.error",
+  eventError?: unknown,
+): Promise<boolean> {
+  const cachedSnapshot = getAssistantRecoverySnapshot(sessionID, expectedMessageID);
+  const cachedAgent = cachedSnapshot?.agent ?? getSessionAgent(sessionID);
+  const tryCachedSnapshotRecovery = async (
+    reason: string,
+  ): Promise<boolean> => {
+    if (!cachedSnapshot) {
+      return false;
+    }
+
+    const resumedFromSnapshot = await resumeCachedPendingPrometheusToolRecovery(
+      ctx,
+      sessionID,
+      `${source}:${reason}`,
+      cachedSnapshot,
+      cachedAgent,
+      "cached aborted-tool wrapper for Prometheus planning tool call",
+    );
+    if (resumedFromSnapshot) {
+      return true;
+    }
+
+    return false;
+  };
+  const session = ctx.client["session"] as {
+    messages?: (args: { path: { id: string } }) => Promise<unknown>;
+    abort?: (args: { path: { id: string } }) => Promise<unknown>;
+    promptAsync?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+    prompt?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+  } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    log("[event] aborted-tool wrapper recovery skipped: session.messages unavailable", { sessionID, source });
+    return false;
+  }
+
+  let response: unknown;
+  try {
+    response = await readMessages({
+      path: { id: sessionID },
+    });
+  } catch (error) {
+    log("[event] aborted-tool wrapper recovery skipped: session.messages failed", {
+      sessionID,
+      source,
+      error,
+    });
+    return false;
+  }
+
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = getMessageID(lastMessage);
+  const lastMessageError = getMessageError(lastMessage);
+  const wrapperError = lastMessageError ?? eventError;
+  const wrapperErrorName = extractErrorName(wrapperError);
+  const wrapperErrorText = extractErrorMessage(wrapperError).toLowerCase();
+
+  if (!lastMessageID) {
+    return tryCachedSnapshotRecovery("missing-latest-message");
+  }
+  if (expectedMessageID && lastMessageID !== expectedMessageID) {
+    const recoveredFromRace = await tryCachedSnapshotRecovery("pending-persisted-error");
+    if (recoveredFromRace) {
+      return true;
+    }
+    return false;
+  }
+  if (getMessageRole(lastMessage) !== "assistant") return false;
+  if (
+    wrapperErrorName !== "MessageAbortedError"
+    && !wrapperErrorText.includes("aborted")
+  ) {
+    return false;
+  }
+
+  if (await tryCachedSnapshotRecovery("persisted-error")) {
+    return true;
+  }
+
+  const recoverCandidate = async (
+    candidate: RecoveryMessage,
+    candidateID: string,
+    errorMessageID: string,
+  ): Promise<boolean> => {
+    const candidateAgent = getMessageAgent(candidate);
+    if (!isPrometheusPlannerAgent(candidateAgent)) {
+      return false;
+    }
+
+    const pendingTool = findRecoverablePendingPrometheusTool(candidate.parts);
+    if (!pendingTool) {
+      return false;
+    }
+
+    const lastRecoveredMessageID = recoveredPendingEmptyToolMessageBySession.get(sessionID);
+    if (lastRecoveredMessageID === candidateID) {
+      log("[event] aborted-tool wrapper recovery skipped: prior broken tool already recovered", {
+        sessionID,
+        source,
+        candidateID,
+      });
+      return false;
+    }
+
+    const lastUser = findLastUserMessage(messages as never);
+    const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+    resumeConfig.directory = ctx.directory;
+    resumeConfig.continuationText = PROMETHEUS_EMPTY_TOOL_RECOVERY_TEXT;
+    const resumed = await resumeRecoveredPrometheusSession(
+      ctx,
+      sessionID,
+      PROMETHEUS_EMPTY_TOOL_RECOVERY_TEXT,
+      resumeConfig,
+      session as RecoveryResumeSessionApi | undefined,
+    );
+
+    if (resumed) {
+      recoveredPendingEmptyToolMessageBySession.set(sessionID, candidateID);
+      log("[event] recovered aborted-tool wrapper for Prometheus planning tool call", {
+        sessionID,
+        source,
+        candidateID,
+        errorMessageID,
+        tool: pendingTool.tool,
+      });
+    }
+
+    return resumed;
+  };
+
+  if (await recoverCandidate(lastMessage, lastMessageID, lastMessageID)) {
+    return true;
+  }
+
+  for (let index = messages.length - 2; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    const candidateID = getMessageID(candidate);
+    if (!candidateID) continue;
+    if (getMessageRole(candidate) !== "assistant") continue;
+    if (getMessageError(candidate)) continue;
+
+    if (await recoverCandidate(candidate, candidateID, lastMessageID)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function applyUserConfiguredFallbackChain(
   sessionID: string,
   agentName: string,
@@ -359,6 +1855,7 @@ export function createEventHandler(args: {
   const lastHandledRetryStatusKey = new Map<string, string>();
   const lastKnownModelBySession = new Map<string, { providerID: string; modelID: string }>();
   const emptyAssistantRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const abortedToolRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   const clearEmptyAssistantRecoveryTimer = (sessionID: string): void => {
     const timer = emptyAssistantRecoveryTimers.get(sessionID);
@@ -367,8 +1864,51 @@ export function createEventHandler(args: {
     emptyAssistantRecoveryTimers.delete(sessionID);
   };
 
+  const clearAbortedToolRecoveryTimer = (sessionID: string): void => {
+    const timer = abortedToolRecoveryTimers.get(sessionID);
+    if (!timer) return;
+    clearTimeout(timer);
+    abortedToolRecoveryTimers.delete(sessionID);
+  };
+
+  const schedulePrometheusAbortedToolRecovery = (
+    sessionID: string,
+    expectedMessageID?: string,
+    eventError?: unknown,
+    source = "session.error.delayed",
+  ): void => {
+    clearAbortedToolRecoveryTimer(sessionID);
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          abortedToolRecoveryTimers.delete(sessionID);
+          if (hooks.stopContinuationGuard?.isStopped(sessionID)) {
+            return;
+          }
+
+          await maybeRecoverPrometheusAbortedToolWrapper(
+            pluginContext,
+            sessionID,
+            expectedMessageID,
+            source,
+            eventError,
+          );
+        } catch (error) {
+          log("[event] delayed aborted-tool recovery failed", {
+            sessionID,
+            expectedMessageID,
+            source,
+            error,
+          });
+        }
+      })();
+    }, PROMETHEUS_ABORTED_TOOL_RECOVERY_DELAY_MS);
+    abortedToolRecoveryTimers.set(sessionID, timer);
+  };
+
   const scheduleEmptyAssistantRecovery = (sessionID: string, messageID: string): void => {
     clearEmptyAssistantRecoveryTimer(sessionID);
+    const delayMs = getEmptyAssistantRecoveryDelayMs(sessionID, messageID);
     const timer = setTimeout(() => {
       void (async () => {
         try {
@@ -386,6 +1926,47 @@ export function createEventHandler(args: {
             return;
           }
 
+          const recoverySnapshot = getAssistantRecoverySnapshot(sessionID, messageID);
+          const recoveryAgent = recoverySnapshot?.agent ?? getSessionAgent(sessionID);
+          if (isRuntimeFallbackEnabled && isPrometheusPlannerAgent(recoveryAgent)) {
+            const recoveredPlannerReasoningOnly = await maybeRecoverPrometheusReasoningOnlyAssistantMessage(
+              pluginContext,
+              sessionID,
+              messageID,
+              "message.updated.delayed",
+            );
+            if (recoveredPlannerReasoningOnly) {
+              return;
+            }
+
+            log("[event] delayed empty assistant recovery skipped: runtime fallback owns planner recovery", {
+              sessionID,
+              messageID,
+              agent: recoveryAgent,
+            });
+            return;
+          }
+
+          const recoveredPendingTool = await maybeRecoverPrometheusPendingEmptyToolCall(
+            pluginContext,
+            sessionID,
+            messageID,
+            "message.updated.delayed",
+          );
+          if (recoveredPendingTool) {
+            return;
+          }
+
+          const recoveredPlannerReasoningOnly = await maybeRecoverPrometheusReasoningOnlyAssistantMessage(
+            pluginContext,
+            sessionID,
+            messageID,
+            "message.updated.delayed",
+          );
+          if (recoveredPlannerReasoningOnly) {
+            return;
+          }
+
           await maybeRecoverIdleEmptyAssistantMessage(
             pluginContext,
             sessionID,
@@ -396,12 +1977,12 @@ export function createEventHandler(args: {
           log("[event] delayed empty assistant recovery failed", { sessionID, messageID, error });
         }
       })();
-    }, EMPTY_ASSISTANT_RECOVERY_DELAY_MS);
+    }, delayMs);
     emptyAssistantRecoveryTimers.set(sessionID, timer);
     log("[event] scheduled delayed empty assistant recovery", {
       sessionID,
       messageID,
-      delayMs: EMPTY_ASSISTANT_RECOVERY_DELAY_MS,
+      delayMs,
     });
   };
 
@@ -430,16 +2011,7 @@ export function createEventHandler(args: {
   };
 
   const getEventSessionID = (input: EventInput): string | undefined => {
-    const properties = input.event.properties;
-    if (
-      !properties ||
-      typeof properties !== "object" ||
-      !("sessionID" in properties) ||
-      typeof properties.sessionID !== "string"
-    ) {
-      return undefined;
-    }
-    return properties.sessionID;
+    return getEventPropertiesSessionID(input.event.properties);
   };
 
   const runEventHookSafely = async (
@@ -530,6 +2102,82 @@ export function createEventHandler(args: {
     });
   };
 
+  const maybeRecoverPrometheusIdleSession = async (
+    sessionID: string,
+    source: string,
+  ): Promise<boolean> => {
+    if (
+      !args.pluginConfig.experimental?.auto_resume
+      || hooks.stopContinuationGuard?.isStopped(sessionID)
+    ) {
+      return false;
+    }
+
+    if (!isRuntimeFallbackEnabled) {
+      const recoveredAbortedWrapper = await maybeRecoverPrometheusAbortedToolWrapper(
+        pluginContext,
+        sessionID,
+        undefined,
+        source,
+      );
+      if (recoveredAbortedWrapper) {
+        return true;
+      }
+
+      const recoveredProviderBlockedTurn = await maybeRecoverPrometheusProviderBlockedTurn(
+        pluginContext,
+        sessionID,
+        undefined,
+        source,
+        undefined,
+        args.pluginConfig,
+      );
+      if (recoveredProviderBlockedTurn) {
+        return true;
+      }
+
+      if (hasActivePrometheusProviderBlockedRetryWindow(sessionID)) {
+        log("[event] Prometheus idle recovery skipped: provider-blocked retry window active", {
+          sessionID,
+          source,
+        });
+        return false;
+      }
+
+      const recoveredPendingTool = await maybeRecoverPrometheusPendingEmptyToolCall(
+        pluginContext,
+        sessionID,
+        undefined,
+        source,
+      );
+      if (recoveredPendingTool) {
+        return true;
+      }
+    }
+
+    const recoveredPlannerReasoningOnly = await maybeRecoverPrometheusReasoningOnlyAssistantMessage(
+      pluginContext,
+      sessionID,
+      undefined,
+      source,
+    );
+    if (recoveredPlannerReasoningOnly) {
+      return true;
+    }
+
+    const recoveredInterruptedVisible = await maybeRecoverPrometheusInterruptedVisibleAssistantMessage(
+      pluginContext,
+      sessionID,
+      undefined,
+      source,
+    );
+    if (recoveredInterruptedVisible) {
+      return true;
+    }
+
+    return maybeRecoverIdleEmptyAssistantMessage(pluginContext, sessionID, undefined, source);
+  };
+
   return async (input): Promise<void> => {
     pruneRecentSyntheticIdles({
       recentSyntheticIdles,
@@ -539,9 +2187,7 @@ export function createEventHandler(args: {
     });
 
     if (input.event.type === "session.idle") {
-      const sessionID = (input.event.properties as Record<string, unknown> | undefined)?.sessionID as
-        | string
-        | undefined;
+      const sessionID = getEventPropertiesSessionID(input.event.properties);
       if (sessionID) {
         const emittedAt = recentSyntheticIdles.get(sessionID);
         if (emittedAt && Date.now() - emittedAt < DEDUP_WINDOW_MS) {
@@ -556,7 +2202,10 @@ export function createEventHandler(args: {
 
     const syntheticIdle = normalizeSessionStatusToIdle(input);
     if (syntheticIdle) {
-      const sessionID = (syntheticIdle.event.properties as Record<string, unknown>)?.sessionID as string;
+      const sessionID = getEventPropertiesSessionID(syntheticIdle.event.properties);
+      if (!sessionID) {
+        return;
+      }
       const emittedAt = recentRealIdles.get(sessionID);
       if (emittedAt && Date.now() - emittedAt < DEDUP_WINDOW_MS) {
         recentRealIdles.delete(sessionID);
@@ -601,6 +2250,11 @@ export function createEventHandler(args: {
         lastHandledRetryStatusKey.delete(sessionInfo.id);
         lastKnownModelBySession.delete(sessionInfo.id);
         clearEmptyAssistantRecoveryTimer(sessionInfo.id);
+        assistantRecoverySnapshotBySession.delete(sessionInfo.id);
+        recoveredPendingEmptyToolMessageBySession.delete(sessionInfo.id);
+        recoveredPlannerReasoningOnlyMessageBySession.delete(sessionInfo.id);
+        recoveredInterruptedPlannerVisibleMessageBySession.delete(sessionInfo.id);
+        recoveredEmptyAssistantMessageBySession.delete(sessionInfo.id);
         clearPendingModelFallback(sessionInfo.id);
         clearSessionFallbackChain(sessionInfo.id);
         resetMessageCursor(sessionInfo.id);
@@ -609,6 +2263,8 @@ export function createEventHandler(args: {
         firstMessageVariantGate.clear(sessionInfo.id);
         clearSessionModel(sessionInfo.id);
         clearSessionPromptParams(sessionInfo.id);
+        recoveredProviderBlockedErrorMessageBySession.delete(sessionInfo.id);
+        prometheusProviderBlockedRetryStateBySession.delete(sessionInfo.id);
         syncSubagentSessions.delete(sessionInfo.id);
         if (wasSyncSubagentSession) {
           subagentSessions.delete(sessionInfo.id);
@@ -624,17 +2280,21 @@ export function createEventHandler(args: {
 
     if (event.type === "message.removed") {
       const messageID = props?.messageID as string | undefined;
-      const sessionID = props?.sessionID as string | undefined;
+      const sessionID = getEventPropertiesSessionID(props);
       restoreBackgroundOutputConsumption(sessionID, messageID);
     }
 
     if (event.type === "message.updated") {
       const info = props?.info as Record<string, unknown> | undefined;
-      const sessionID = info?.sessionID as string | undefined;
+      const sessionID = getEventPropertiesSessionID(props);
       const agent = info?.agent as string | undefined;
       const role = info?.role as string | undefined;
+      const assistantMessageID = info?.id as string | undefined;
+      const assistantError = info?.error;
       if (sessionID && role === "user") {
         clearEmptyAssistantRecoveryTimer(sessionID);
+        clearAbortedToolRecoveryTimer(sessionID);
+        assistantRecoverySnapshotBySession.delete(sessionID);
         const isCompactionMessage = agent ? isCompactionAgent(agent) : false;
         if (agent && !isCompactionMessage) {
           updateSessionAgent(sessionID, agent);
@@ -649,10 +2309,56 @@ export function createEventHandler(args: {
 
       // Model fallback: in practice, API/model failures often surface as assistant message errors.
       // session.error events are not guaranteed for all providers, so we also observe message.updated.
+      if (
+        sessionID
+        && role === "assistant"
+        && assistantMessageID
+        && assistantError
+        && args.pluginConfig.experimental?.auto_resume
+        && !hooks.stopContinuationGuard?.isStopped(sessionID)
+      ) {
+        clearEmptyAssistantRecoveryTimer(sessionID);
+        clearAbortedToolRecoveryTimer(sessionID);
+        if (isRuntimeFallbackEnabled) {
+          return;
+        }
+
+        try {
+          const recoveredAbortedWrapper = await maybeRecoverPrometheusAbortedToolWrapper(
+            pluginContext,
+            sessionID,
+            assistantMessageID,
+            "message.updated.error",
+            assistantError,
+          );
+          if (recoveredAbortedWrapper) {
+            return;
+          }
+          schedulePrometheusAbortedToolRecovery(
+            sessionID,
+            assistantMessageID,
+            assistantError,
+            "message.updated.error.delayed",
+          );
+
+          const recoveredProviderBlockedTurn = await maybeRecoverPrometheusProviderBlockedTurn(
+            pluginContext,
+            sessionID,
+            assistantMessageID,
+            "message.updated.error",
+            assistantError,
+            args.pluginConfig,
+          );
+          if (recoveredProviderBlockedTurn) {
+            return;
+          }
+        } catch (err) {
+          log("[event] planning recovery failed in message.updated:", { sessionID, error: err });
+        }
+      }
+
       if (sessionID && role === "assistant" && !isRuntimeFallbackEnabled && isModelFallbackEnabled) {
         try {
-          const assistantMessageID = info?.id as string | undefined;
-          const assistantError = info?.error;
           if (assistantMessageID && assistantError) {
             clearEmptyAssistantRecoveryTimer(sessionID);
             const lastHandled = lastHandledModelErrorMessageID.get(sessionID);
@@ -705,16 +2411,116 @@ export function createEventHandler(args: {
       }
 
       if (sessionID && role === "assistant" && args.pluginConfig.experimental?.auto_resume) {
-        const assistantMessageID = info?.id as string | undefined;
-        const assistantError = info?.error;
         if (assistantMessageID && !assistantError) {
+          prometheusProviderBlockedRetryStateBySession.delete(sessionID);
+          const snapshot = upsertAssistantRecoverySnapshot(sessionID, assistantMessageID, agent);
+          const shouldImmediatelyRecoverPlannerReasoningOnly =
+            info?.finish === "other"
+            && isPrometheusPlannerAgent(snapshot.agent ?? getSessionAgent(sessionID))
+            && !snapshot.hasUserFacingContent
+            && snapshot.hasRecoverablePlannerInternalParts;
+
+          if (
+            shouldImmediatelyRecoverPlannerReasoningOnly
+            && !hooks.stopContinuationGuard?.isStopped(sessionID)
+          ) {
+            try {
+              const recoveredPlannerReasoningOnly = await maybeRecoverPrometheusReasoningOnlyAssistantMessage(
+                pluginContext,
+                sessionID,
+                assistantMessageID,
+                "message.updated.finish-other",
+              );
+              if (recoveredPlannerReasoningOnly) {
+                return;
+              }
+            } catch (err) {
+              log("[event] immediate planner reasoning-only recovery failed in message.updated:", {
+                sessionID,
+                error: err,
+              });
+            }
+          }
+
           scheduleEmptyAssistantRecovery(sessionID, assistantMessageID);
         }
       }
     }
 
+    if (event.type === "message.part.updated") {
+      const part = isRecord(props?.part) ? (props?.part as RecoveryMessagePart & { sessionID?: string; sessionId?: string; messageID?: string; messageId?: string }) : undefined;
+      const sessionID = getMessagePartUpdatedSessionID(props as Record<string, unknown> | undefined, part);
+      const messageID = getMessagePartUpdatedMessageID(
+        props as Record<string, unknown> | undefined,
+        part,
+        sessionID,
+      );
+      if (
+        sessionID
+        && messageID
+        && args.pluginConfig.experimental?.auto_resume
+      ) {
+        updateAssistantRecoverySnapshotPart(sessionID, messageID, part);
+        const snapshot = getAssistantRecoverySnapshot(sessionID, messageID);
+        const shouldImmediatelyRecoverInterruptedPlannerTool =
+          !!snapshot
+          && isPrometheusPlannerAgent(snapshot.agent ?? getSessionAgent(sessionID))
+          && isInterruptedRecoverablePrometheusToolPart(part);
+        if (
+          shouldImmediatelyRecoverInterruptedPlannerTool
+          && !hooks.stopContinuationGuard?.isStopped(sessionID)
+        ) {
+          try {
+            const recoveredPendingTool = await maybeRecoverPrometheusPendingEmptyToolCall(
+              pluginContext,
+              sessionID,
+              messageID,
+              "message.part.updated.interrupted-tool",
+            );
+            if (recoveredPendingTool) {
+              return;
+            }
+          } catch (err) {
+            log("[event] immediate interrupted-tool recovery failed in message.part.updated:", {
+              sessionID,
+              messageID,
+              error: err,
+            });
+          }
+        }
+        const shouldPreferPlannerRecovery =
+          !!snapshot
+          && isPrometheusPlannerAgent(snapshot.agent ?? getSessionAgent(sessionID))
+          && (
+            !!snapshot.pendingPrometheusTool
+            || (
+              !snapshot.hasUserFacingContent
+              && snapshot.hasRecoverablePlannerInternalParts
+            )
+          );
+        if (shouldPreferPlannerRecovery) {
+          scheduleEmptyAssistantRecovery(sessionID, messageID);
+        } else if (snapshot?.hasVisibleContent) {
+          clearEmptyAssistantRecoveryTimer(sessionID);
+        }
+      }
+    }
+
+    if ((event.type as string) === "message.part.delta") {
+      const sessionID = getEventPropertiesSessionID(props);
+      const messageID = (props?.messageID as string | undefined) ?? (props?.messageId as string | undefined);
+      if (sessionID && args.pluginConfig.experimental?.auto_resume) {
+        const snapshot = updateAssistantRecoverySnapshotDelta(sessionID, messageID, props?.delta);
+        if (snapshot?.hasUserFacingContent) {
+          clearEmptyAssistantRecoveryTimer(sessionID);
+        } else if (snapshot?.messageID && !hooks.stopContinuationGuard?.isStopped(sessionID)) {
+          scheduleEmptyAssistantRecovery(sessionID, snapshot.messageID);
+        }
+      }
+    }
+
     if (event.type === "session.status") {
-      const sessionID = props?.sessionID as string | undefined;
+      const sessionID = getEventPropertiesSessionID(props);
       const status = props?.status as { type?: string; attempt?: number; message?: string; next?: number } | undefined;
 
       // Retry dedupe lifecycle: set key when a retry status is handled, clear it after recovery
@@ -723,15 +2529,16 @@ export function createEventHandler(args: {
         lastHandledRetryStatusKey.delete(sessionID);
         clearEmptyAssistantRecoveryTimer(sessionID);
 
-        if (
-          args.pluginConfig.experimental?.auto_resume &&
-          !hooks.stopContinuationGuard?.isStopped(sessionID)
-        ) {
-          try {
-            await maybeRecoverIdleEmptyAssistantMessage(pluginContext, sessionID);
-          } catch (err) {
-            log("[event] empty assistant recovery failed in session.status:", { sessionID, error: err });
+        try {
+          const recoveredIdleSession = await maybeRecoverPrometheusIdleSession(
+            sessionID,
+            "session.status.idle",
+          );
+          if (recoveredIdleSession) {
+            return;
           }
+        } catch (err) {
+          log("[event] idle session recovery failed in session.status:", { sessionID, error: err });
         }
       }
 
@@ -786,14 +2593,73 @@ export function createEventHandler(args: {
       }
     }
 
+    if (event.type === "session.idle") {
+      const sessionID = getEventPropertiesSessionID(props);
+      if (sessionID) {
+        clearEmptyAssistantRecoveryTimer(sessionID);
+
+        try {
+          const recoveredIdleSession = await maybeRecoverPrometheusIdleSession(
+            sessionID,
+            "session.idle",
+          );
+          if (recoveredIdleSession) {
+            return;
+          }
+        } catch (err) {
+          log("[event] idle session recovery failed in session.idle:", { sessionID, error: err });
+        }
+      }
+    }
+
     if (event.type === "session.error") {
       try {
-        const sessionID = props?.sessionID as string | undefined;
+        const sessionID = getEventPropertiesSessionID(props);
         const error = props?.error;
+        if (sessionID) {
+          clearEmptyAssistantRecoveryTimer(sessionID);
+          clearAbortedToolRecoveryTimer(sessionID);
+        }
 
         const errorName = extractErrorName(error);
         const errorMessage = extractErrorMessage(error);
         const errorInfo = { name: errorName, message: errorMessage };
+
+        if (
+          args.pluginConfig.experimental?.auto_resume
+          && sessionID
+          && !hooks.stopContinuationGuard?.isStopped(sessionID)
+          && !isRuntimeFallbackEnabled
+        ) {
+          const recoveredAbortedWrapper = await maybeRecoverPrometheusAbortedToolWrapper(
+            pluginContext,
+            sessionID,
+            (props?.messageID as string | undefined) ?? (props?.messageId as string | undefined),
+            "session.error",
+            error,
+          );
+          if (recoveredAbortedWrapper) {
+            return;
+          }
+          schedulePrometheusAbortedToolRecovery(
+            sessionID,
+            (props?.messageID as string | undefined) ?? (props?.messageId as string | undefined),
+            error,
+            "session.error.delayed",
+          );
+
+          const recoveredProviderBlockedTurn = await maybeRecoverPrometheusProviderBlockedTurn(
+            pluginContext,
+            sessionID,
+            (props?.messageID as string | undefined) ?? (props?.messageId as string | undefined),
+            "session.error",
+            error,
+            args.pluginConfig,
+          );
+          if (recoveredProviderBlockedTurn) {
+            return;
+          }
+        }
 
         // First, try session recovery for internal errors (thinking blocks, tool results, etc.)
         if (hooks.sessionRecovery?.isRecoverableError(error)) {
@@ -867,7 +2733,7 @@ export function createEventHandler(args: {
           }
         }
       } catch (err) {
-        const sessionID = props?.sessionID as string | undefined;
+        const sessionID = getEventPropertiesSessionID(props);
         log("[event] model-fallback error in session.error:", { sessionID, error: err });
       }
     }

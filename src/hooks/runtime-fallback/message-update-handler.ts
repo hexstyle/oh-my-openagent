@@ -34,6 +34,8 @@ import {
   resetInternalContinuationLoopForRealUser,
   resetInternalContinuationLoopForVisibleAssistant,
 } from "./internal-continuation-loop-state"
+import { getRuntimeFallbackSessionID } from "./session-id"
+import { applyScopedFallbackSessionHint } from "./scoped-fallback-hints"
 
 export { hasVisibleAssistantResponse } from "./visible-assistant-response"
 
@@ -78,13 +80,16 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         return null
       }
 
-      sessionStates.set(args.sessionID, createFallbackState(model))
+      const state = createFallbackState(model)
+      applyScopedFallbackSessionHint(deps, args.sessionID, state)
+      sessionStates.set(args.sessionID, state)
       log(`[${HOOK_NAME}] Bootstrapped fallback state from message.updated`, {
         sessionID: args.sessionID,
         role: args.role,
         source: args.source,
         model,
         resolvedAgent,
+        isScopedFallbackChild: state.isScopedFallbackChild,
       })
     }
 
@@ -140,7 +145,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
 
   return async (props: Record<string, unknown> | undefined) => {
     const info = props?.info as Record<string, unknown> | undefined
-    const sessionID = info?.sessionID as string | undefined
+    const sessionID = getRuntimeFallbackSessionID(props)
     const eventParts = props?.parts as Array<{ type?: string; text?: string }> | undefined
     const infoParts = info?.parts as Array<{ type?: string; text?: string }> | undefined
     const parts = eventParts && eventParts.length > 0 ? eventParts : infoParts
@@ -396,6 +401,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         }
 
         state = createFallbackState(initialModel)
+        applyScopedFallbackSessionHint(deps, sessionID, state)
         sessionStates.set(sessionID, state)
         sessionLastAccess.set(sessionID, Date.now())
       } else {
