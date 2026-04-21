@@ -39,7 +39,7 @@ export interface RuntimeFallbackPluginInput {
         path: { id: string }
         query: { directory: string }
       }) => Promise<unknown>
-      get?: (input: { path: { id: string } }) => Promise<{ data?: { directory?: string } }>
+      get?: (input: { path: { id: string } }) => Promise<{ data?: { directory?: string; parentID?: string } }>
       update?: (input: {
         path: { id: string }
         body: { title: string }

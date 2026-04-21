@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test"
+import { afterEach, describe, expect, it } from "bun:test"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -8,43 +8,59 @@ import { createAutoRetryHelpers } from "./auto-retry"
 import { createFallbackState } from "./fallback-state"
 import type { HookDeps } from "./types"
 import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
+import {
+  resetRecentRuntimeFallbackContinuationDispatchesForTests,
+  wasRecentRuntimeFallbackContinuationDispatched,
+} from "../../shared/recent-runtime-fallback-continuation"
 
 function createDeps(args: {
   createCalls: Array<unknown>
   promptCalls: Array<unknown>
   messagesResponse?: unknown
+  bindCreateToSessionObject?: boolean
+  sessionData?: {
+    directory?: string
+    parentID?: string
+  }
 }): HookDeps {
+  const sessionApi = {
+    _client: args.bindCreateToSessionObject ? { tag: "bound-client" } : undefined,
+    create: async function(this: { _client?: { tag: string } } | undefined, input: unknown) {
+      if (args.bindCreateToSessionObject && this?._client?.tag !== "bound-client") {
+        throw new TypeError("undefined is not an object (evaluating 'this._client')")
+      }
+      args.createCalls.push(input)
+      return { data: { id: "ses_scoped_child" } }
+    },
+    get: async () => ({
+      data: {
+        directory: args.sessionData?.directory ?? "/tmp/runtime-fallback-scoped-handoff/project",
+        ...(typeof args.sessionData?.parentID === "string" ? { parentID: args.sessionData.parentID } : {}),
+      },
+    }),
+    abort: async () => undefined,
+    messages: async () => ({
+      data: [
+        {
+          info: { role: "user" },
+          parts: [{ type: "text", text: "Implement the current plan and keep the todo state intact." }],
+        },
+      ],
+      ...(typeof args.messagesResponse === "object" && args.messagesResponse !== null
+        ? args.messagesResponse as Record<string, unknown>
+        : {}),
+    }),
+    promptAsync: async (input: unknown) => {
+      args.promptCalls.push(input)
+      return undefined
+    },
+  }
+
   return {
     ctx: {
       directory: "/tmp/runtime-fallback-scoped-handoff",
       client: {
-        session: {
-          create: async (input) => {
-            args.createCalls.push(input)
-            return { data: { id: "ses_scoped_child" } }
-          },
-          get: async () => ({
-            data: {
-              directory: "/tmp/runtime-fallback-scoped-handoff/project",
-            },
-          }),
-          abort: async () => undefined,
-          messages: async () => ({
-            data: [
-              {
-                info: { role: "user" },
-                parts: [{ type: "text", text: "Implement the current plan and keep the todo state intact." }],
-              },
-            ],
-            ...(typeof args.messagesResponse === "object" && args.messagesResponse !== null
-              ? args.messagesResponse as Record<string, unknown>
-              : {}),
-          }),
-          promptAsync: async (input) => {
-            args.promptCalls.push(input)
-            return undefined
-          },
-        },
+        session: sessionApi,
         tui: {
           showToast: async () => undefined,
         },
@@ -80,6 +96,10 @@ function createDeps(args: {
 }
 
 describe("runtime fallback scoped handoff", () => {
+  afterEach(() => {
+    resetRecentRuntimeFallbackContinuationDispatchesForTests()
+  })
+
   it("launches a child session instead of replaying a paid planner session onto spark", async () => {
     const createCalls: Array<unknown> = []
     const promptCalls: Array<unknown> = []
@@ -321,6 +341,83 @@ describe("runtime fallback scoped handoff", () => {
     expect(retryText).toContain("Retry on the same paid model in a fresh session")
   })
 
+  it("preserves the session.create binding when opening a fresh same-model handoff", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({
+      createCalls,
+      promptCalls,
+      bindCreateToSessionObject: true,
+    })
+    const sessionID = "ses_paid_fresh_retry_bound_create"
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.4",
+      "anthropic/claude-sonnet-4-6",
+    ])
+
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    const dispatched = await helpers.retryCurrentModelInFreshSession(
+      sessionID,
+      "Prometheus (Plan Builder)",
+      "message.part.updated.malformed-tool-pending",
+    )
+
+    expect(dispatched).toBe(true)
+    expect(createCalls).toHaveLength(1)
+    expect(promptCalls).toHaveLength(1)
+    expect(
+      (promptCalls[0] as { body?: { agent?: string } }).body?.agent,
+    ).toBe("Prometheus (Plan Builder)")
+    expect(wasRecentRuntimeFallbackContinuationDispatched(sessionID)).toBe(true)
+  })
+
+  it("reattaches a scoped paid fresh retry handoff to the original parent session instead of nesting under the stalled child", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const sessionID = "ses_scoped_paid_fresh_retry_child"
+    const rootSessionID = "ses_scoped_paid_fresh_retry_root"
+    const deps = createDeps({
+      createCalls,
+      promptCalls,
+      sessionData: {
+        directory: "/tmp/runtime-fallback-scoped-handoff/project",
+        parentID: rootSessionID,
+      },
+    })
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.4",
+      "anthropic/claude-sonnet-4-6",
+    ])
+    state.isScopedFallbackChild = true
+
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    const dispatched = await helpers.retryCurrentModelInFreshSession(
+      sessionID,
+      "Prometheus (Plan Builder)",
+      "session.error.transient_forbidden",
+    )
+
+    expect(dispatched).toBe(true)
+    expect(createCalls).toHaveLength(1)
+    expect(
+      (createCalls[0] as { body?: { parentID?: string; title?: string } }).body,
+    ).toMatchObject({
+      parentID: rootSessionID,
+      title: "[runtime-fallback] Scoped Fallback: claude-opus-4-6",
+    })
+    expect(promptCalls).toHaveLength(1)
+    expect(
+      (promptCalls[0] as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+    ).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-opus-4-6",
+    })
+  })
+
   it("preserves an explicit live planner agent on a boulder-tracked paid fallback instead of drifting to atlas", async () => {
     const createCalls: Array<unknown> = []
     const promptCalls: Array<unknown> = []
@@ -410,5 +507,31 @@ describe("runtime fallback scoped handoff", () => {
     } finally {
       rmSync(testDirectory, { recursive: true, force: true })
     }
+  })
+
+  it("marks the parent session as recently recovered when opening a scoped fallback child", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({ createCalls, promptCalls })
+    const sessionID = "ses_parent_recent_runtime_fallback_dispatch"
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.3-codex-spark",
+    ])
+
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    const dispatched = await helpers.autoRetryWithFallback(
+      sessionID,
+      "openai/gpt-5.3-codex-spark",
+      "Prometheus (Plan Builder)",
+      "session.error.fallback_chain",
+      { previousModel: "anthropic/claude-opus-4-6" },
+    )
+
+    expect(dispatched).toBe(true)
+    expect(createCalls).toHaveLength(1)
+    expect(promptCalls).toHaveLength(1)
+    expect(wasRecentRuntimeFallbackContinuationDispatched(sessionID)).toBe(true)
   })
 })

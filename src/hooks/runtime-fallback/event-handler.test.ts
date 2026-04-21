@@ -1,8 +1,14 @@
-import { describe, expect, it } from "bun:test"
+import { Database } from "bun:sqlite"
+import { afterEach, describe, expect, it, spyOn } from "bun:test"
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
 import type { HookDeps, RuntimeFallbackPluginInput } from "./types"
 import type { AutoRetryHelpers } from "./auto-retry"
 import { createFallbackState } from "./fallback-state"
 import { createEventHandler } from "./event-handler"
+import { resetRuntimeFallbackSessionIDCache } from "./session-id"
+import * as dataPathModule from "../../shared/data-path"
 
 type TestHelpers = AutoRetryHelpers & {
   __scheduleCallsForTest: Array<{ sessionID: string; source?: string; resolvedAgent?: string; timeoutMsOverride?: number }>
@@ -137,6 +143,77 @@ function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[
     __retryCurrentModelCallsForTest: retryCurrentModelCalls,
     __freshRetryCallsForTest: freshRetryCalls,
   }
+}
+
+let tempDbDir: string | undefined
+let getDataDirSpy: ReturnType<typeof spyOn> | undefined
+
+afterEach(() => {
+  getDataDirSpy?.mockRestore()
+  getDataDirSpy = undefined
+  resetRuntimeFallbackSessionIDCache()
+
+  if (tempDbDir) {
+    rmSync(tempDbDir, { recursive: true, force: true })
+    tempDbDir = undefined
+  }
+})
+
+function withRuntimeFallbackDb(
+  sessionID: string,
+  ids: {
+    messageID?: string
+    partID?: string
+  },
+): void {
+  tempDbDir = mkdtempSync(join(tmpdir(), "runtime-fallback-session-id-"))
+  const opencodeDir = join(tempDbDir, "opencode")
+  mkdirSync(opencodeDir, { recursive: true })
+  const dbPath = join(opencodeDir, "opencode.db")
+  const db = new Database(dbPath)
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS message (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      time_created TEXT NOT NULL DEFAULT (datetime('now')),
+      time_updated TEXT NOT NULL DEFAULT (datetime('now')),
+      data TEXT NOT NULL DEFAULT '{}'
+    )
+  `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS part (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      time_created TEXT NOT NULL DEFAULT (datetime('now')),
+      time_updated TEXT NOT NULL DEFAULT (datetime('now')),
+      data TEXT NOT NULL DEFAULT '{}'
+    )
+  `)
+
+  if (ids.messageID) {
+    db.run(
+      "INSERT INTO message (id, session_id, data) VALUES (?, ?, ?)",
+      [ids.messageID, sessionID, "{}"],
+    )
+  }
+
+  if (ids.partID) {
+    const messageID = ids.messageID ?? "msg-runtime-fallback-session-id"
+    if (!ids.messageID) {
+      db.run(
+        "INSERT INTO message (id, session_id, data) VALUES (?, ?, ?)",
+        [messageID, sessionID, "{}"],
+      )
+    }
+    db.run(
+      "INSERT INTO part (id, message_id, data) VALUES (?, ?, ?)",
+      [ids.partID, messageID, "{}"],
+    )
+  }
+
+  db.close()
+  getDataDirSpy = spyOn(dataPathModule, "getDataDir").mockReturnValue(tempDbDir)
 }
 
 describe("createEventHandler", () => {
@@ -287,6 +364,16 @@ describe("createEventHandler", () => {
         },
       },
       {
+        name: "pre-execution write tool parts",
+        properties: {
+          part: {
+            sessionID: "session-progress-write-preexecution",
+            type: "tool",
+            tool: "write",
+          },
+        },
+      },
+      {
         name: "pending task delegation parts",
         properties: {
           part: {
@@ -411,6 +498,10 @@ describe("createEventHandler", () => {
                   type === "tool" && (
                     status === "running"
                     || (
+                      (status === undefined || status === "pending")
+                      && ["write", "apply_patch", "todowrite"].includes(toolName ?? "")
+                    )
+                    || (
                       status === "pending"
                       && ["task", "call_omo_agent"].includes(toolName ?? "")
                     )
@@ -477,7 +568,7 @@ describe("createEventHandler", () => {
       ])
     })
 
-    it("#when a local tool abort progress part arrives in a scoped fallback child #then the handler stays in the same session", async () => {
+    it("#when a local tool abort progress part arrives in a scoped paid child #then the handler opens a fresh same-model handoff", async () => {
       const sessionID = "session-progress-local-tool-abort-scoped-child"
       const deps = createDeps()
       const abortCalls: string[] = []
@@ -507,16 +598,274 @@ describe("createEventHandler", () => {
         },
       })
 
-      expect(helpers.__retryCurrentModelCallsForTest).toEqual([
+      expect(helpers.__retryCurrentModelCallsForTest).toEqual([])
+      expect(helpers.__freshRetryCallsForTest).toEqual([
         {
           sessionID,
           resolvedAgent: "prometheus",
           source: "message.part.updated.tool-error",
-          immediate: false,
-          persistent: true,
         },
       ])
+    })
+
+    it("#when a paid planner emits an empty pending write payload #then the handler opens a fresh same-model handoff", async () => {
+      const sessionID = "session-progress-empty-write-pending"
+      const deps = createDeps()
+      const abortCalls: string[] = []
+      const clearCalls: string[] = []
+      const state = createFallbackState("anthropic/claude-opus-4-6")
+      state.resolvedAgent = "prometheus"
+      deps.sessionStates.set(sessionID, state)
+      const helpers = createHelpers(deps, abortCalls, clearCalls)
+      const handler = createEventHandler(deps, helpers)
+
+      await handler({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            info: { sessionID, role: "assistant", agent: "Prometheus (Plan Builder)" },
+            part: {
+              sessionID,
+              type: "tool",
+              tool: "write",
+              state: {
+                status: "pending",
+                input: {},
+                raw: "",
+              },
+            },
+          },
+        },
+      })
+
+      expect(abortCalls).toEqual([])
+      expect(clearCalls).toEqual([])
+      expect(helpers.__retryCurrentModelCallsForTest).toEqual([])
+      expect(helpers.__freshRetryCallsForTest).toEqual([
+        {
+          sessionID,
+          resolvedAgent: "prometheus",
+          source: "message.part.updated.malformed-tool-pending",
+        },
+      ])
+      expect(helpers.__scheduleCallsForTest).toEqual([
+        {
+          sessionID,
+          source: "message.part.updated.progress",
+          resolvedAgent: "prometheus",
+          timeoutMsOverride: 120_000,
+        },
+      ])
+    })
+
+    it("#when a paid planner emits an empty pending write payload with camelCase part.sessionId #then the handler still opens a fresh same-model handoff", async () => {
+      const sessionID = "session-progress-empty-write-pending-session-id"
+      const deps = createDeps()
+      const abortCalls: string[] = []
+      const clearCalls: string[] = []
+      const state = createFallbackState("anthropic/claude-opus-4-6")
+      state.resolvedAgent = "prometheus"
+      deps.sessionStates.set(sessionID, state)
+      const helpers = createHelpers(deps, abortCalls, clearCalls)
+      const handler = createEventHandler(deps, helpers)
+
+      await handler({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            info: { role: "assistant", agent: "Prometheus (Plan Builder)" },
+            part: {
+              sessionId: sessionID,
+              type: "tool",
+              tool: "write",
+              state: {
+                status: "pending",
+                input: {},
+                raw: "",
+              },
+            },
+          },
+        },
+      })
+
+      expect(abortCalls).toEqual([])
+      expect(clearCalls).toEqual([])
+      expect(helpers.__retryCurrentModelCallsForTest).toEqual([])
+      expect(helpers.__freshRetryCallsForTest).toEqual([
+        {
+          sessionID,
+          resolvedAgent: "prometheus",
+          source: "message.part.updated.malformed-tool-pending",
+        },
+      ])
+      expect(helpers.__scheduleCallsForTest).toEqual([
+        {
+          sessionID,
+          source: "message.part.updated.progress",
+          resolvedAgent: "prometheus",
+          timeoutMsOverride: 120_000,
+        },
+      ])
+    })
+
+    it("#when a paid planner emits an empty pending read payload #then the handler keeps the watchdog alive without opening a fresh handoff", async () => {
+      const sessionID = "session-progress-empty-read-pending"
+      const deps = createDeps()
+      const abortCalls: string[] = []
+      const clearCalls: string[] = []
+      const state = createFallbackState("anthropic/claude-opus-4-6")
+      state.resolvedAgent = "prometheus"
+      deps.sessionStates.set(sessionID, state)
+      const helpers = createHelpers(deps, abortCalls, clearCalls)
+      const handler = createEventHandler(deps, helpers)
+
+      await handler({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            info: { sessionID, role: "assistant", agent: "Prometheus (Plan Builder)" },
+            part: {
+              sessionID,
+              type: "tool",
+              tool: "read",
+              state: {
+                status: "pending",
+                input: {},
+                raw: "",
+              },
+            },
+          },
+        },
+      })
+
+      expect(abortCalls).toEqual([])
+      expect(clearCalls).toEqual([])
+      expect(helpers.__retryCurrentModelCallsForTest).toEqual([])
       expect(helpers.__freshRetryCallsForTest).toEqual([])
+      expect(helpers.__scheduleCallsForTest).toEqual([
+        {
+          sessionID,
+          source: "message.part.updated.progress",
+          resolvedAgent: "prometheus",
+        },
+      ])
+    })
+
+    it("#when a final write error arrives without direct sessionID but with part and message ids #then the handler still opens a fresh same-model handoff", async () => {
+      const sessionID = "session-progress-tool-error-db-session-id"
+      const messageID = "msg-progress-tool-error-db-session-id"
+      const partID = "prt-progress-tool-error-db-session-id"
+      withRuntimeFallbackDb(sessionID, { messageID, partID })
+
+      const deps = createDeps()
+      const abortCalls: string[] = []
+      const clearCalls: string[] = []
+      const state = createFallbackState("anthropic/claude-opus-4-6")
+      state.resolvedAgent = "prometheus"
+      deps.sessionStates.set(sessionID, state)
+      const helpers = createHelpers(deps, abortCalls, clearCalls)
+      const handler = createEventHandler(deps, helpers)
+
+      await handler({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            info: {
+              id: messageID,
+              role: "assistant",
+              agent: "Prometheus (Plan Builder)",
+            },
+            part: {
+              id: partID,
+              messageID,
+              type: "tool",
+              tool: "write",
+              state: {
+                status: "error",
+                error: "Tool execution aborted",
+              },
+            },
+          },
+        },
+      })
+
+      expect(abortCalls).toEqual([])
+      expect(clearCalls).toEqual([])
+      expect(helpers.__retryCurrentModelCallsForTest).toEqual([])
+      expect(helpers.__freshRetryCallsForTest).toEqual([
+        {
+          sessionID,
+          resolvedAgent: "prometheus",
+          source: "message.part.updated.tool-error",
+        },
+      ])
+      expect(helpers.__scheduleCallsForTest).toEqual([
+        {
+          sessionID,
+          source: "message.part.updated.progress",
+          resolvedAgent: "prometheus",
+          timeoutMsOverride: 120_000,
+        },
+      ])
+    })
+
+    it("#when a malformed pending write arrives without direct sessionID but with part and message ids #then the handler still opens a fresh same-model handoff", async () => {
+      const sessionID = "session-progress-empty-write-pending-db-session-id"
+      const messageID = "msg-progress-empty-write-pending-db-session-id"
+      const partID = "prt-progress-empty-write-pending-db-session-id"
+      withRuntimeFallbackDb(sessionID, { messageID, partID })
+
+      const deps = createDeps()
+      const abortCalls: string[] = []
+      const clearCalls: string[] = []
+      const state = createFallbackState("anthropic/claude-opus-4-6")
+      state.resolvedAgent = "prometheus"
+      deps.sessionStates.set(sessionID, state)
+      const helpers = createHelpers(deps, abortCalls, clearCalls)
+      const handler = createEventHandler(deps, helpers)
+
+      await handler({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            info: {
+              id: messageID,
+              role: "assistant",
+              agent: "Prometheus (Plan Builder)",
+            },
+            part: {
+              id: partID,
+              messageID,
+              type: "tool",
+              tool: "write",
+              state: {
+                status: "pending",
+                input: {},
+                raw: "",
+              },
+            },
+          },
+        },
+      })
+
+      expect(abortCalls).toEqual([])
+      expect(clearCalls).toEqual([])
+      expect(helpers.__retryCurrentModelCallsForTest).toEqual([])
+      expect(helpers.__freshRetryCallsForTest).toEqual([
+        {
+          sessionID,
+          resolvedAgent: "prometheus",
+          source: "message.part.updated.malformed-tool-pending",
+        },
+      ])
+      expect(helpers.__scheduleCallsForTest).toEqual([
+        {
+          sessionID,
+          source: "message.part.updated.progress",
+          resolvedAgent: "prometheus",
+          timeoutMsOverride: 120_000,
+        },
+      ])
     })
 
     it("#when visible assistant text arrives right after an active running pulse #then the handler preserves the long-running quiet window", async () => {
@@ -608,6 +957,95 @@ describe("createEventHandler", () => {
     ])
   })
 
+  it("#given a paid request-not-allowed 403 session.error before the agent is resolved #when no fallback chain is available yet #then it still attempts same-model paid recovery", async () => {
+    const sessionID = "session-error-transient-forbidden-without-agent"
+    const deps = createDeps()
+    const abortCalls: string[] = []
+    const clearCalls: string[] = []
+    const helpers = createHelpers(deps, abortCalls, clearCalls)
+    const handler = createEventHandler(deps, helpers)
+
+    await handler({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID,
+          model: "anthropic/claude-opus-4-6",
+          error: {
+            name: "AI_APICallError",
+            data: {
+              statusCode: 403,
+              message: "Forbidden: {\n  \"error\": {\n    \"type\": \"forbidden\",\n    \"message\": \"Request not allowed\"\n  }\n}",
+            },
+          },
+        },
+      },
+    })
+
+    expect(clearCalls).toEqual([sessionID])
+    expect(abortCalls).toEqual([])
+    expect(deps.sessionStates.get(sessionID)?.currentModel).toBe("anthropic/claude-opus-4-6")
+    expect(helpers.__retryCurrentModelCallsForTest).toEqual([])
+    expect(helpers.__freshRetryCallsForTest).toEqual([
+      {
+        sessionID,
+        resolvedAgent: undefined,
+        source: "session.error",
+      },
+    ])
+  })
+
+  it("#given a paid request-not-allowed 403 session.error with camelCase sessionId #when the event handler processes it #then it still opens a fresh paid handoff", async () => {
+    const sessionID = "session-error-transient-forbidden-session-id"
+    const deps = createDeps()
+    deps.pluginConfig = {
+      agents: {
+        prometheus: {
+          fallback_models: [
+            "anthropic/claude-opus-4-6",
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5.3-codex-spark",
+          ],
+        },
+      },
+    }
+    const abortCalls: string[] = []
+    const clearCalls: string[] = []
+    const state = createFallbackState("anthropic/claude-opus-4-6")
+    state.resolvedAgent = "prometheus"
+    deps.sessionStates.set(sessionID, state)
+    const helpers = createHelpers(deps, abortCalls, clearCalls)
+    const handler = createEventHandler(deps, helpers)
+
+    await handler({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionId: sessionID,
+          error: {
+            name: "AI_APICallError",
+            data: {
+              statusCode: 403,
+              message: "Forbidden: {\n  \"error\": {\n    \"type\": \"forbidden\",\n    \"message\": \"Request not allowed\"\n  }\n}",
+            },
+          },
+        },
+      },
+    })
+
+    expect(clearCalls).toEqual([sessionID])
+    expect(abortCalls).toEqual([])
+    expect(helpers.__retryCurrentModelCallsForTest).toEqual([])
+    expect(helpers.__freshRetryCallsForTest).toEqual([
+      {
+        sessionID,
+        resolvedAgent: "prometheus",
+        source: "session.error",
+      },
+    ])
+  })
+
   it("#given a paid OpenAI gateway-blocked 403 session.error #when the event handler processes it #then it opens a fresh paid handoff on the same model", async () => {
     const sessionID = "session-error-openai-gateway-blocked"
     const deps = createDeps()
@@ -657,6 +1095,58 @@ describe("createEventHandler", () => {
       {
         sessionID,
         resolvedAgent: "atlas",
+        source: "session.error",
+      },
+    ])
+  })
+
+  it("#given a scoped paid request-not-allowed 403 session.error #when the event handler processes it #then it still opens a fresh same-model handoff", async () => {
+    const sessionID = "session-error-transient-forbidden-scoped-child"
+    const deps = createDeps()
+    deps.pluginConfig = {
+      agents: {
+        prometheus: {
+          fallback_models: [
+            "anthropic/claude-opus-4-6",
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5.3-codex-spark",
+          ],
+        },
+      },
+    }
+    const abortCalls: string[] = []
+    const clearCalls: string[] = []
+    const state = createFallbackState("anthropic/claude-opus-4-6")
+    state.resolvedAgent = "prometheus"
+    state.isScopedFallbackChild = true
+    deps.sessionStates.set(sessionID, state)
+    const helpers = createHelpers(deps, abortCalls, clearCalls)
+    const handler = createEventHandler(deps, helpers)
+
+    await handler({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID,
+          error: {
+            name: "AI_APICallError",
+            data: {
+              statusCode: 403,
+              message: "Forbidden: {\n  \"error\": {\n    \"type\": \"forbidden\",\n    \"message\": \"Request not allowed\"\n  }\n}",
+            },
+          },
+        },
+      },
+    })
+
+    expect(clearCalls).toEqual([sessionID])
+    expect(abortCalls).toEqual([])
+    expect(helpers.__retryCurrentModelCallsForTest).toEqual([])
+    expect(helpers.__freshRetryCallsForTest).toEqual([
+      {
+        sessionID,
+        resolvedAgent: "prometheus",
         source: "session.error",
       },
     ])
@@ -750,6 +1240,96 @@ describe("createEventHandler", () => {
     ])
   })
 
+  it("#given a paid request-not-allowed 403 after meaningful progress #when fresh handoff is unavailable #then it still retries the same paid model in-place immediately", async () => {
+    const sessionID = "session-error-transient-forbidden-inline-midflight"
+    const deps = createDeps()
+    deps.pluginConfig = {
+      agents: {
+        atlas: {
+          fallback_models: [
+            "anthropic/claude-opus-4-6",
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5.3-codex-spark",
+            "opencode/nemotron-3-super-free",
+          ],
+        },
+      },
+    }
+    const abortCalls: string[] = []
+    const clearCalls: string[] = []
+    const updateCalls: Array<{ path?: { id: string }; body?: { title: string }; query?: { directory: string } }> = []
+    deps.ctx.client.session.update = async (input) => {
+      updateCalls.push(input)
+      return {}
+    }
+    const state = createFallbackState("anthropic/claude-opus-4-6")
+    state.resolvedAgent = "atlas"
+    state.lastMeaningfulProgressAt = Date.now()
+    deps.sessionStates.set(sessionID, state)
+    const helpers = createHelpers(deps, abortCalls, clearCalls)
+    helpers.retryCurrentModelInFreshSession = async (retrySessionID, retryResolvedAgent, source) => {
+      helpers.__freshRetryCallsForTest.push({
+        sessionID: retrySessionID,
+        resolvedAgent: retryResolvedAgent,
+        source,
+      })
+      return false
+    }
+    helpers.retryCurrentModel = async (retrySessionID, retryResolvedAgent, source, options) => {
+      helpers.__retryCurrentModelCallsForTest.push({
+        sessionID: retrySessionID,
+        resolvedAgent: retryResolvedAgent,
+        source,
+        immediate: options?.immediate,
+        persistent: options?.persistent,
+      })
+      return true
+    }
+    const handler = createEventHandler(deps, helpers)
+
+    await handler({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID,
+          agent: "Atlas (Plan Executor)",
+          model: "anthropic/claude-opus-4-6",
+          error: {
+            statusCode: 403,
+            message: "Request not allowed",
+          },
+        },
+      },
+    })
+
+    expect(clearCalls).toEqual([sessionID])
+    expect(abortCalls).toEqual([])
+    expect(updateCalls).toEqual([
+      {
+        path: { id: sessionID },
+        body: { title: "Atlas (Plan Executor)" },
+        query: { directory: "/test/dir" },
+      },
+    ])
+    expect(helpers.__freshRetryCallsForTest).toEqual([
+      {
+        sessionID,
+        resolvedAgent: "atlas",
+        source: "session.error",
+      },
+    ])
+    expect(helpers.__retryCurrentModelCallsForTest).toEqual([
+      {
+        sessionID,
+        resolvedAgent: "atlas",
+        source: "session.error.inline-preamble",
+        immediate: true,
+        persistent: false,
+      },
+    ])
+  })
+
   it("#given a paid OpenAI gateway-blocked 403 before any meaningful progress #when fresh handoff is unavailable #then it retries the same paid model in-place immediately", async () => {
     const sessionID = "session-error-openai-gateway-blocked-inline-prelude"
     const deps = createDeps()
@@ -774,6 +1354,99 @@ describe("createEventHandler", () => {
     }
     const state = createFallbackState("openai/gpt-5.4")
     state.resolvedAgent = "atlas"
+    deps.sessionStates.set(sessionID, state)
+    const helpers = createHelpers(deps, abortCalls, clearCalls)
+    helpers.retryCurrentModelInFreshSession = async (retrySessionID, retryResolvedAgent, source) => {
+      helpers.__freshRetryCallsForTest.push({
+        sessionID: retrySessionID,
+        resolvedAgent: retryResolvedAgent,
+        source,
+      })
+      return false
+    }
+    helpers.retryCurrentModel = async (retrySessionID, retryResolvedAgent, source, options) => {
+      helpers.__retryCurrentModelCallsForTest.push({
+        sessionID: retrySessionID,
+        resolvedAgent: retryResolvedAgent,
+        source,
+        immediate: options?.immediate,
+        persistent: options?.persistent,
+      })
+      return true
+    }
+    const handler = createEventHandler(deps, helpers)
+
+    await handler({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID,
+          agent: "Atlas (Plan Executor)",
+          model: "openai/gpt-5.4",
+          error: {
+            name: "AI_APICallError",
+            data: {
+              statusCode: 403,
+              message: "Forbidden: request was blocked by a gateway or proxy.",
+              responseBody: "<html><body><p>Unable to load site</p><span>Please try again later.</span></body></html>",
+            },
+          },
+        },
+      },
+    })
+
+    expect(clearCalls).toEqual([sessionID])
+    expect(abortCalls).toEqual([])
+    expect(updateCalls).toEqual([
+      {
+        path: { id: sessionID },
+        body: { title: "Atlas (Plan Executor)" },
+        query: { directory: "/test/dir" },
+      },
+    ])
+    expect(helpers.__freshRetryCallsForTest).toEqual([
+      {
+        sessionID,
+        resolvedAgent: "atlas",
+        source: "session.error",
+      },
+    ])
+    expect(helpers.__retryCurrentModelCallsForTest).toEqual([
+      {
+        sessionID,
+        resolvedAgent: "atlas",
+        source: "session.error.inline-preamble",
+        immediate: true,
+        persistent: false,
+      },
+    ])
+  })
+
+  it("#given a paid OpenAI gateway-blocked 403 after meaningful progress #when fresh handoff is unavailable #then it still retries the same paid model in-place immediately", async () => {
+    const sessionID = "session-error-openai-gateway-blocked-inline-midflight"
+    const deps = createDeps()
+    deps.pluginConfig = {
+      agents: {
+        atlas: {
+          fallback_models: [
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5.3-codex-spark",
+            "opencode/nemotron-3-super-free",
+          ],
+        },
+      },
+    }
+    const abortCalls: string[] = []
+    const clearCalls: string[] = []
+    const updateCalls: Array<{ path?: { id: string }; body?: { title: string }; query?: { directory: string } }> = []
+    deps.ctx.client.session.update = async (input) => {
+      updateCalls.push(input)
+      return {}
+    }
+    const state = createFallbackState("openai/gpt-5.4")
+    state.resolvedAgent = "atlas"
+    state.lastMeaningfulProgressAt = Date.now()
     deps.sessionStates.set(sessionID, state)
     const helpers = createHelpers(deps, abortCalls, clearCalls)
     helpers.retryCurrentModelInFreshSession = async (retrySessionID, retryResolvedAgent, source) => {

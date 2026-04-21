@@ -54,10 +54,6 @@ export function shouldPreferFreshTrackedProvider403Handoff(args: {
   error: unknown
   isScopedFallbackChild?: boolean
 }): boolean {
-  if (args.isScopedFallbackChild) {
-    return false
-  }
-
   return getTrackedProvider403Details({
     model: args.model,
     error: args.error,

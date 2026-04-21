@@ -257,10 +257,11 @@ describe("runtime-fallback initial hang watchdog", () => {
     })
   })
 
-  test("does not nest another fresh same-model handoff when an existing scoped fallback child stalls", async () => {
+  test("restarts a stalled scoped paid child on the same model under the original parent session", async () => {
     const createCalls: Array<unknown> = []
     const callOrder: string[] = []
     const sessionID = "ses-initial-hang-abort-before-retry"
+    const rootSessionID = "ses-initial-hang-abort-before-retry-root"
 
     const hook = createRuntimeFallbackHook(
       {
@@ -273,6 +274,12 @@ describe("runtime-fallback initial hang watchdog", () => {
               createCalls.push(args)
               return { data: { id: "ses-nested-fresh-child" } }
             },
+            get: async () => ({
+              data: {
+                directory: "/test/dir",
+                parentID: rootSessionID,
+              },
+            }),
             messages: async () => ({
               data: [
                 { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
@@ -356,17 +363,23 @@ describe("runtime-fallback initial hang watchdog", () => {
     jest.advanceTimersByTime(25)
     await Promise.resolve()
 
-    expect(createCalls).toHaveLength(0)
+    expect(createCalls).toHaveLength(1)
+    expect(
+      (createCalls[0] as { body?: { parentID?: string; title?: string } }).body,
+    ).toEqual({
+      parentID: rootSessionID,
+      title: "[runtime-fallback] Scoped Fallback: claude-opus-4-6",
+    })
     expect(callOrder).toEqual([
-      `abort:${sessionID}`,
-      "prompt:openai/gpt-5.4",
+      "prompt:anthropic/claude-opus-4-6",
     ])
   })
 
-  test("does not nest another fresh same-model handoff when a scoped fallback child was created with title only", async () => {
+  test("restarts a title-only scoped paid child on the same model under the original parent session", async () => {
     const createCalls: Array<unknown> = []
     const callOrder: string[] = []
     const sessionID = "ses-initial-hang-title-only-scoped-child"
+    const rootSessionID = "ses-initial-hang-title-only-scoped-child-root"
 
     const hook = createRuntimeFallbackHook(
       {
@@ -379,6 +392,12 @@ describe("runtime-fallback initial hang watchdog", () => {
               createCalls.push(args)
               return { data: { id: "ses-should-not-exist" } }
             },
+            get: async () => ({
+              data: {
+                directory: "/test/dir",
+                parentID: rootSessionID,
+              },
+            }),
             messages: async () => ({
               data: [
                 { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
@@ -458,17 +477,23 @@ describe("runtime-fallback initial hang watchdog", () => {
     jest.advanceTimersByTime(25)
     await Promise.resolve()
 
-    expect(createCalls).toHaveLength(0)
+    expect(createCalls).toHaveLength(1)
+    expect(
+      (createCalls[0] as { body?: { parentID?: string; title?: string } }).body,
+    ).toEqual({
+      parentID: rootSessionID,
+      title: "[runtime-fallback] Scoped Fallback: claude-opus-4-6",
+    })
     expect(callOrder).toEqual([
-      `abort:${sessionID}`,
-      "prompt:openai/gpt-5.4",
+      "prompt:anthropic/claude-opus-4-6",
     ])
   })
 
-  test("does not nest another fresh same-model handoff for a title-only scoped paid codex/openai child", async () => {
+  test("restarts a title-only scoped paid codex/openai child on the same model under the original parent session", async () => {
     const createCalls: Array<unknown> = []
     const callOrder: string[] = []
     const sessionID = "ses-initial-hang-title-only-scoped-openai-child"
+    const rootSessionID = "ses-initial-hang-title-only-scoped-openai-child-root"
 
     const hook = createRuntimeFallbackHook(
       {
@@ -481,6 +506,12 @@ describe("runtime-fallback initial hang watchdog", () => {
               createCalls.push(args)
               return { data: { id: "ses-openai-should-not-exist" } }
             },
+            get: async () => ({
+              data: {
+                directory: "/test/dir",
+                parentID: rootSessionID,
+              },
+            }),
             messages: async () => ({
               data: [
                 { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
@@ -573,10 +604,15 @@ describe("runtime-fallback initial hang watchdog", () => {
     jest.advanceTimersByTime(25)
     await Promise.resolve()
 
-    expect(createCalls).toHaveLength(0)
+    expect(createCalls).toHaveLength(1)
+    expect(
+      (createCalls[0] as { body?: { parentID?: string; title?: string } }).body,
+    ).toEqual({
+      parentID: rootSessionID,
+      title: "[runtime-fallback] Scoped Fallback: gpt-5.4",
+    })
     expect(callOrder).toEqual([
-      `abort:${sessionID}`,
-      "prompt:anthropic/claude-sonnet-4-6",
+      "prompt:openai/gpt-5.4",
     ])
   })
 

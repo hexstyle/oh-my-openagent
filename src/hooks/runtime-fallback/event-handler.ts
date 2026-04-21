@@ -252,7 +252,6 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
         const preferFreshPaidRetry =
           !!state
           && getRuntimeFallbackTier(state.currentModel) === "paid"
-          && !state.isScopedFallbackChild
         const retried = preferFreshPaidRetry
           ? false
           : await helpers.retryCurrentModel(
@@ -270,7 +269,6 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
           !retried
           && state
           && getRuntimeFallbackTier(state.currentModel) === "paid"
-          && !state.isScopedFallbackChild
         ) {
           freshRetried = await helpers.retryCurrentModelInFreshSession(
             sessionID,
@@ -297,7 +295,6 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       const preferFreshPaidRetry =
         !!state
         && getRuntimeFallbackTier(state.currentModel) === "paid"
-        && !state.isScopedFallbackChild
       const retried = preferFreshPaidRetry
         ? false
         : await helpers.retryCurrentModel(
@@ -315,7 +312,6 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
         !retried
         && state
         && getRuntimeFallbackTier(state.currentModel) === "paid"
-        && !state.isScopedFallbackChild
       ) {
         freshRetried = await helpers.retryCurrentModelInFreshSession(
           sessionID,
@@ -783,7 +779,6 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       && !state.isScopedFallbackChild
     const shouldPreferInlinePreludeRetryOnFreshHandoffFailure =
       preferFreshTrackedProvider403Handoff
-      && !state.isScopedFallbackChild
 
     if (isSameModelRetryAction(action)) {
       if (shouldPreferInPlacePreludeRetry) {

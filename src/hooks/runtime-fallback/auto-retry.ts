@@ -12,6 +12,7 @@ import {
   STALLED_SESSION_NUDGE_MS,
   WATCHDOG_CONTINUATION_PROMPT,
   isLongRunningAssistantProgress,
+  isPreExecutionRegroupToolProgress,
   resolveLongRunningProgressTimeoutMs,
 } from "./constants"
 import { log } from "../../shared/logger"
@@ -58,6 +59,8 @@ import {
 } from "../../shared/runtime-fallback-session-titles"
 import { markRecentRuntimeFallbackContinuationDispatch } from "../../shared/recent-runtime-fallback-continuation"
 import { normalizeSDKResponse } from "../../shared/normalize-sdk-response"
+import { hasVisibleAssistantEventContent } from "./visible-assistant-response"
+import { extractAutoRetrySignal } from "./error-classifier"
 
 const SESSION_TTL_MS = 30 * 60 * 1000
 const EXTERNAL_WATCHDOG_RESPAWN_MS = 10_000
@@ -189,6 +192,7 @@ function hasTerminalAssistantCompletion(messagesResponse: unknown): boolean {
 
 function inspectLatestAssistantProgress(messagesResponse: unknown): {
   hasTerminalCompletion: boolean
+  hasVisibleNonTerminalResponse?: boolean
   blockingProgress?:
     | {
         partType?: string
@@ -234,7 +238,12 @@ function inspectLatestAssistantProgress(messagesResponse: unknown): {
     return { hasTerminalCompletion: true }
   }
 
-  const parts = Array.isArray(lastAssistantMessage.parts) ? lastAssistantMessage.parts : []
+  const infoParts = Array.isArray(lastAssistantMessage.info?.parts)
+    ? lastAssistantMessage.info.parts
+    : []
+  const parts = Array.isArray(lastAssistantMessage.parts) && lastAssistantMessage.parts.length > 0
+    ? lastAssistantMessage.parts
+    : infoParts
   for (let i = parts.length - 1; i >= 0; i--) {
     const part = parts[i]
     const partType = typeof part?.type === "string" ? part.type : undefined
@@ -253,6 +262,22 @@ function inspectLatestAssistantProgress(messagesResponse: unknown): {
           toolName,
           toolStatus,
         },
+      }
+    }
+  }
+
+  if (!lastAssistantMessage.info?.error) {
+    const hasVisibleNonTerminalResponse = hasVisibleAssistantEventContent(
+      extractAutoRetrySignal,
+      {
+        message: lastAssistantMessage.info?.message,
+        parts,
+      },
+    )
+    if (hasVisibleNonTerminalResponse) {
+      return {
+        hasTerminalCompletion: false,
+        hasVisibleNonTerminalResponse: true,
       }
     }
   }
@@ -717,8 +742,7 @@ fi
     parentSessionID: string
     newModel: string
   }): Promise<{ sessionID: string; directory: string } | undefined> => {
-    const sessionCreate = ctx.client.session.create
-    if (!sessionCreate) {
+    if (typeof ctx.client.session.create !== "function") {
       log(`[${HOOK_NAME}] Scoped fallback handoff unavailable because client.session.create is missing`, {
         sessionID: args.parentSessionID,
         newModel: args.newModel,
@@ -730,7 +754,7 @@ fi
     const modelLabel = args.newModel.split("/").pop() ?? args.newModel
 
     try {
-      const createResult = await sessionCreate({
+      const createResult = await ctx.client.session.create({
         body: {
           parentID: args.parentSessionID,
           title: `${RUNTIME_FALLBACK_SCOPED_HANDOFF_TITLE_PREFIX}: ${modelLabel}`,
@@ -759,6 +783,36 @@ fi
       })
       return undefined
     }
+  }
+
+  const resolveFreshRetryParentSessionID = async (
+    sessionID: string,
+    state: FallbackState,
+  ): Promise<string> => {
+    if (!state.isScopedFallbackChild) {
+      return sessionID
+    }
+
+    const sessionGet = ctx.client.session.get
+    if (typeof sessionGet !== "function") {
+      return sessionID
+    }
+
+    try {
+      const session = await sessionGet({ path: { id: sessionID } })
+      const parentSessionID = session?.data?.parentID
+      if (typeof parentSessionID === "string" && parentSessionID.trim().length > 0) {
+        return parentSessionID
+      }
+    } catch (error) {
+      log(`[${HOOK_NAME}] Failed to resolve fresh paid retry parent session`, {
+        sessionID,
+        model: state.currentModel,
+        error: String(error),
+      })
+    }
+
+    return sessionID
   }
 
   const clearSessionTransientRetryTimeout = (sessionID: string): void => {
@@ -1067,21 +1121,81 @@ fi
           }
 
           if (currentAssistantProgress.blockingProgress) {
-            sessionLastAccess.set(sessionID, Date.now())
-            scheduleSessionFallbackTimeout(sessionID, {
-              resolvedAgent,
-              source: `${source}.assistant-progress-active`,
-              timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
-            })
-            log(`[${HOOK_NAME}] Deferred session fallback timeout while latest assistant tool progress is still active`, {
+            const blockingProgressQuietWindowMs = resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
+            const isPreExecutionRegroupProgress =
+              isPreExecutionRegroupToolProgress(currentAssistantProgress.blockingProgress)
+            const isDelegationToolProgress =
+              currentAssistantProgress.blockingProgress.partType === "tool"
+              && ["task", "call_omo_agent"].includes(currentAssistantProgress.blockingProgress.toolName ?? "")
+              && ["pending", "running"].includes(currentAssistantProgress.blockingProgress.toolStatus ?? "")
+            const blockingProgressFreshUntil = isPreExecutionRegroupProgress
+              ? (
+                typeof state.longRunningProgressUntil === "number"
+                  ? state.longRunningProgressUntil
+                  : 0
+              )
+              : Math.max(
+                typeof state.lastMeaningfulProgressAt === "number"
+                  ? state.lastMeaningfulProgressAt + blockingProgressQuietWindowMs
+                  : 0,
+                typeof state.longRunningProgressUntil === "number"
+                  ? state.longRunningProgressUntil
+                  : 0,
+              )
+
+            if (isDelegationToolProgress || blockingProgressFreshUntil > Date.now()) {
+              sessionLastAccess.set(sessionID, Date.now())
+              scheduleSessionFallbackTimeout(sessionID, {
+                resolvedAgent,
+                source: `${source}.assistant-progress-active`,
+                timeoutMsOverride: blockingProgressQuietWindowMs,
+              })
+              log(`[${HOOK_NAME}] Deferred session fallback timeout while latest assistant tool progress is still active`, {
+                sessionID,
+                source,
+                resolvedAgent,
+                partType: currentAssistantProgress.blockingProgress.partType,
+                toolName: currentAssistantProgress.blockingProgress.toolName,
+                toolStatus: currentAssistantProgress.blockingProgress.toolStatus,
+                indefiniteDelegationDefer: isDelegationToolProgress || undefined,
+              })
+              return
+            }
+
+            log(`[${HOOK_NAME}] Stale assistant blocking progress no longer defers timeout fallback`, {
               sessionID,
               source,
               resolvedAgent,
               partType: currentAssistantProgress.blockingProgress.partType,
               toolName: currentAssistantProgress.blockingProgress.toolName,
               toolStatus: currentAssistantProgress.blockingProgress.toolStatus,
+              lastMeaningfulProgressAt: state.lastMeaningfulProgressAt,
+              longRunningProgressUntil: state.longRunningProgressUntil,
             })
-            return
+          }
+
+          if (
+            currentAssistantProgress.hasVisibleNonTerminalResponse
+            && typeof state.lastMeaningfulProgressAt === "number"
+          ) {
+            const visibleProgressAgeMs = Math.max(0, Date.now() - state.lastMeaningfulProgressAt)
+            const visibleProgressQuietWindowMs = resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
+            if (visibleProgressAgeMs < visibleProgressQuietWindowMs) {
+              sessionLastAccess.set(sessionID, Date.now())
+              scheduleSessionFallbackTimeout(sessionID, {
+                resolvedAgent,
+                source: `${source}.assistant-visible-progress`,
+                timeoutMsOverride: visibleProgressQuietWindowMs,
+              })
+              log(`[${HOOK_NAME}] Deferred session fallback timeout while latest assistant visible progress is still fresh`, {
+                sessionID,
+                source,
+                resolvedAgent,
+                visibleProgressAgeMs,
+                visibleProgressQuietWindowMs,
+              })
+              return
+            }
           }
         } catch (error) {
           log(`[${HOOK_NAME}] Failed to inspect current session messages before timeout fallback`, {
@@ -1147,7 +1261,6 @@ fi
           mode === "fallback"
           && timeoutAction === "fallback_chain"
           && getRuntimeFallbackTier(state.currentModel) === "paid"
-          && !state.isScopedFallbackChild
         ) {
           const freshRetried = await retryCurrentModelInFreshSession(
             sessionID,
@@ -1438,6 +1551,7 @@ fi
             query: { directory: childSession.directory },
           })
 
+          markRecentRuntimeFallbackContinuationDispatch(sessionID)
           sessionAwaitingFallbackResult.delete(sessionID)
           clearSessionFallbackTimeout(sessionID)
           if (state?.pendingFallbackModel) {
@@ -1540,13 +1654,14 @@ fi
         )
         ?? resolvedAgent
         ?? getSessionAgent(sessionID)
+      const retryParentSessionID = await resolveFreshRetryParentSessionID(sessionID, state)
       const preserveRetryAgent = isBoulderTrackedExecutionSession(sessionID, ctx.directory)
       const retryPromptAgent = (!preserveRetryAgent
         && shouldOmitRetryAgent(state.currentModel, state.originalModel ?? state.currentModel, retryAgent))
         ? undefined
         : normalizeAgentForSessionPrompt(retryAgent)
       const childSession = await createScopedFallbackSession({
-        parentSessionID: sessionID,
+        parentSessionID: retryParentSessionID,
         newModel: state.currentModel,
       })
 
@@ -1562,7 +1677,7 @@ fi
           parts: [
             createInternalAgentTextPart(
               buildFreshPaidRetryHandoffPrompt({
-                parentSessionID: sessionID,
+                parentSessionID: retryParentSessionID,
                 currentModel: state.currentModel,
                 lastUserRetryParts,
               }),
@@ -1572,6 +1687,7 @@ fi
         query: { directory: childSession.directory },
       })
 
+      markRecentRuntimeFallbackContinuationDispatch(sessionID)
       clearSessionFallbackTimeout(sessionID)
       sessionAwaitingFallbackResult.delete(sessionID)
       state.pendingFallbackModel = undefined
@@ -1580,6 +1696,7 @@ fi
 
       log(`[${HOOK_NAME}] Retrying current paid model in a fresh child session`, {
         sessionID,
+        retryParentSessionID,
         childSessionID: childSession.sessionID,
         model: state.currentModel,
         source,
