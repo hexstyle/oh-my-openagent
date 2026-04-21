@@ -90,10 +90,12 @@ export interface MessageData {
 
 export interface ResumeConfig {
   sessionID: string
+  directory?: string
   agent?: string
   model?: {
     providerID: string
     modelID: string
   }
   tools?: Record<string, boolean>
+  continuationText?: string
 }
