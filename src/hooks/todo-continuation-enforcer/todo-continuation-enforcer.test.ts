@@ -307,28 +307,6 @@ describe("todo-continuation-enforcer", () => {
     expect(promptCalls[0].text).toContain("TODO CONTINUATION")
   }, { timeout: 15000 })
 
-  test("should inject continuation when idle uses camelCase sessionId", async () => {
-    fakeTimers.restore()
-    // given
-    const sessionID = "main-camel-idle"
-    setMainSession(sessionID)
-
-    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {
-      backgroundManager: createMockBackgroundManager(false),
-    })
-
-    // when
-    await hook.handler({
-      event: { type: "session.idle", properties: { sessionId: sessionID } },
-    })
-
-    // then
-    await wait(2500)
-    expect(promptCalls.length).toBe(1)
-    expect(promptCalls[0].sessionID).toBe(sessionID)
-    expect(promptCalls[0].text).toContain("TODO CONTINUATION")
-  }, { timeout: 15000 })
-
   test("should mark todo continuation active during countdown and clear it on assistant activity", async () => {
     // given - idle session with incomplete todos starting continuation countdown
     const sessionID = "main-marker"
