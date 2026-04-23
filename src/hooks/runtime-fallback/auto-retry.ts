@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -72,6 +72,7 @@ import { markGlobalModelCooldown } from "./global-model-cooldown"
 const SESSION_TTL_MS = 30 * 60 * 1000
 const EXTERNAL_WATCHDOG_RESPAWN_MS = 10_000
 const EXTERNAL_WATCHDOG_MIN_TIMEOUT_MS = 1_000
+const SESSION_MESSAGES_REQUEST_TIMEOUT_MS = 5_000
 const EXTERNAL_WATCHDOG_DIR = join(tmpdir(), "oh-my-opencode-watchdogs")
 const EXTERNAL_WATCHDOG_LOG = join(tmpdir(), "oh-my-opencode-watchdog.log")
 const EXTERNAL_WATCHDOG_RUNNER = fileURLToPath(
@@ -491,6 +492,21 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     }
   }
 
+  const hasLiveExternalWatchdogProcess = (sessionID: string): boolean => {
+    const pid = readExternalWatchdogPid(sessionID)
+    if (!pid) {
+      return false
+    }
+
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      clearExternalWatchdogPid(sessionID)
+      return false
+    }
+  }
+
   const invalidateExternalWatchdog = (sessionID: string): void => {
     externalWatchdogSpawnedAt.delete(sessionID)
     try {
@@ -524,6 +540,12 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     originalModel?: string
   }): void => {
     if (args.timeoutMs < EXTERNAL_WATCHDOG_MIN_TIMEOUT_MS) {
+      return
+    }
+    if (
+      process.env.NODE_ENV === "test"
+      && options?.allow_external_watchdog_in_tests !== true
+    ) {
       return
     }
     if (
@@ -576,8 +598,25 @@ export function createAutoRetryHelpers(deps: HookDeps) {
 
     const now = Date.now()
     const lastSpawnedAt = externalWatchdogSpawnedAt.get(args.sessionID) ?? 0
-    const token = `${now}-${Math.random().toString(36).slice(2, 10)}`
     const tokenPath = getExternalWatchdogTokenPath(args.sessionID)
+    const hasLiveProcess = hasLiveExternalWatchdogProcess(args.sessionID)
+    const hasRecentToken = existsSync(tokenPath)
+
+    if ((hasLiveProcess || hasRecentToken) && now - lastSpawnedAt < EXTERNAL_WATCHDOG_RESPAWN_MS) {
+      log(`[${HOOK_NAME}] Refreshed external watchdog token without respawn`, {
+        sessionID: args.sessionID,
+        source: args.source,
+        timeoutMs: args.timeoutMs,
+        nextModel,
+      })
+      return
+    }
+
+    if (hasLiveProcess) {
+      terminateExternalWatchdogProcess(args.sessionID)
+    }
+
+    const token = `${now}-${Math.random().toString(36).slice(2, 10)}`
 
     try {
       writeFileSync(tokenPath, token)
@@ -586,16 +625,6 @@ export function createAutoRetryHelpers(deps: HookDeps) {
         sessionID: args.sessionID,
         source: args.source,
         error: String(error),
-      })
-      return
-    }
-
-    if (now - lastSpawnedAt < EXTERNAL_WATCHDOG_RESPAWN_MS) {
-      log(`[${HOOK_NAME}] Refreshed external watchdog token without respawn`, {
-        sessionID: args.sessionID,
-        source: args.source,
-        timeoutMs: args.timeoutMs,
-        nextModel,
       })
       return
     }
@@ -705,6 +734,13 @@ fi
             clearExternalWatchdogPid(args.sessionID)
           }
         })
+      } else {
+        log(`[${HOOK_NAME}] Spawned external watchdog without child pid; relying on token throttling`, {
+          sessionID: args.sessionID,
+          source: args.source,
+          nextModel: cliModel.model,
+          variant: cliModel.variant,
+        })
       }
       externalWatchdogSpawnedAt.set(args.sessionID, now)
       log(`[${HOOK_NAME}] Armed external watchdog`, {
@@ -735,6 +771,44 @@ fi
         sessionID,
         error: String(error),
       })
+    }
+  }
+
+  const fetchSessionMessages = async (
+    sessionID: string,
+    source: string,
+    directory = ctx.directory,
+  ): Promise<unknown | undefined> => {
+    const timeoutMs = Math.max(
+      1,
+      options?.session_messages_request_timeout_ms ?? SESSION_MESSAGES_REQUEST_TIMEOUT_MS,
+    )
+    let timeout: RuntimeFallbackTimeout | undefined
+
+    try {
+      return await Promise.race([
+        ctx.client.session.messages({
+          path: { id: sessionID },
+          query: { directory },
+        }),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => {
+            reject(new Error(`session.messages timed out after ${timeoutMs}ms`))
+          }, timeoutMs)
+        }),
+      ])
+    } catch (error) {
+      log(`[${HOOK_NAME}] Failed to fetch session messages`, {
+        sessionID,
+        source,
+        timeoutMs,
+        error: String(error),
+      })
+      return undefined
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout)
+      }
     }
   }
 
@@ -1046,7 +1120,6 @@ fi
       clearTimeout(existingTimer)
       sessionFallbackTimeouts.delete(sessionID)
     }
-    invalidateExternalWatchdog(sessionID)
 
     const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
     const backgroundTasksAtArm = getBackgroundTaskInspection(sessionID)
@@ -1094,7 +1167,11 @@ fi
         currentModel: stateAtSchedule.currentModel,
         originalModel: stateAtSchedule.originalModel,
       })
-    } else if (mode === "fallback" && backgroundTasksAtArm.hasActiveTasks) {
+    } else {
+      invalidateExternalWatchdog(sessionID)
+    }
+
+    if (mode === "fallback" && backgroundTasksAtArm.hasActiveTasks) {
       log(`[${HOOK_NAME}] Skipped external watchdog while background tasks are active`, {
         sessionID,
         source,
@@ -1154,95 +1231,97 @@ fi
         }
 
         try {
-          const currentMessagesResponse = await ctx.client.session.messages({
-            path: { id: sessionID },
-            query: { directory: ctx.directory },
-          })
-          const currentAssistantProgress = inspectLatestAssistantProgress(currentMessagesResponse)
-          if (currentAssistantProgress.hasTerminalCompletion) {
-            log(`[${HOOK_NAME}] Skipping session timeout fallback because the session already completed`, {
-              sessionID,
-              source,
-              resolvedAgent,
-            })
-            return
-          }
-
-          if (currentAssistantProgress.blockingProgress) {
-            const blockingProgressQuietWindowMs = resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
-            const isPreExecutionRegroupProgress =
-              isPreExecutionRegroupToolProgress(currentAssistantProgress.blockingProgress)
-            const isDelegationToolProgress =
-              currentAssistantProgress.blockingProgress.partType === "tool"
-              && ["task", "call_omo_agent"].includes(currentAssistantProgress.blockingProgress.toolName ?? "")
-              && ["pending", "running"].includes(currentAssistantProgress.blockingProgress.toolStatus ?? "")
-            const blockingProgressFreshUntil = isPreExecutionRegroupProgress
-              ? (
-                typeof state.longRunningProgressUntil === "number"
-                  ? state.longRunningProgressUntil
-                  : 0
-              )
-              : Math.max(
-                typeof state.lastMeaningfulProgressAt === "number"
-                  ? state.lastMeaningfulProgressAt + blockingProgressQuietWindowMs
-                  : 0,
-                typeof state.longRunningProgressUntil === "number"
-                  ? state.longRunningProgressUntil
-                  : 0,
-              )
-
-            if (isDelegationToolProgress || blockingProgressFreshUntil > Date.now()) {
-              sessionLastAccess.set(sessionID, Date.now())
-              scheduleSessionFallbackTimeout(sessionID, {
+          const currentMessagesResponse = await fetchSessionMessages(
+            sessionID,
+            `${source}.inspect-latest-assistant`,
+          )
+          if (currentMessagesResponse) {
+            const currentAssistantProgress = inspectLatestAssistantProgress(currentMessagesResponse)
+            if (currentAssistantProgress.hasTerminalCompletion) {
+              log(`[${HOOK_NAME}] Skipping session timeout fallback because the session already completed`, {
+                sessionID,
+                source,
                 resolvedAgent,
-                source: `${source}.assistant-progress-active`,
-                timeoutMsOverride: blockingProgressQuietWindowMs,
               })
-              log(`[${HOOK_NAME}] Deferred session fallback timeout while latest assistant tool progress is still active`, {
+              return
+            }
+
+            if (currentAssistantProgress.blockingProgress) {
+              const blockingProgressQuietWindowMs = resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
+              const isPreExecutionRegroupProgress =
+                isPreExecutionRegroupToolProgress(currentAssistantProgress.blockingProgress)
+              const isDelegationToolProgress =
+                currentAssistantProgress.blockingProgress.partType === "tool"
+                && ["task", "call_omo_agent"].includes(currentAssistantProgress.blockingProgress.toolName ?? "")
+                && ["pending", "running"].includes(currentAssistantProgress.blockingProgress.toolStatus ?? "")
+              const blockingProgressFreshUntil = isPreExecutionRegroupProgress
+                ? (
+                  typeof state.longRunningProgressUntil === "number"
+                    ? state.longRunningProgressUntil
+                    : 0
+                )
+                : Math.max(
+                  typeof state.lastMeaningfulProgressAt === "number"
+                    ? state.lastMeaningfulProgressAt + blockingProgressQuietWindowMs
+                    : 0,
+                  typeof state.longRunningProgressUntil === "number"
+                    ? state.longRunningProgressUntil
+                    : 0,
+                )
+
+              if (isDelegationToolProgress || blockingProgressFreshUntil > Date.now()) {
+                sessionLastAccess.set(sessionID, Date.now())
+                scheduleSessionFallbackTimeout(sessionID, {
+                  resolvedAgent,
+                  source: `${source}.assistant-progress-active`,
+                  timeoutMsOverride: blockingProgressQuietWindowMs,
+                })
+                log(`[${HOOK_NAME}] Deferred session fallback timeout while latest assistant tool progress is still active`, {
+                  sessionID,
+                  source,
+                  resolvedAgent,
+                  partType: currentAssistantProgress.blockingProgress.partType,
+                  toolName: currentAssistantProgress.blockingProgress.toolName,
+                  toolStatus: currentAssistantProgress.blockingProgress.toolStatus,
+                  indefiniteDelegationDefer: isDelegationToolProgress || undefined,
+                })
+                return
+              }
+
+              log(`[${HOOK_NAME}] Stale assistant blocking progress no longer defers timeout fallback`, {
                 sessionID,
                 source,
                 resolvedAgent,
                 partType: currentAssistantProgress.blockingProgress.partType,
                 toolName: currentAssistantProgress.blockingProgress.toolName,
                 toolStatus: currentAssistantProgress.blockingProgress.toolStatus,
-                indefiniteDelegationDefer: isDelegationToolProgress || undefined,
+                lastMeaningfulProgressAt: state.lastMeaningfulProgressAt,
+                longRunningProgressUntil: state.longRunningProgressUntil,
               })
-              return
             }
 
-            log(`[${HOOK_NAME}] Stale assistant blocking progress no longer defers timeout fallback`, {
-              sessionID,
-              source,
-              resolvedAgent,
-              partType: currentAssistantProgress.blockingProgress.partType,
-              toolName: currentAssistantProgress.blockingProgress.toolName,
-              toolStatus: currentAssistantProgress.blockingProgress.toolStatus,
-              lastMeaningfulProgressAt: state.lastMeaningfulProgressAt,
-              longRunningProgressUntil: state.longRunningProgressUntil,
-            })
-          }
-
-          if (
-            currentAssistantProgress.hasVisibleNonTerminalResponse
-            && typeof state.lastMeaningfulProgressAt === "number"
-          ) {
-            const visibleProgressAgeMs = Math.max(0, Date.now() - state.lastMeaningfulProgressAt)
-            const visibleProgressQuietWindowMs = resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
-            if (visibleProgressAgeMs < visibleProgressQuietWindowMs) {
-              sessionLastAccess.set(sessionID, Date.now())
-              scheduleSessionFallbackTimeout(sessionID, {
-                resolvedAgent,
-                source: `${source}.assistant-visible-progress`,
-                timeoutMsOverride: visibleProgressQuietWindowMs,
-              })
-              log(`[${HOOK_NAME}] Deferred session fallback timeout while latest assistant visible progress is still fresh`, {
-                sessionID,
-                source,
-                resolvedAgent,
-                visibleProgressAgeMs,
-                visibleProgressQuietWindowMs,
-              })
-              return
+            if (
+              currentAssistantProgress.hasVisibleNonTerminalResponse
+              && typeof state.lastMeaningfulProgressAt === "number"
+            ) {
+              const visibleProgressAgeMs = Math.max(0, Date.now() - state.lastMeaningfulProgressAt)
+              const visibleProgressQuietWindowMs = resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
+              if (visibleProgressAgeMs < visibleProgressQuietWindowMs) {
+                sessionLastAccess.set(sessionID, Date.now())
+                scheduleSessionFallbackTimeout(sessionID, {
+                  resolvedAgent,
+                  source: `${source}.assistant-visible-progress`,
+                  timeoutMsOverride: visibleProgressQuietWindowMs,
+                })
+                log(`[${HOOK_NAME}] Deferred session fallback timeout while latest assistant visible progress is still fresh`, {
+                  sessionID,
+                  source,
+                  resolvedAgent,
+                  visibleProgressAgeMs,
+                  visibleProgressQuietWindowMs,
+                })
+                return
+              }
             }
           }
         } catch (error) {
@@ -1560,10 +1639,7 @@ fi
     let retryDispatched = false
     try {
       const state = sessionStates.get(sessionID)
-      const messagesResp = await ctx.client.session.messages({
-        path: { id: sessionID },
-        query: { directory: ctx.directory },
-      })
+      const messagesResp = await fetchSessionMessages(sessionID, `${source}.retry-brief`)
       const retryBriefParts = resolveRetryBriefParts(messagesResp, state)
       if (retryBriefParts.length === 0) {
         log(`[${HOOK_NAME}] No reusable user message found for auto-retry; continuing with internal fallback prompt (${source})`, {
@@ -1805,10 +1881,10 @@ fi
         state.isScopedFallbackChild && retryParentSessionID !== sessionID
           ? retryParentSessionID
           : sessionID
-      const messagesResp = await ctx.client.session.messages({
-        path: { id: retryBriefSessionID },
-        query: { directory: ctx.directory },
-      })
+      const messagesResp = await fetchSessionMessages(
+        retryBriefSessionID,
+        `${source}.fresh-retry-brief`,
+      )
       const retryBriefParts = resolveRetryBriefParts(messagesResp, state)
       const preserveRetryAgent = isBoulderTrackedExecutionSession(sessionID, ctx.directory)
       const retryPromptAgent = (!preserveRetryAgent
@@ -1964,10 +2040,7 @@ fi
     if (resolved) return resolved
 
     try {
-      const messagesResp = await ctx.client.session.messages({
-        path: { id: sessionID },
-        query: { directory: ctx.directory },
-      })
+      const messagesResp = await fetchSessionMessages(sessionID, "resolve-agent")
       const msgs = extractSessionMessages(messagesResp)
       if (!msgs || msgs.length === 0) return undefined
 

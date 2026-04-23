@@ -11,13 +11,15 @@ import { FALLBACK_CONTINUATION_PROMPT } from "./constants"
 import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
 
 type SpawnCall = {
-  pid: number
+  pid?: number
   args: unknown[]
 }
 
 const TEST_TMP_DIR = join(tmpdir(), `runtime-fallback-watchdog-${Date.now()}`)
 
-function createDeps(): HookDeps {
+function createDeps(args?: {
+  allowExternalWatchdogInTests?: boolean
+}): HookDeps {
   return {
     ctx: {
       directory: "/Users/redff00xx/proj/runtime-fallback-watchdog-repro",
@@ -56,6 +58,7 @@ function createDeps(): HookDeps {
     },
     options: {
       session_timeout_ms: 60_000,
+      allow_external_watchdog_in_tests: args?.allowExternalWatchdogInTests ?? true,
     },
     pluginConfig: {
       fallback_models: ["openai/gpt-5.4"],
@@ -76,6 +79,7 @@ function createDeps(): HookDeps {
 describe("runtime fallback external watchdog process lifecycle", () => {
   let spawnCalls: SpawnCall[]
   let livePids: Set<number>
+  let spawnPidMode: "present" | "missing"
   let killSpy: ReturnType<typeof spyOn>
 
   beforeEach(() => {
@@ -84,6 +88,7 @@ describe("runtime fallback external watchdog process lifecycle", () => {
 
     spawnCalls = []
     livePids = new Set()
+    spawnPidMode = "present"
 
     let nextPid = 40_000
     mock.module("node:os", () => ({
@@ -92,8 +97,10 @@ describe("runtime fallback external watchdog process lifecycle", () => {
     mock.module("node:child_process", () => ({
       ...childProcessModule,
       spawn: (...args: unknown[]) => {
-        const pid = nextPid++
-        livePids.add(pid)
+        const pid = spawnPidMode === "missing" ? undefined : nextPid++
+        if (typeof pid === "number") {
+          livePids.add(pid)
+        }
         spawnCalls.push({ pid, args })
         return {
           pid,
@@ -205,6 +212,76 @@ describe("runtime fallback external watchdog process lifecycle", () => {
     expect(spawnCalls).toHaveLength(0)
   })
 
+  it("keeps the existing watchdog token when refreshing within the respawn window", async () => {
+    const { createAutoRetryHelpers } = await import(`./auto-retry?external-watchdog-token-refresh-${Date.now()}-${Math.random()}`)
+    const sessionID = "ses_external_watchdog_token_refresh"
+    const tokenFilePath = join(TEST_TMP_DIR, "oh-my-opencode-watchdogs", `${sessionID}.token`)
+
+    const deps = createDeps()
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
+    const helpers = createAutoRetryHelpers(deps)
+
+    helpers.scheduleSessionFallbackTimeout(sessionID, {
+      resolvedAgent: "Prometheus (Plan Builder)",
+      source: "message.updated.user",
+    })
+
+    expect(spawnCalls).toHaveLength(1)
+    expect(existsSync(tokenFilePath)).toBe(true)
+    const firstToken = readFileSync(tokenFilePath, "utf-8").trim()
+    expect(firstToken.length).toBeGreaterThan(0)
+
+    helpers.scheduleSessionFallbackTimeout(sessionID, {
+      resolvedAgent: "Prometheus (Plan Builder)",
+      source: "session.status.active",
+    })
+
+    expect(spawnCalls).toHaveLength(1)
+    expect(readFileSync(tokenFilePath, "utf-8").trim()).toBe(firstToken)
+  })
+
+  it("keeps the existing watchdog token even when the detached watchdog pid is unavailable", async () => {
+    const { createAutoRetryHelpers } = await import(`./auto-retry?external-watchdog-pidless-refresh-${Date.now()}-${Math.random()}`)
+    const sessionID = "ses_external_watchdog_pidless_refresh"
+    const tokenFilePath = join(TEST_TMP_DIR, "oh-my-opencode-watchdogs", `${sessionID}.token`)
+
+    spawnPidMode = "missing"
+    const deps = createDeps()
+    const helpers = createAutoRetryHelpers(deps)
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
+
+    helpers.scheduleSessionFallbackTimeout(sessionID, {
+      resolvedAgent: "Prometheus (Plan Builder)",
+      source: "message.updated.user",
+    })
+
+    expect(spawnCalls).toHaveLength(1)
+    const firstToken = readFileSync(tokenFilePath, "utf-8").trim()
+    expect(firstToken.length).toBeGreaterThan(0)
+
+    helpers.scheduleSessionFallbackTimeout(sessionID, {
+      resolvedAgent: "Prometheus (Plan Builder)",
+      source: "session.status.active",
+    })
+
+    expect(spawnCalls).toHaveLength(1)
+    expect(readFileSync(tokenFilePath, "utf-8").trim()).toBe(firstToken)
+  })
+
+  it("skips the external watchdog under bun test unless the test opts in explicitly", async () => {
+    const { createAutoRetryHelpers } = await import(`./auto-retry?external-watchdog-test-opt-in-${Date.now()}-${Math.random()}`)
+    const sessionID = "ses_external_watchdog_test_opt_in"
+    const deps = createDeps({ allowExternalWatchdogInTests: false })
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
+
+    createAutoRetryHelpers(deps).scheduleSessionFallbackTimeout(sessionID, {
+      resolvedAgent: "Prometheus (Plan Builder)",
+      source: "message.updated.user",
+    })
+
+    expect(spawnCalls).toHaveLength(0)
+  })
+
   it("spawns the external watchdog with an internal continuation prompt instead of the raw watchdog text", async () => {
     const { createAutoRetryHelpers } = await import(`./auto-retry?external-watchdog-internal-prompt-${Date.now()}-${Math.random()}`)
     const sessionID = "ses_external_watchdog_internal_prompt"
@@ -261,7 +338,7 @@ describe("runtime fallback external watchdog process lifecycle", () => {
     const childArgs = spawnCalls[0]?.args[1] as string[] | undefined
     expect(command).toBe("bun")
     expect(childArgs?.[7]).toBe("openai/gpt-5.4")
-    expect(childArgs?.[9]).toBe("")
+    expect(childArgs?.[9]).toBe("Prometheus (Plan Builder)")
   })
 
   it("does not arm an external watchdog when the next fallback requires scoped handoff", async () => {

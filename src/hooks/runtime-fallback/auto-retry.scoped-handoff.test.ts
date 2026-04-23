@@ -18,10 +18,12 @@ function createDeps(args: {
   promptCalls: Array<unknown>
   messagesResponse?: unknown
   messagesBySessionID?: Record<string, unknown>
+  messagesImpl?: (input?: { path?: { id?: string } }) => Promise<unknown>
   messageCalls?: string[]
   bindCreateToSessionObject?: boolean
   timeoutSeconds?: number
   sessionTimeoutMs?: number
+  sessionMessagesRequestTimeoutMs?: number
   sessionData?: {
     directory?: string
     parentID?: string
@@ -44,6 +46,9 @@ function createDeps(args: {
     }),
     abort: async () => undefined,
     messages: async (input?: { path?: { id?: string } }) => {
+      if (args.messagesImpl) {
+        return await args.messagesImpl(input)
+      }
       const targetSessionID = input?.path?.id
       args.messageCalls?.push(targetSessionID ?? "")
 
@@ -93,8 +98,15 @@ function createDeps(args: {
       transient_retry_max_delay_seconds: 300,
       notify_on_fallback: false,
     },
-    options: typeof args.sessionTimeoutMs === "number"
-      ? { session_timeout_ms: args.sessionTimeoutMs }
+    options: typeof args.sessionTimeoutMs === "number" || typeof args.sessionMessagesRequestTimeoutMs === "number"
+      ? {
+          ...(typeof args.sessionTimeoutMs === "number"
+            ? { session_timeout_ms: args.sessionTimeoutMs }
+            : {}),
+          ...(typeof args.sessionMessagesRequestTimeoutMs === "number"
+            ? { session_messages_request_timeout_ms: args.sessionMessagesRequestTimeoutMs }
+            : {}),
+        }
       : undefined,
     pluginConfig: {} as HookDeps["pluginConfig"],
     loopDetector: { record: () => 0, reset: () => {}, get: () => 0 },
@@ -402,6 +414,42 @@ describe("runtime fallback scoped handoff", () => {
       promptCalls[0] as { body?: { parts?: Array<{ text?: string }> } }
     ).body?.parts?.[0]?.text
     expect(retryText).toContain("Fix the failing eurochemeopt CI plan end-to-end.")
+    expect(retryText).not.toContain("No reusable user brief was available from the parent session.")
+  })
+
+  it("uses canonical retry parts when retry-brief transcript fetch times out", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({
+      createCalls,
+      promptCalls,
+      messagesImpl: async () => await new Promise<never>(() => {}),
+      sessionMessagesRequestTimeoutMs: 1,
+    })
+    const sessionID = "ses_scoped_canonical_brief_timeout"
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.3-codex-spark",
+    ])
+    state.canonicalRetryParts = [{ type: "text", text: "Keep the original eurochemeopt planning brief intact." }]
+
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    const dispatched = await helpers.autoRetryWithFallback(
+      sessionID,
+      "openai/gpt-5.3-codex-spark",
+      "Prometheus (Plan Builder)",
+      "session.error.fallback_chain",
+      { previousModel: "anthropic/claude-opus-4-6" },
+    )
+
+    expect(dispatched).toBe(true)
+    expect(createCalls).toHaveLength(1)
+    expect(promptCalls).toHaveLength(1)
+    const retryText = (
+      promptCalls[0] as { body?: { parts?: Array<{ text?: string }> } }
+    ).body?.parts?.[0]?.text
+    expect(retryText).toContain("Keep the original eurochemeopt planning brief intact.")
     expect(retryText).not.toContain("No reusable user brief was available from the parent session.")
   })
 

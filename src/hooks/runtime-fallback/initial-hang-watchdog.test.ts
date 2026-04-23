@@ -258,6 +258,87 @@ describe("runtime-fallback initial hang watchdog", () => {
     })
   })
 
+  test("still opens a fresh same-model handoff when timeout-side session.messages inspection fails", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const sessionID = "ses-initial-hang-messages-timeout"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            create: async (args) => {
+              createCalls.push(args)
+              return { data: { id: "ses-fresh-timeout-after-messages-hang" } }
+            },
+            messages: async () => {
+              throw new Error("messages unavailable")
+            },
+            promptAsync: async (args) => {
+              promptCalls.push(args)
+              return {}
+            },
+            abort: async () => ({}),
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+        session_messages_request_timeout_ms: 5,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(30)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(createCalls).toHaveLength(1)
+    expect(
+      (promptCalls[0] as { path?: { id?: string } }).path?.id,
+    ).toBe("ses-fresh-timeout-after-messages-hang")
+    expect(logCalls.some((call) => call.msg.includes("Failed to fetch session messages"))).toBe(true)
+  })
+
   test("counts the initial timeout wait against the fresh same-model retry budget for stalled paid planners", async () => {
     const createCalls: Array<unknown> = []
     const promptCalls: Array<unknown> = []

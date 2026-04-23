@@ -167,6 +167,8 @@ export interface RuntimeFallbackOptions {
   config?: RuntimeFallbackConfig
   pluginConfig?: OhMyOpenCodeConfig
   session_timeout_ms?: number
+  session_messages_request_timeout_ms?: number
+  allow_external_watchdog_in_tests?: boolean
   backgroundManager?: RuntimeFallbackBackgroundManager
   probeModelAvailability?: (args: {
     sessionID: string
