@@ -440,6 +440,182 @@ describe("runtime-fallback initial hang watchdog", () => {
     ).toBe(true)
   })
 
+  test("does not loop the same Prometheus final-plan promotion retry forever without new progress", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-prometheus-plan-promotion-bounded"
+    const draftPath = "/test/dir/.sisyphus/drafts/ci-green-final.md"
+    const finalPath = "/test/dir/.sisyphus/plans/ci-green-final.md"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            create: async (args) => {
+              createCalls.push(args)
+              return { data: { id: "ses-prometheus-plan-promotion-fresh-child" } }
+            },
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "update the plan" }] },
+                {
+                  info: { role: "assistant", finish: "tool-calls" },
+                  parts: [
+                    {
+                      type: "tool",
+                      tool: "write",
+                      state: {
+                        status: "completed",
+                        input: { filePath: draftPath },
+                      },
+                    },
+                  ],
+                },
+                {
+                  info: { role: "assistant" },
+                  parts: [
+                    { type: "step-start" },
+                    { type: "text", text: "Now I'll write the complete final plan." },
+                    {
+                      type: "tool",
+                      tool: "write",
+                      state: {
+                        status: "pending",
+                        input: {},
+                        raw: "",
+                      },
+                    },
+                  ],
+                },
+              ],
+            }),
+            promptAsync: async (args) => {
+              promptCalls.push(args)
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+          part: {
+            sessionID,
+            type: "tool",
+            tool: "write",
+            state: {
+              status: "pending",
+              input: {},
+              raw: "",
+            },
+          },
+        },
+      },
+    })
+
+    const state = hook._deps?.sessionStates.get(sessionID)
+    if (state) {
+      state.resolvedAgent = "Prometheus (Plan Builder)"
+      state.lastMeaningfulProgressAt = Date.now() - 10 * 60 * 1000
+      state.longRunningProgressUntil = 0
+    }
+
+    if (typeof jestTimers.advanceTimersByTimeAsync === "function") {
+      await jestTimers.advanceTimersByTimeAsync(81)
+    } else {
+      jest.advanceTimersByTime(81)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
+    expect(createCalls).toHaveLength(0)
+    expect(promptCalls).toHaveLength(1)
+    expect((promptCalls[0] as { path?: { id?: string } }).path?.id).toBe(sessionID)
+
+    if (typeof jestTimers.advanceTimersByTimeAsync === "function") {
+      await jestTimers.advanceTimersByTimeAsync(81)
+    } else {
+      jest.advanceTimersByTime(81)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
+    expect(createCalls).toHaveLength(1)
+    expect(promptCalls).toHaveLength(2)
+    expect((promptCalls[1] as { path?: { id?: string } }).path?.id).toBe("ses-prometheus-plan-promotion-fresh-child")
+    expect(abortCalls.length).toBeGreaterThanOrEqual(1)
+    expect(
+      logCalls.some((call) => call.msg.includes("Skipping repeated Prometheus final-plan promotion retry without new progress")),
+    ).toBe(true)
+    expect(
+      logCalls.filter((call) => call.msg.includes("Retrying stalled Prometheus final-plan promotion in the same session")).length,
+    ).toBe(1)
+  })
+
   test("retries a stalled Prometheus final-plan promotion inside a scoped child without nesting another child", async () => {
     const createCalls: Array<unknown> = []
     const promptCalls: Array<unknown> = []

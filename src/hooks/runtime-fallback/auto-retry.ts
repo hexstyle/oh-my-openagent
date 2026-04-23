@@ -440,6 +440,17 @@ function buildPrometheusPlanPromotionRetryPrompt(args: PrometheusPlanPromotionCo
   ].join("\n")
 }
 
+function getPrometheusPlanPromotionRetryKey(args: PrometheusPlanPromotionContext): string {
+  return `${args.draftPath}::${args.finalPath}`
+}
+
+function getPrometheusPlanPromotionProgressMarker(state: FallbackState): number {
+  return Math.max(
+    state.lastMeaningfulProgressAt ?? 0,
+    state.lastDurableAssistantProgressAt ?? 0,
+  )
+}
+
 export function selectExternalWatchdogModel(
   currentModel: string,
   fallbackModels: string[],
@@ -1976,6 +1987,22 @@ fi
       return false
     }
 
+    const promotionRetryKey = getPrometheusPlanPromotionRetryKey(promotionContext)
+    const promotionProgressMarker = getPrometheusPlanPromotionProgressMarker(state)
+    if (
+      state.prometheusPlanPromotionRetryKey === promotionRetryKey
+      && state.prometheusPlanPromotionRetryProgressMarker === promotionProgressMarker
+    ) {
+      log(`[${HOOK_NAME}] Skipping repeated Prometheus final-plan promotion retry without new progress`, {
+        sessionID: args.sessionID,
+        source: args.source,
+        model: state.currentModel,
+        draftPath: promotionContext.draftPath,
+        finalPath: promotionContext.finalPath,
+      })
+      return false
+    }
+
     const promotionSource = appendDiagnosticSourceSegment(
       compactDiagnosticSource(args.source),
       "prometheus-plan-promotion",
@@ -1994,6 +2021,8 @@ fi
     )
 
     if (retried) {
+      state.prometheusPlanPromotionRetryKey = promotionRetryKey
+      state.prometheusPlanPromotionRetryProgressMarker = promotionProgressMarker
       log(`[${HOOK_NAME}] Retrying stalled Prometheus final-plan promotion in the same session`, {
         sessionID: args.sessionID,
         source: args.source,

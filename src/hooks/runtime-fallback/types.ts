@@ -145,6 +145,10 @@ export interface FallbackState {
   manualProviderClearanceProviderFamily?: "claude" | "codex"
   manualProviderClearanceUrl?: string
   manualProviderClearanceNotifiedAt?: number
+  /** Tracks the last in-place Prometheus final-plan promotion recovery so the
+   *  watchdog does not loop forever retrying the exact same stale write state. */
+  prometheusPlanPromotionRetryKey?: string
+  prometheusPlanPromotionRetryProgressMarker?: number
 }
 
 export type FallbackResult =
