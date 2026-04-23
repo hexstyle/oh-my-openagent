@@ -42,6 +42,7 @@ import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { buildRetryModelPayload } from "./retry-model-payload"
 import { resolveRetryBriefParts } from "./last-user-retry-parts"
 import { extractSessionMessages } from "./session-messages"
+import { appendDiagnosticSourceSegment, compactDiagnosticSource } from "./diagnostic-source"
 import { createInternalAgentTextPart } from "../../shared/internal-initiator-marker"
 import { getServerBaseUrl } from "../../shared/opencode-http-api"
 import { getRuntimeFallbackTransitionMode } from "./fallback-transition-policy"
@@ -1207,7 +1208,7 @@ fi
     mode?: "fallback" | "transient_retry"
     timeoutMsOverride?: number
   }) => {
-    const source = args?.source ?? "session.timeout"
+    const source = compactDiagnosticSource(args?.source ?? "session.timeout")
     const mode = args?.mode ?? "fallback"
     const hadExistingTimer = sessionFallbackTimeouts.has(sessionID)
     const delayedTransientTimer = sessionTransientRetryTimeouts.get(sessionID)
@@ -1566,7 +1567,7 @@ fi
           const recoveredInPlace = await retryPrometheusPlanPromotionInCurrentSession({
             sessionID,
             resolvedAgent,
-            source: `${source}.timeout`,
+            source: appendDiagnosticSourceSegment(source, "timeout"),
             messagesResponse: inspectedMessagesResponse,
           })
           if (recoveredInPlace) {
@@ -1582,7 +1583,7 @@ fi
           const freshRetried = await retryCurrentModelInFreshSession(
             sessionID,
             resolvedAgent,
-            `${source}.timeout`,
+            appendDiagnosticSourceSegment(source, "timeout"),
           )
           if (freshRetried) {
             clearCurrentSessionTimeoutToken()
@@ -1975,13 +1976,18 @@ fi
       return false
     }
 
-    await abortSessionRequest(args.sessionID, `${args.source}.prometheus-plan-promotion`)
+    const promotionSource = appendDiagnosticSourceSegment(
+      compactDiagnosticSource(args.source),
+      "prometheus-plan-promotion",
+    )
+
+    await abortSessionRequest(args.sessionID, promotionSource)
 
     const retried = await autoRetryWithFallback(
       args.sessionID,
       state.currentModel,
       args.resolvedAgent,
-      `${args.source}.prometheus-plan-promotion`,
+      promotionSource,
       {
         continuationPrompt: buildPrometheusPlanPromotionRetryPrompt(promotionContext),
       },
