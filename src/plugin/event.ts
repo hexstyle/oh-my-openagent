@@ -411,6 +411,7 @@ function assistantMessageHasVisibleContent(parts: RecoveryMessagePart[] | undefi
     if (
       type === "redacted_thinking" ||
       type === "meta" ||
+      type === "compaction" ||
       type === "step-start" ||
       type === "step-finish" ||
       type === "patch"
@@ -720,6 +721,7 @@ function updateAssistantRecoverySnapshotPart(
     || type === "reasoning"
     || type === "redacted_thinking"
     || type === "meta"
+    || type === "compaction"
     || type === "step-start"
     || type === "step-finish"
     || type === "patch"

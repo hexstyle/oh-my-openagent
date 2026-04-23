@@ -26,6 +26,16 @@ export function stripSingleEnclosingQuotes(value: string): string {
         break
       }
     }
+
+    if (changed) {
+      continue
+    }
+
+    const multiEscapedQuoteMatch = trimmed.match(/^(\\+)(["'`])([\s\S]*)\1\2$/)
+    if (multiEscapedQuoteMatch) {
+      trimmed = multiEscapedQuoteMatch[3].trim()
+      changed = true
+    }
   }
 
   return trimmed

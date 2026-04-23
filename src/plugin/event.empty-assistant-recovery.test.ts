@@ -314,6 +314,84 @@ describe("createEventHandler idle empty assistant recovery", () => {
     expect(promptAsyncMock).not.toHaveBeenCalled()
   })
 
+  test("recovers delayed compaction-only assistant turns for non-planner agents", async () => {
+    jest.useFakeTimers()
+
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_compaction_only_non_planner",
+          role: "user",
+          agent: "Sisyphus Junior (Focused Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{ type: "text", text: "continue execution" }],
+      },
+      {
+        info: {
+          id: "msg_compaction_only_non_planner",
+          role: "assistant",
+          agent: "Sisyphus Junior (Focused Executor)",
+        },
+        parts: [{ type: "compaction" }],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_compaction_only_non_planner",
+            sessionID: "ses_compaction_only_non_planner",
+            role: "assistant",
+            agent: "Sisyphus Junior (Focused Executor)",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part_compaction_only_non_planner",
+            sessionID: "ses_compaction_only_non_planner",
+            messageID: "msg_compaction_only_non_planner",
+            type: "compaction",
+          },
+        },
+      },
+    } as const)
+
+    if (typeof jest.advanceTimersByTimeAsync === "function") {
+      await jest.advanceTimersByTimeAsync(5001)
+    } else {
+      jest.advanceTimersByTime(5001)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
+    expect(fixEmptyMessagesWithSDKMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_compaction_only_non_planner" },
+      body: expect.objectContaining({
+        agent: "Sisyphus Junior (Focused Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
   test("does not recover when idle session ends with a reasoning-only assistant turn", async () => {
     //#given
     const handler = createHandler([
