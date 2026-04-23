@@ -37,6 +37,7 @@ import {
 import { getRuntimeFallbackSessionID } from "./session-id"
 import { applyScopedFallbackSessionHint } from "./scoped-fallback-hints"
 import { extractRetryTextParts } from "./last-user-retry-parts"
+import { getAwaitingScopedFallbackParentSessionID } from "./scoped-fallback-parent-watch"
 
 export { hasVisibleAssistantResponse } from "./visible-assistant-response"
 
@@ -266,6 +267,21 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
             info,
             timeoutMsOverride,
           })
+          const awaitingScopedFallbackParentSessionID = getAwaitingScopedFallbackParentSessionID(
+            deps,
+            sessionID,
+            state,
+          )
+          if (awaitingScopedFallbackParentSessionID) {
+            sessionLastAccess.set(awaitingScopedFallbackParentSessionID, Date.now())
+            helpers.scheduleSessionFallbackTimeout(awaitingScopedFallbackParentSessionID, {
+              resolvedAgent:
+                sessionStates.get(awaitingScopedFallbackParentSessionID)?.resolvedAgent
+                ?? state?.resolvedAgent,
+              source: "message.updated.assistant.visible-progress.awaiting-fallback-parent",
+              timeoutMsOverride,
+            })
+          }
           log(`[${HOOK_NAME}] Assistant response observed during active generation; preserved fallback timeout`, {
             sessionID,
             model,

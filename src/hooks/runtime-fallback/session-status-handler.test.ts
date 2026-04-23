@@ -230,6 +230,50 @@ describe("createSessionStatusHandler", () => {
     SessionCategoryRegistry.clear()
   })
 
+  it("#given a scoped fallback child busy pulse while the parent awaits fallback #when session.status active arrives #then the parent watchdog is refreshed too", async () => {
+    const parentSessionID = "session-status-parent-awaiting"
+    const childSessionID = "session-status-scoped-child"
+
+    const deps = createDeps()
+    const abortCalls: string[] = []
+    const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; persistent?: boolean; resolvedAgent?: string }> = []
+    const freshRetryCalls: Array<{ sessionID: string; source: string; resolvedAgent?: string }> = []
+    const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry"; timeoutMsOverride?: number }> = []
+    deps.sessionStates.set(parentSessionID, createFallbackState("anthropic/claude-opus-4-6"))
+    const childState = createFallbackState("openai/gpt-5.4")
+    childState.isScopedFallbackChild = true
+    childState.scopedFallbackParentSessionID = parentSessionID
+    deps.sessionStates.set(childSessionID, childState)
+    deps.sessionAwaitingFallbackResult.add(parentSessionID)
+
+    const handler = createSessionStatusHandler(
+      deps,
+      createHelpers(abortCalls, retryCalls, sameModelRetryCalls, freshRetryCalls, scheduleCalls),
+      deps.sessionStatusRetryKeys,
+    )
+
+    await handler({
+      sessionID: childSessionID,
+      status: {
+        type: "running",
+      },
+    })
+
+    expect(scheduleCalls).toEqual([
+      {
+        sessionID: childSessionID,
+        source: "session.status.active",
+        timeoutMsOverride: 120_000,
+      },
+      {
+        sessionID: parentSessionID,
+        source: "session.status.active.awaiting-fallback-parent",
+        timeoutMsOverride: 120_000,
+      },
+    ])
+  })
+
   it("#given an Anthropic extra-usage retry status #when the handler sees it #then it falls back immediately instead of waiting for provider retry", async () => {
     // given
     SessionCategoryRegistry.clear()

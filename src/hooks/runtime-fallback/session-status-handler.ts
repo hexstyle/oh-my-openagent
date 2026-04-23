@@ -30,6 +30,7 @@ import {
 } from "./recent-completion-guard"
 import { getRuntimeFallbackSessionID } from "./session-id"
 import { applyScopedFallbackSessionHint } from "./scoped-fallback-hints"
+import { getAwaitingScopedFallbackParentSessionID } from "./scoped-fallback-parent-watch"
 
 const ACTIVE_SESSION_STATUS_TYPES = new Set(["busy", "running"])
 
@@ -113,6 +114,21 @@ export function createSessionStatusHandler(
           source: "session.status.active",
           timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
         })
+        const awaitingScopedFallbackParentSessionID = getAwaitingScopedFallbackParentSessionID(
+          deps,
+          sessionID,
+          state,
+        )
+        if (awaitingScopedFallbackParentSessionID) {
+          sessionLastAccess.set(awaitingScopedFallbackParentSessionID, Date.now())
+          helpers.scheduleSessionFallbackTimeout(awaitingScopedFallbackParentSessionID, {
+            resolvedAgent:
+              sessionStates.get(awaitingScopedFallbackParentSessionID)?.resolvedAgent
+              ?? resolvedAgent,
+            source: "session.status.active.awaiting-fallback-parent",
+            timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
+          })
+        }
         markActiveStatusRefresh(state)
 
         log(`[${HOOK_NAME}] Refreshed fallback timeout after active session.status`, {

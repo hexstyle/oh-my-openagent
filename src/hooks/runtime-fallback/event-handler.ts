@@ -34,6 +34,7 @@ import {
   clearScopedFallbackSessionHint,
   rememberScopedFallbackSessionHint,
 } from "./scoped-fallback-hints"
+import { getAwaitingScopedFallbackParentSessionID } from "./scoped-fallback-parent-watch"
 
 export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   const { ctx, config, options, pluginConfig, sessionStates, sessionLastAccess, sessionLastUserMessageIDs, sessionRecentCompletionUntil, sessionRecentActiveStatusUntil, sessionSilentAssistantUpdateCounts, sessionRetryInFlight, sessionAwaitingFallbackResult, sessionFallbackTimeouts, sessionTransientRetryTimeouts, sessionStatusRetryKeys } = deps
@@ -222,6 +223,25 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
         inheritedLongRunningTimeoutMs ?? 0,
       ) || undefined,
     })
+
+    const awaitingScopedFallbackParentSessionID = getAwaitingScopedFallbackParentSessionID(
+      deps,
+      sessionID,
+      state,
+    )
+    if (awaitingScopedFallbackParentSessionID) {
+      sessionLastAccess.set(awaitingScopedFallbackParentSessionID, now)
+      helpers.scheduleSessionFallbackTimeout(awaitingScopedFallbackParentSessionID, {
+        resolvedAgent:
+          sessionStates.get(awaitingScopedFallbackParentSessionID)?.resolvedAgent
+          ?? resolvedAgent,
+        source: `${source}.progress.awaiting-fallback-parent`,
+        timeoutMsOverride: Math.max(
+          timeoutMsOverride ?? 0,
+          inheritedLongRunningTimeoutMs ?? 0,
+        ) || undefined,
+      })
+    }
 
     if (partType === "tool" && toolStatus === "error" && typeof toolError === "string" && toolError.trim().length > 0) {
       const retryAction = getRuntimeFallbackAction({ message: toolError }, config.retry_on_errors)

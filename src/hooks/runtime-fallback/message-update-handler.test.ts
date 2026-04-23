@@ -415,6 +415,36 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     expect(loopDetector.internalContinuationCalls).toEqual([])
   })
 
+  it("#given a scoped fallback child visible assistant update while the parent awaits fallback #when message.updated is handled #then the parent watchdog is refreshed too", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?visible-awaiting-parent-${Date.now()}-${Math.random()}`)
+    const parentSessionID = "session-visible-parent-awaiting"
+    const childSessionID = "session-visible-scoped-child"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const deps = createDeps({ data: [] })
+    deps.sessionStates.set(parentSessionID, createFallbackState("anthropic/claude-opus-4-6"))
+    const childState = createFallbackState("openai/gpt-5.4")
+    childState.isScopedFallbackChild = true
+    childState.scopedFallbackParentSessionID = parentSessionID
+    deps.sessionStates.set(childSessionID, childState)
+    deps.sessionAwaitingFallbackResult.add(parentSessionID)
+    deps.sessionRecentActiveStatusUntil.set(childSessionID, Date.now() + 1_000)
+    const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls))
+
+    await handler({
+      info: {
+        id: "msg-visible-awaiting-parent",
+        sessionID: childSessionID,
+        role: "assistant",
+        message: "Visible assistant progress.",
+      },
+    })
+
+    expect(scheduleCalls).toEqual([
+      { sessionID: childSessionID, timeoutMsOverride: 120_000 },
+      { sessionID: parentSessionID, timeoutMsOverride: 120_000 },
+    ])
+  })
+
   it("#given a fresh real user turn #when message.updated is handled #then only real user reset is recorded", async () => {
     const { createMessageUpdateHandler } = await import(`./message-update-handler?real-user-reset-${Date.now()}-${Math.random()}`)
     const sessionID = "session-real-user-reset"

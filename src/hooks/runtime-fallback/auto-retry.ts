@@ -443,6 +443,8 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     pluginConfig,
     sessionStatusRetryKeys,
   } = deps
+  const sessionTimeoutRecoveryInProgress =
+    deps.sessionTimeoutRecoveryInProgress ?? new Set<string>()
   const externalWatchdogSpawnedAt = new Map<string, number>()
   const recoveryProbeLastAttemptAt = new Map<string, number>()
 
@@ -932,6 +934,17 @@ fi
             continue
           }
 
+          const childRecoveryInProgress =
+            sessionTimeoutRecoveryInProgress.has(childSessionID)
+            || sessionRetryInFlight.has(childSessionID)
+            || sessionTransientRetryTimeouts.has(childSessionID)
+
+          if (childRecoveryInProgress) {
+            activeSessionIDs.add(childSessionID)
+            await visitChildren(childSessionID)
+            continue
+          }
+
           if (isBlockingDescendantSessionStatus(statuses[childSessionID]?.type)) {
             let treatAsActive = true
 
@@ -1091,6 +1104,7 @@ fi
     }
 
     const timer = setTimeout(async () => {
+      sessionTimeoutRecoveryInProgress.add(sessionID)
       try {
         sessionFallbackTimeouts.delete(sessionID)
 
@@ -1392,6 +1406,8 @@ fi
           source,
           error: String(error),
         })
+      } finally {
+        sessionTimeoutRecoveryInProgress.delete(sessionID)
       }
     }, timeoutMs)
 
@@ -2198,6 +2214,7 @@ fi
         sessionLastUserMessageIDs.delete(sessionID)
         sessionRecentCompletionUntil.delete(sessionID)
         sessionRetryInFlight.delete(sessionID)
+        sessionTimeoutRecoveryInProgress.delete(sessionID)
         sessionAwaitingFallbackResult.delete(sessionID)
         clearSessionFallbackTimeout(sessionID)
         SessionCategoryRegistry.remove(sessionID)

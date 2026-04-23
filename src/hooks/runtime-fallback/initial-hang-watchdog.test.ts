@@ -1547,6 +1547,104 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(logCalls.some((call) => call.msg.includes("descendant sessions are active"))).toBe(false)
   })
 
+  test("defers parent fallback while a scoped child is in timeout recovery even if the child status is temporarily idle", async () => {
+    const retriedModels: string[] = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-flare-child-timeout-parent"
+    const childSessionID = "ses-flare-child-timeout-child"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            children: async (args: { path: { id: string } }) =>
+              args.path.id === sessionID
+                ? { data: [{ id: childSessionID }] }
+                : { data: [] },
+            status: async () => ({
+              data: {
+                [sessionID]: { type: "idle" },
+                [childSessionID]: { type: "idle" },
+              },
+            }),
+            messages: async () => ({
+              data: [
+                { info: { id: "msg_201", role: "user" }, parts: [{ type: "text", text: "continue" }] },
+                { info: { id: "msg_202", role: "assistant" }, parts: [] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                retriedModels.push(`${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    hook._deps?.sessionTimeoutRecoveryInProgress.add(childSessionID)
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Atlas (Plan Executor)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Atlas (Plan Executor)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(40)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toHaveLength(0)
+    expect(retriedModels).toHaveLength(0)
+    expect(logCalls.some((call) => call.msg.includes("descendant sessions are active"))).toBe(true)
+  })
+
   ;(["task", "call_omo_agent"] as const).forEach((toolName) => {
     test(`does not abort Flare delegation while ${toolName} is still pending in the latest assistant transcript`, async () => {
       const retriedModels: string[] = []

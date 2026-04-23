@@ -552,6 +552,58 @@ describe("createEventHandler", () => {
       })
     }
 
+    it("#given a scoped fallback child progress event while the parent awaits fallback #when message.part.updated is handled #then the parent watchdog is refreshed too", async () => {
+      const parentSessionID = "session-progress-parent-awaiting"
+      const childSessionID = "session-progress-scoped-child"
+      const deps = createDeps()
+      const abortCalls: string[] = []
+      const clearCalls: string[] = []
+      deps.sessionStates.set(parentSessionID, createFallbackState("anthropic/claude-opus-4-6"))
+      const childState = createFallbackState("openai/gpt-5.4")
+      childState.isScopedFallbackChild = true
+      childState.scopedFallbackParentSessionID = parentSessionID
+      deps.sessionStates.set(childSessionID, childState)
+      deps.sessionAwaitingFallbackResult.add(parentSessionID)
+      deps.sessionRecentActiveStatusUntil.set(childSessionID, Date.now() + 1_000)
+      deps.sessionFallbackTimeouts.set(parentSessionID, 1)
+      const helpers = createHelpers(deps, abortCalls, clearCalls)
+      const handler = createEventHandler(deps, helpers)
+
+      await handler({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            info: {
+              sessionID: childSessionID,
+              role: "assistant",
+            },
+            part: {
+              sessionID: childSessionID,
+              type: "text",
+              text: "Analyzing Bamboo failures...",
+            },
+          },
+        },
+      })
+
+      expect(clearCalls).toEqual([])
+      expect(abortCalls).toEqual([])
+      expect(helpers.__scheduleCallsForTest).toEqual([
+        {
+          sessionID: childSessionID,
+          source: "message.part.updated.progress",
+          resolvedAgent: undefined,
+          timeoutMsOverride: 120_000,
+        },
+        {
+          sessionID: parentSessionID,
+          source: "message.part.updated.progress.awaiting-fallback-parent",
+          resolvedAgent: undefined,
+          timeoutMsOverride: 120_000,
+        },
+      ])
+    })
+
     it("#when a local tool abort progress part arrives in a paid parent session #then the handler opens a fresh same-model handoff", async () => {
       const sessionID = "session-progress-local-tool-abort"
       const deps = createDeps()

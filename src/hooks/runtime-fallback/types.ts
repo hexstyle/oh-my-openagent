@@ -203,6 +203,7 @@ export interface HookDeps {
   sessionScopedFallbackHints?: Map<string, ScopedFallbackSessionHint>
   globalModelCooldowns: Map<string, number>
   sessionRetryInFlight: Set<string>
+  sessionTimeoutRecoveryInProgress: Set<string>
   sessionAwaitingFallbackResult: Set<string>
   sessionFallbackTimeouts: Map<string, RuntimeFallbackTimeout>
   sessionTransientRetryTimeouts: Map<string, RuntimeFallbackTimeout>
