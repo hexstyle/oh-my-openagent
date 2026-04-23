@@ -1,5 +1,5 @@
 declare const require: (name: string) => any
-const { afterEach, beforeEach, describe, expect, mock, spyOn, test } = require("bun:test")
+const { afterEach, beforeEach, describe, expect, jest, mock, spyOn, test } = require("bun:test")
 
 const fixEmptyMessagesWithSDKMock = mock(async () => ({
   fixed: true,
@@ -7,7 +7,7 @@ const fixEmptyMessagesWithSDKMock = mock(async () => ({
   scannedEmptyCount: 1,
 }))
 
-import { createEventHandler } from "./event"
+import { _resetEventRecoveryStateForTesting, createEventHandler } from "./event"
 import { _resetForTesting } from "../features/claude-code-session-state"
 import * as connectedProvidersCache from "../shared/connected-providers-cache"
 import * as emptyContentRecoverySdk from "../hooks/anthropic-context-window-limit-recovery/empty-content-recovery-sdk"
@@ -63,9 +63,14 @@ describe("createEventHandler idle empty assistant recovery", () => {
   })
 
   afterEach(() => {
+    _resetEventRecoveryStateForTesting()
     _resetForTesting()
     fixEmptyMessagesWithSDKMock.mockClear()
     promptAsyncMock.mockClear()
+    try {
+      jest.clearAllTimers()
+      jest.useRealTimers()
+    } catch {}
     mock.restore()
   })
 
@@ -165,6 +170,64 @@ describe("createEventHandler idle empty assistant recovery", () => {
     })
 
     //#then
+    expect(fixEmptyMessagesWithSDKMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+  })
+
+  test("dedupes delayed empty assistant recovery across multiple handler instances for the same message", async () => {
+    jest.useFakeTimers()
+
+    const messages = [
+      {
+        info: {
+          id: "msg_user_shared_delay",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{ type: "text", text: "continue" }],
+      },
+      {
+        info: {
+          id: "msg_empty_shared_delay",
+          role: "assistant",
+          agent: "Atlas (Plan Executor)",
+        },
+        parts: [],
+      },
+    ]
+
+    const handlerA = createHandler(messages)
+    const handlerB = createHandler(messages)
+    const event = {
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_empty_shared_delay",
+            sessionID: "ses_empty_shared_delay",
+            role: "assistant",
+            agent: "Atlas (Plan Executor)",
+          },
+        },
+      },
+    } as const
+
+    await handlerA(event)
+    await handlerB(event)
+
+    if (typeof jest.advanceTimersByTimeAsync === "function") {
+      await jest.advanceTimersByTimeAsync(5001)
+    } else {
+      jest.advanceTimersByTime(5001)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
     expect(fixEmptyMessagesWithSDKMock).toHaveBeenCalledTimes(1)
     expect(promptAsyncMock).toHaveBeenCalledTimes(1)
   })

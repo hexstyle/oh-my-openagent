@@ -221,6 +221,9 @@ const prometheusProviderBlockedRetryStateBySession = new Map<string, {
   startedAt: number;
   attempts: number;
 }>();
+const emptyAssistantRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const emptyAssistantRecoveryTimerMetaBySession = new Map<string, { messageID: string; delayMs: number }>();
+const abortedToolRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const recentRecoverablePrometheusSnapshotBySession = new Map<string, AssistantRecoverySnapshot>();
 type AssistantRecoverySnapshot = {
   messageID: string;
@@ -233,6 +236,38 @@ type AssistantRecoverySnapshot = {
 };
 const assistantRecoverySnapshotBySession = new Map<string, AssistantRecoverySnapshot>();
 const RECOVERABLE_PENDING_PROMETHEUS_TOOLS = new Set(["write", "edit", "todowrite"]);
+
+function clearSharedEmptyAssistantRecoveryTimer(sessionID: string): void {
+  const timer = emptyAssistantRecoveryTimers.get(sessionID);
+  if (!timer) return;
+  clearTimeout(timer);
+  emptyAssistantRecoveryTimers.delete(sessionID);
+  emptyAssistantRecoveryTimerMetaBySession.delete(sessionID);
+}
+
+function clearSharedAbortedToolRecoveryTimer(sessionID: string): void {
+  const timer = abortedToolRecoveryTimers.get(sessionID);
+  if (!timer) return;
+  clearTimeout(timer);
+  abortedToolRecoveryTimers.delete(sessionID);
+}
+
+export function _resetEventRecoveryStateForTesting(): void {
+  for (const sessionID of [...emptyAssistantRecoveryTimers.keys()]) {
+    clearSharedEmptyAssistantRecoveryTimer(sessionID);
+  }
+  for (const sessionID of [...abortedToolRecoveryTimers.keys()]) {
+    clearSharedAbortedToolRecoveryTimer(sessionID);
+  }
+  recoveredEmptyAssistantMessageBySession.clear();
+  recoveredPendingEmptyToolMessageBySession.clear();
+  recoveredPlannerReasoningOnlyMessageBySession.clear();
+  recoveredInterruptedPlannerVisibleMessageBySession.clear();
+  recoveredProviderBlockedErrorMessageBySession.clear();
+  prometheusProviderBlockedRetryStateBySession.clear();
+  recentRecoverablePrometheusSnapshotBySession.clear();
+  assistantRecoverySnapshotBySession.clear();
+}
 
 function hasRecentPrometheusRuntimeFallbackRecoveryGuard(
   sessionID: string,
@@ -1884,21 +1919,12 @@ export function createEventHandler(args: {
   const lastHandledModelErrorMessageID = new Map<string, string>();
   const lastHandledRetryStatusKey = new Map<string, string>();
   const lastKnownModelBySession = new Map<string, { providerID: string; modelID: string }>();
-  const emptyAssistantRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const abortedToolRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
   const clearEmptyAssistantRecoveryTimer = (sessionID: string): void => {
-    const timer = emptyAssistantRecoveryTimers.get(sessionID);
-    if (!timer) return;
-    clearTimeout(timer);
-    emptyAssistantRecoveryTimers.delete(sessionID);
+    clearSharedEmptyAssistantRecoveryTimer(sessionID);
   };
 
   const clearAbortedToolRecoveryTimer = (sessionID: string): void => {
-    const timer = abortedToolRecoveryTimers.get(sessionID);
-    if (!timer) return;
-    clearTimeout(timer);
-    abortedToolRecoveryTimers.delete(sessionID);
+    clearSharedAbortedToolRecoveryTimer(sessionID);
   };
 
   const schedulePrometheusAbortedToolRecovery = (
@@ -1943,6 +1969,7 @@ export function createEventHandler(args: {
       void (async () => {
         try {
           emptyAssistantRecoveryTimers.delete(sessionID);
+          emptyAssistantRecoveryTimerMetaBySession.delete(sessionID);
           log("[event] running delayed empty assistant recovery", {
             sessionID,
             messageID,
@@ -2008,12 +2035,16 @@ export function createEventHandler(args: {
         }
       })();
     }, delayMs);
+    const previousMeta = emptyAssistantRecoveryTimerMetaBySession.get(sessionID);
     emptyAssistantRecoveryTimers.set(sessionID, timer);
-    log("[event] scheduled delayed empty assistant recovery", {
-      sessionID,
-      messageID,
-      delayMs,
-    });
+    emptyAssistantRecoveryTimerMetaBySession.set(sessionID, { messageID, delayMs });
+    if (previousMeta?.messageID !== messageID || previousMeta.delayMs !== delayMs) {
+      log("[event] scheduled delayed empty assistant recovery", {
+        sessionID,
+        messageID,
+        delayMs,
+      });
+    }
   };
 
   const resolveFallbackProviderID = (sessionID: string, providerHint?: string): string => {
