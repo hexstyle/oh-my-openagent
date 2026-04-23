@@ -109,6 +109,29 @@ describe("boulder-state", () => {
       expect(result!.session_ids).toEqual([])
     })
 
+    test("should discard placeholder session ids and origins copied into boulder state", () => {
+      //#given - boulder.json containing template placeholders from a stale workspace
+      const boulderFile = join(SISYPHUS_DIR, "boulder.json")
+      writeFileSync(boulderFile, JSON.stringify({
+        active_plan: "/path/to/plan.md",
+        started_at: "2026-01-01T00:00:00Z",
+        session_ids: ["ses_real_123", "$SESSION_ID", "   "],
+        session_origins: {
+          ses_real_123: "direct",
+          $SESSION_ID: "start-work",
+        },
+        plan_name: "plan",
+      }))
+
+      //#when
+      const result = readBoulderState(TEST_DIR)
+
+      //#then
+      expect(result).not.toBeNull()
+      expect(result!.session_ids).toEqual(["ses_real_123"])
+      expect(result!.session_origins).toEqual({ ses_real_123: "direct" })
+    })
+
     test("should default session_ids to [] for empty object", () => {
       //#given - boulder.json with empty object
       const boulderFile = join(SISYPHUS_DIR, "boulder.json")
@@ -270,6 +293,28 @@ describe("boulder-state", () => {
       //#then - should not crash and should contain the new session
       expect(result).not.toBeNull()
       expect(result!.session_ids).toContain("ses-new")
+    })
+
+    test("should replace stale placeholder session ids when appending a real session", () => {
+      //#given - boulder.json with a copied placeholder session id
+      const boulderFile = join(SISYPHUS_DIR, "boulder.json")
+      writeFileSync(boulderFile, JSON.stringify({
+        active_plan: "/plan.md",
+        started_at: "2026-01-01T00:00:00Z",
+        session_ids: ["$SESSION_ID"],
+        session_origins: {
+          $SESSION_ID: "start-work",
+        },
+        plan_name: "plan",
+      }))
+
+      //#when
+      const result = appendSessionId(TEST_DIR, "ses-new", "direct")
+
+      //#then
+      expect(result).not.toBeNull()
+      expect(result!.session_ids).toEqual(["ses-new"])
+      expect(result!.session_origins).toEqual({ "ses-new": "direct" })
     })
   })
 

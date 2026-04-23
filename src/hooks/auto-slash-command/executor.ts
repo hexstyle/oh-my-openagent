@@ -128,6 +128,7 @@ export interface ExecuteResult {
   success: boolean
   replacementText?: string
   error?: string
+  agent?: string
 }
 
 export async function executeSlashCommand(parsed: ParsedSlashCommand, options?: ExecutorOptions): Promise<ExecuteResult> {
@@ -154,6 +155,7 @@ export async function executeSlashCommand(parsed: ParsedSlashCommand, options?: 
     return {
       success: true,
       replacementText: template,
+      agent: command.metadata.agent,
     }
   } catch (err) {
     return {

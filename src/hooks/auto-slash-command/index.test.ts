@@ -88,6 +88,18 @@ describe("createAutoSlashCommandHook", () => {
       // then should not modify (feature inactive for unknown commands)
       expect(output.parts[0].text).toBe(originalText)
     })
+
+    it("should propagate builtin command agent metadata when replacing /start-work", async () => {
+      const hook = createAutoSlashCommandHook()
+      const sessionID = `test-session-start-work-agent-${Date.now()}`
+      const input = createMockInput(sessionID)
+      const output = createMockOutput("/start-work ci-green-final")
+
+      await hook["chat.message"](input, output)
+
+      expect(output.parts[0].text).toContain("# /start-work Command")
+      expect(output.message.agent).toBe("atlas")
+    })
   })
 
   describe("no slash command", () => {

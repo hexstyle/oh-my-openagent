@@ -28,6 +28,13 @@ interface StartWorkHookOutput {
   parts: Array<{ type: string; text?: string }>
 }
 
+function isStartWorkPrompt(promptText: string): boolean {
+  const trimmed = promptText.trim()
+  return trimmed.startsWith("/start-work")
+    || promptText.includes("# /start-work Command")
+    || promptText.includes("You are starting a Sisyphus work session.")
+}
+
 function findPlanByName(plans: string[], requestedName: string): string | null {
   const lowerName = requestedName.toLowerCase()
   const exactMatch = plans.find((p) => getPlanName(p).toLowerCase() === lowerName)
@@ -100,7 +107,7 @@ export function createStartWorkHook(ctx: PluginInput) {
           .join("\n")
           .trim() || ""
 
-      if (!promptText.includes("<session-context>")) return
+      if (!isStartWorkPrompt(promptText)) return
 
       log(`[${HOOK_NAME}] Processing start-work command`, { sessionID: input.sessionID })
       const activeAgent = isAgentRegistered("atlas")
@@ -128,6 +135,13 @@ export function createStartWorkHook(ctx: PluginInput) {
 
         const allPlans = findPrometheusPlans(ctx.directory)
         const matchedPlan = findPlanByName(allPlans, explicitPlanName)
+          ?? (
+            existingState
+            && getPlanName(existingState.active_plan).toLowerCase() === explicitPlanName.toLowerCase()
+            && !getPlanProgress(existingState.active_plan).isComplete
+              ? existingState.active_plan
+              : null
+          )
 
         if (matchedPlan) {
           const progress = getPlanProgress(matchedPlan)

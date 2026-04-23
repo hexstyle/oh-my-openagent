@@ -10,6 +10,12 @@ describe("parseUserRequest", () => {
       expect(result.planName).toBeNull()
       expect(result.explicitWorktreePath).toBeNull()
     })
+
+    test("#given raw /start-work command #when parsing #then extracts plan name and worktree", () => {
+      const result = parseUserRequest("/start-work ci-green-final --worktree /tmp/wt")
+      expect(result.planName).toBe("ci-green-final")
+      expect(result.explicitWorktreePath).toBe("/tmp/wt")
+    })
   })
 
   describe("when user-request tag is empty", () => {

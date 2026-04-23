@@ -148,6 +148,9 @@ export function createAutoSlashCommandHook(options?: AutoSlashCommandHookOptions
 
       const taggedContent = `${AUTO_SLASH_COMMAND_TAG_OPEN}\n${result.replacementText}\n${AUTO_SLASH_COMMAND_TAG_CLOSE}`
       output.parts[idx].text = taggedContent
+      if (result.agent) {
+        output.message.agent = result.agent
+      }
 
       log(`[auto-slash-command] Replaced message with command template`, {
         sessionID: input.sessionID,
@@ -207,6 +210,10 @@ export function createAutoSlashCommandHook(options?: AutoSlashCommandHookOptions
         output.parts[idx].text = taggedContent
       } else {
         output.parts.unshift({ type: "text", text: taggedContent })
+      }
+      if (result.agent) {
+        output.message ??= {}
+        output.message.agent = result.agent
       }
 
       log(`[auto-slash-command] command.execute.before - injected template`, {

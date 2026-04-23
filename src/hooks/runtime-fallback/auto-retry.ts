@@ -340,6 +340,105 @@ function buildFreshPaidRetryHandoffPrompt(args: {
   ].join("\n")
 }
 
+type PrometheusPlanPromotionContext = {
+  draftPath: string
+  finalPath: string
+}
+
+function resolveToolFilePath(part: unknown): string | undefined {
+  if (!part || typeof part !== "object") {
+    return undefined
+  }
+
+  const candidate = [
+    (part as { state?: { input?: { filePath?: unknown; path?: unknown; file?: unknown } } }).state?.input?.filePath,
+    (part as { state?: { input?: { filePath?: unknown; path?: unknown; file?: unknown } } }).state?.input?.path,
+    (part as { state?: { input?: { filePath?: unknown; path?: unknown; file?: unknown } } }).state?.input?.file,
+    (part as { filePath?: unknown }).filePath,
+    (part as { path?: unknown }).path,
+    (part as { file?: unknown }).file,
+  ]
+
+  for (const value of candidate) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim()
+    }
+  }
+
+  return undefined
+}
+
+function derivePrometheusFinalPlanPath(draftPath: string): string | undefined {
+  const normalized = draftPath.replace(/\\/g, "/")
+  if (!normalized.includes("/.sisyphus/drafts/") || !normalized.endsWith(".md")) {
+    return undefined
+  }
+
+  return normalized.replace("/.sisyphus/drafts/", "/.sisyphus/plans/")
+}
+
+function extractPrometheusPlanPromotionContext(
+  messagesResponse: unknown,
+): PrometheusPlanPromotionContext | undefined {
+  const messages = extractSessionMessages(messagesResponse)
+  if (!messages?.length) {
+    return undefined
+  }
+
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const message = messages[messageIndex]
+    const infoParts = Array.isArray(message.info?.parts) ? message.info.parts : []
+    const parts = Array.isArray(message.parts) && message.parts.length > 0
+      ? message.parts
+      : infoParts
+
+    for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
+      const part = parts[partIndex]
+      const partType = typeof part?.type === "string" ? part.type : undefined
+      const toolName = typeof part?.tool === "string"
+        ? part.tool
+        : typeof part?.name === "string"
+          ? part.name
+          : undefined
+      const toolStatus = typeof part?.state?.status === "string" ? part.state.status : undefined
+      if (partType !== "tool" || toolName !== "write" || toolStatus !== "completed") {
+        continue
+      }
+
+      const draftPath = resolveToolFilePath(part)
+      if (!draftPath) {
+        continue
+      }
+
+      const finalPath = derivePrometheusFinalPlanPath(draftPath)
+      if (!finalPath) {
+        continue
+      }
+
+      return {
+        draftPath,
+        finalPath,
+      }
+    }
+  }
+
+  return undefined
+}
+
+function buildPrometheusPlanPromotionRetryPrompt(args: PrometheusPlanPromotionContext): string {
+  return [
+    "Prometheus final-plan promotion retry.",
+    "The previous attempt stalled on an empty write tool placeholder while promoting the final plan.",
+    "Do NOT open another large write tool call for the final artifact.",
+    `Reuse the existing draft at ${args.draftPath}.`,
+    "Promote it with bash instead:",
+    `mkdir -p "$(dirname '${args.finalPath}')" && cp '${args.draftPath}' '${args.finalPath}'`,
+    `Then read ${args.finalPath} and verify it no longer begins with '# Draft:' and that the ## TODOs section is populated.`,
+    "Only if the draft itself is incomplete should you repair the draft first, then promote it with the bash copy step above.",
+    "Continue in the same session and keep the result compact.",
+  ].join("\n")
+}
+
 export function selectExternalWatchdogModel(
   currentModel: string,
   fallbackModels: string[],
@@ -448,6 +547,7 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     deps.sessionTimeoutRecoveryInProgress ?? new Set<string>()
   const externalWatchdogSpawnedAt = new Map<string, number>()
   const recoveryProbeLastAttemptAt = new Map<string, number>()
+  const sessionFallbackTimeoutTokens = new Map<string, symbol>()
 
   const ensureExternalWatchdogDir = (): void => {
     try {
@@ -939,6 +1039,7 @@ fi
       clearTimeout(existingTimer)
       sessionFallbackTimeouts.delete(sessionID)
     }
+    sessionFallbackTimeoutTokens.delete(sessionID)
     clearSessionTransientRetryTimeout(sessionID)
     invalidateExternalWatchdog(sessionID)
   }
@@ -1180,13 +1281,32 @@ fi
       })
     }
 
+    const timeoutToken = Symbol(sessionID)
+    sessionFallbackTimeoutTokens.set(sessionID, timeoutToken)
+    const isCurrentSessionTimeout = (): boolean =>
+      sessionFallbackTimeoutTokens.get(sessionID) === timeoutToken
+    const clearCurrentSessionTimeoutToken = (): void => {
+      if (isCurrentSessionTimeout()) {
+        sessionFallbackTimeoutTokens.delete(sessionID)
+      }
+    }
+
     const timer = setTimeout(async () => {
       sessionTimeoutRecoveryInProgress.add(sessionID)
       try {
+        if (!isCurrentSessionTimeout()) {
+          log(`[${HOOK_NAME}] Ignoring stale session fallback timeout callback`, {
+            sessionID,
+            source,
+          })
+          return
+        }
+
         sessionFallbackTimeouts.delete(sessionID)
 
         const state = sessionStates.get(sessionID)
         if (!state) {
+          clearCurrentSessionTimeoutToken()
           log(`[${HOOK_NAME}] Session fallback timeout fired without state`, {
             sessionID,
             source,
@@ -1196,6 +1316,7 @@ fi
 
         // If the user pressed ESC after this timer was armed, abort.
         if (wasRecentlyStopped(state)) {
+          clearCurrentSessionTimeoutToken()
           log(`[${HOOK_NAME}] Session fallback timeout cancelled — session was stopped`, {
             sessionID,
             source,
@@ -1207,12 +1328,18 @@ fi
         if (hadInFlightRetry) {
           log(`[${HOOK_NAME}] Overriding in-flight retry due to session timeout`, { sessionID, source })
           await abortSessionRequest(sessionID, source)
+          if (!isCurrentSessionTimeout()) {
+            return
+          }
         }
 
         sessionRetryInFlight.delete(sessionID)
 
         const resolvedAgent = await resolveAgentForSessionFromContext(sessionID, args?.resolvedAgent)
           ?? args?.resolvedAgent
+        if (!isCurrentSessionTimeout()) {
+          return
+        }
         const backgroundTasks = getBackgroundTaskInspection(sessionID)
         if (backgroundTasks.hasActiveTasks) {
           sessionLastAccess.set(sessionID, Date.now())
@@ -1230,13 +1357,21 @@ fi
           return
         }
 
+        let inspectedMessagesResponse: unknown | undefined
+        let currentAssistantProgress:
+          | ReturnType<typeof inspectLatestAssistantProgress>
+          | undefined
         try {
           const currentMessagesResponse = await fetchSessionMessages(
             sessionID,
             `${source}.inspect-latest-assistant`,
           )
+          if (!isCurrentSessionTimeout()) {
+            return
+          }
           if (currentMessagesResponse) {
-            const currentAssistantProgress = inspectLatestAssistantProgress(currentMessagesResponse)
+            inspectedMessagesResponse = currentMessagesResponse
+            currentAssistantProgress = inspectLatestAssistantProgress(currentMessagesResponse)
             if (currentAssistantProgress.hasTerminalCompletion) {
               log(`[${HOOK_NAME}] Skipping session timeout fallback because the session already completed`, {
                 sessionID,
@@ -1361,6 +1496,9 @@ fi
         }
 
         const descendantSessions = await inspectDescendantSessions(sessionID)
+        if (!isCurrentSessionTimeout()) {
+          return
+        }
         if (descendantSessions.activeSessionIDs.length > 0) {
           sessionLastAccess.set(sessionID, Date.now())
           scheduleSessionFallbackTimeout(sessionID, {
@@ -1379,6 +1517,9 @@ fi
 
         if (mode === "transient_retry" && state.pendingTransientRetry) {
           await abortSessionRequest(sessionID, source)
+          if (!isCurrentSessionTimeout()) {
+            return
+          }
           const persistentTransientRetry = state.persistentTransientRetry ?? false
           state.pendingTransientRetry = false
 
@@ -1388,6 +1529,7 @@ fi
               persistent: persistentTransientRetry,
             })
           if (retryRescheduled) {
+            clearCurrentSessionTimeoutToken()
             return
           }
 
@@ -1401,6 +1543,7 @@ fi
               `${source}.transient-timeout`,
             )
             if (freshRetried) {
+              clearCurrentSessionTimeoutToken()
               resetTransientRetryState(state)
               return
             }
@@ -1415,6 +1558,25 @@ fi
         if (
           mode === "fallback"
           && timeoutAction === "fallback_chain"
+          && currentAssistantProgress?.blockingProgress?.partType === "tool"
+          && currentAssistantProgress.blockingProgress.toolName === "write"
+          && currentAssistantProgress.blockingProgress.toolStatus === "pending"
+          && inspectedMessagesResponse
+        ) {
+          const recoveredInPlace = await retryPrometheusPlanPromotionInCurrentSession({
+            sessionID,
+            resolvedAgent,
+            source: `${source}.timeout`,
+            messagesResponse: inspectedMessagesResponse,
+          })
+          if (recoveredInPlace) {
+            clearCurrentSessionTimeoutToken()
+            return
+          }
+        }
+        if (
+          mode === "fallback"
+          && timeoutAction === "fallback_chain"
           && getRuntimeFallbackTier(state.currentModel) === "paid"
         ) {
           const freshRetried = await retryCurrentModelInFreshSession(
@@ -1423,12 +1585,14 @@ fi
             `${source}.timeout`,
           )
           if (freshRetried) {
+            clearCurrentSessionTimeoutToken()
             return
           }
         }
 
         const allFallbackModels = getFallbackModelsForSession(sessionID, resolvedAgent, pluginConfig)
         if (allFallbackModels.length === 0) {
+          clearCurrentSessionTimeoutToken()
           log(`[${HOOK_NAME}] Session fallback timeout reached but no fallback models were resolved`, {
             sessionID,
             source,
@@ -1473,19 +1637,23 @@ fi
           if (!hadInFlightRetry && transitionMode !== "same_session") {
             await abortSessionRequest(sessionID, source)
           }
+          clearCurrentSessionTimeoutToken()
           return
         }
 
         if (!hadInFlightRetry) {
           await abortSessionRequest(sessionID, source)
         }
+        clearCurrentSessionTimeoutToken()
       } catch (error) {
+        clearCurrentSessionTimeoutToken()
         log(`[${HOOK_NAME}] Session fallback timeout handler failed`, {
           sessionID,
           source,
           error: String(error),
         })
       } finally {
+        clearCurrentSessionTimeoutToken()
         sessionTimeoutRecoveryInProgress.delete(sessionID)
       }
     }, timeoutMs)
@@ -1780,6 +1948,56 @@ fi
       }
     }
     return retryDispatched
+  }
+
+  const retryPrometheusPlanPromotionInCurrentSession = async (args: {
+    sessionID: string
+    resolvedAgent: string | undefined
+    source: string
+    messagesResponse: unknown
+  }): Promise<boolean> => {
+    const state = sessionStates.get(args.sessionID)
+    if (!state) {
+      return false
+    }
+
+    const effectiveAgent = normalizeAgentName(
+      args.resolvedAgent
+        ?? state.resolvedAgent
+        ?? getSessionAgent(args.sessionID),
+    )
+    if (effectiveAgent !== "prometheus") {
+      return false
+    }
+
+    const promotionContext = extractPrometheusPlanPromotionContext(args.messagesResponse)
+    if (!promotionContext) {
+      return false
+    }
+
+    await abortSessionRequest(args.sessionID, `${args.source}.prometheus-plan-promotion`)
+
+    const retried = await autoRetryWithFallback(
+      args.sessionID,
+      state.currentModel,
+      args.resolvedAgent,
+      `${args.source}.prometheus-plan-promotion`,
+      {
+        continuationPrompt: buildPrometheusPlanPromotionRetryPrompt(promotionContext),
+      },
+    )
+
+    if (retried) {
+      log(`[${HOOK_NAME}] Retrying stalled Prometheus final-plan promotion in the same session`, {
+        sessionID: args.sessionID,
+        source: args.source,
+        model: state.currentModel,
+        draftPath: promotionContext.draftPath,
+        finalPath: promotionContext.finalPath,
+      })
+    }
+
+    return retried
   }
 
   const retryCurrentModelInFreshSession = async (

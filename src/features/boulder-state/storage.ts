@@ -187,6 +187,12 @@ function normalizeWorktreePath(worktreePath: unknown): string | undefined {
   return trimmedWorktreePath
 }
 
+function isConcreteSessionId(value: unknown): value is string {
+  return typeof value === "string"
+    && value.trim().length > 0
+    && !value.trim().startsWith("$")
+  }
+
 function normalizeBoulderState(parsed: Record<string, unknown>): BoulderState {
   const activePlan = typeof parsed.active_plan === "string" ? parsed.active_plan : ""
   const normalizedPlanName = activePlan ? getPlanName(activePlan) : ""
@@ -195,14 +201,21 @@ function normalizeBoulderState(parsed: Record<string, unknown>): BoulderState {
     Boolean(activePlan)
     && Boolean(storedPlanName)
     && storedPlanName !== normalizedPlanName
+  const normalizedSessionIds = Array.isArray(parsed.session_ids)
+    ? parsed.session_ids.filter(isConcreteSessionId)
+    : []
+  const rawSessionOrigins =
+    parsed.session_origins && typeof parsed.session_origins === "object" && !Array.isArray(parsed.session_origins)
+      ? parsed.session_origins as Record<string, BoulderSessionOrigin>
+      : {}
+  const normalizedSessionOrigins = Object.fromEntries(
+    Object.entries(rawSessionOrigins).filter(([sessionId]) => isConcreteSessionId(sessionId)),
+  ) as Record<string, BoulderSessionOrigin>
 
   return {
     ...parsed,
-    session_ids: Array.isArray(parsed.session_ids) ? parsed.session_ids : [],
-    session_origins:
-      parsed.session_origins && typeof parsed.session_origins === "object" && !Array.isArray(parsed.session_origins)
-        ? parsed.session_origins as Record<string, BoulderSessionOrigin>
-        : {},
+    session_ids: normalizedSessionIds,
+    session_origins: normalizedSessionOrigins,
     task_sessions:
       hadPlanMismatch || !parsed.task_sessions || typeof parsed.task_sessions !== "object" || Array.isArray(parsed.task_sessions)
         ? {}

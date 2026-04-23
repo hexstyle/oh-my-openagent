@@ -17,6 +17,10 @@ describe("start-work hook", () => {
   let testDir: string
   let sisyphusDir: string
 
+  function wrapStartWorkText(body: string): string {
+    return `<command-instruction>You are starting a Sisyphus work session.</command-instruction>\n${body}`
+  }
+
   function createMockPluginInput() {
     return {
       directory: testDir,
@@ -65,14 +69,16 @@ describe("start-work hook", () => {
       expect(output.parts[0].text).toBe("Just a regular message")
     })
 
-    test("should detect start-work command via session-context tag", async () => {
-      // given - hook and start-work message
+    test("should detect start-work command via wrapped command template", async () => {
+      // given - hook and wrapped start-work command template
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
         parts: [
           {
             type: "text",
-            text: "<session-context>Some context here</session-context>",
+            text: `<command-instruction>You are starting a Sisyphus work session.</command-instruction>
+<session-context>Some context here</session-context>
+<user-request>ci-green-final</user-request>`,
           },
         ],
       }
@@ -85,6 +91,35 @@ describe("start-work hook", () => {
 
       // then - output should be modified with context info
       expect(output.parts[0].text).toContain("---")
+    })
+
+    test("should detect raw /start-work command without session-context wrapper", async () => {
+      const plansDir = join(testDir, ".sisyphus", "plans")
+      mkdirSync(plansDir, { recursive: true })
+      writeFileSync(
+        join(plansDir, "ci-green-final.md"),
+        `# Plan
+
+## TODOs
+- [ ] 1. Real task
+`,
+      )
+
+      const hook = createStartWorkHook(createMockPluginInput())
+      const output = {
+        message: {},
+        parts: [{ type: "text", text: "/start-work ci-green-final" }],
+      }
+
+      await hook["chat.message"](
+        { sessionID: "session-raw-start-work" },
+        output,
+      )
+
+      expect(output.parts[0].text).toContain("Auto-Selected Plan")
+      expect(output.parts[0].text).toContain("ci-green-final")
+      expect(output.message?.agent).toBe("Atlas (Plan Executor)")
+      expect(readBoulderState(testDir)?.session_ids).toContain("session-raw-start-work")
     })
 
     test("should inject resume info when existing boulder state found", async () => {
@@ -102,7 +137,7 @@ describe("start-work hook", () => {
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
-        parts: [{ type: "text", text: "<session-context></session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context></session-context>") }],
       }
 
       // when
@@ -114,6 +149,44 @@ describe("start-work hook", () => {
       // then - should show resuming status
       expect(output.parts[0].text).toContain("RESUMING")
       expect(output.parts[0].text).toContain("test-plan")
+    })
+
+    test("should reuse existing active boulder plan when raw explicit /start-work plan lookup is requested", async () => {
+      const plansDir = join(testDir, ".sisyphus", "plans")
+      mkdirSync(plansDir, { recursive: true })
+      const planPath = join(plansDir, "ci-green-final.md")
+      writeFileSync(
+        planPath,
+        `# Plan
+
+## TODOs
+- [ ] 1. Real task
+`,
+      )
+
+      const state: BoulderState = {
+        active_plan: planPath,
+        started_at: "2026-01-02T10:00:00Z",
+        session_ids: ["session-1"],
+        plan_name: "ci-green-final",
+        agent: "atlas",
+      }
+      writeBoulderState(testDir, state)
+
+      const hook = createStartWorkHook(createMockPluginInput())
+      const output = {
+        message: {},
+        parts: [{ type: "text", text: "/start-work ci-green-final" }],
+      }
+
+      await hook["chat.message"](
+        { sessionID: "session-123" },
+        output,
+      )
+
+      expect(output.parts[0].text).toContain("Auto-Selected Plan")
+      expect(output.parts[0].text).toContain("ci-green-final")
+      expect(readBoulderState(testDir)?.session_ids).toContain("session-123")
     })
 
     test("should inject delegation-first guidance when resuming an active boulder session", async () => {
@@ -131,7 +204,7 @@ describe("start-work hook", () => {
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
-        parts: [{ type: "text", text: "<session-context></session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context></session-context>") }],
       }
 
       // when
@@ -164,7 +237,7 @@ describe("start-work hook", () => {
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
-        parts: [{ type: "text", text: "<session-context></session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context></session-context>") }],
       }
 
       await hook["chat.message"](
@@ -173,7 +246,7 @@ describe("start-work hook", () => {
       )
 
       expect(output.parts[0].text).toContain("Previous Work Complete")
-      expect(output.parts[0].text).toContain("All Plans Complete")
+      expect(output.parts[0].text).toContain("No Plans Found")
       expect(readBoulderState(testDir)).toBeNull()
     })
 
@@ -197,7 +270,7 @@ describe("start-work hook", () => {
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
-        parts: [{ type: "text", text: "<session-context></session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context></session-context>") }],
       }
 
       await hook["chat.message"](
@@ -217,7 +290,7 @@ describe("start-work hook", () => {
         parts: [
           {
             type: "text",
-            text: "<session-context>Session: $SESSION_ID</session-context>",
+            text: wrapStartWorkText("<session-context>Session: $SESSION_ID</session-context>"),
           },
         ],
       }
@@ -240,7 +313,7 @@ describe("start-work hook", () => {
         parts: [
           {
             type: "text",
-            text: "<session-context>Time: $TIMESTAMP</session-context>",
+            text: wrapStartWorkText("<session-context>Time: $TIMESTAMP</session-context>"),
           },
         ],
       }
@@ -263,15 +336,15 @@ describe("start-work hook", () => {
 
       // Plan 1: complete (all checked)
       const plan1Path = join(plansDir, "plan-complete.md")
-      writeFileSync(plan1Path, "# Plan Complete\n- [x] Task 1\n- [x] Task 2")
+      writeFileSync(plan1Path, "# Plan Complete\n\n## TODOs\n- [x] 1. Task 1\n- [x] 2. Task 2")
 
       // Plan 2: incomplete (has unchecked)
       const plan2Path = join(plansDir, "plan-incomplete.md")
-      writeFileSync(plan2Path, "# Plan Incomplete\n- [ ] Task 1\n- [x] Task 2")
+      writeFileSync(plan2Path, "# Plan Incomplete\n\n## TODOs\n- [ ] 1. Task 1\n- [x] 2. Task 2")
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
-        parts: [{ type: "text", text: "<session-context></session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context></session-context>") }],
       }
 
       // when
@@ -292,14 +365,14 @@ describe("start-work hook", () => {
       mkdirSync(plansDir, { recursive: true })
 
       const plan1Path = join(plansDir, "plan-a.md")
-      writeFileSync(plan1Path, "# Plan A\n- [ ] Task 1")
+      writeFileSync(plan1Path, "# Plan A\n\n## TODOs\n- [ ] 1. Task 1")
 
       const plan2Path = join(plansDir, "plan-b.md")
-      writeFileSync(plan2Path, "# Plan B\n- [ ] Task 2")
+      writeFileSync(plan2Path, "# Plan B\n\n## TODOs\n- [ ] 1. Task 2")
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
-        parts: [{ type: "text", text: "<session-context></session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context></session-context>") }],
       }
 
       // when
@@ -320,14 +393,14 @@ describe("start-work hook", () => {
       mkdirSync(plansDir, { recursive: true })
 
       const plan1Path = join(plansDir, "plan-x.md")
-      writeFileSync(plan1Path, "# Plan X\n- [ ] Task 1")
+      writeFileSync(plan1Path, "# Plan X\n\n## TODOs\n- [ ] 1. Task 1")
 
       const plan2Path = join(plansDir, "plan-y.md")
-      writeFileSync(plan2Path, "# Plan Y\n- [ ] Task 2")
+      writeFileSync(plan2Path, "# Plan Y\n\n## TODOs\n- [ ] 1. Task 2")
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
-        parts: [{ type: "text", text: "<session-context></session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context></session-context>") }],
       }
 
       // when
@@ -348,11 +421,11 @@ describe("start-work hook", () => {
 
       // Old plan (in boulder state)
       const oldPlanPath = join(plansDir, "old-plan.md")
-      writeFileSync(oldPlanPath, "# Old Plan\n- [ ] Old Task 1")
+      writeFileSync(oldPlanPath, "# Old Plan\n\n## TODOs\n- [ ] 1. Old Task 1")
 
       // New plan (user wants this one)
       const newPlanPath = join(plansDir, "new-plan.md")
-      writeFileSync(newPlanPath, "# New Plan\n- [ ] New Task 1")
+      writeFileSync(newPlanPath, "# New Plan\n\n## TODOs\n- [ ] 1. New Task 1")
 
       // Set up stale boulder state pointing to old plan
       const staleState: BoulderState = {
@@ -368,9 +441,9 @@ describe("start-work hook", () => {
         parts: [
           {
             type: "text",
-            text: `<session-context>
+            text: wrapStartWorkText(`<session-context>
 <user-request>new-plan</user-request>
-</session-context>`,
+</session-context>`),
           },
         ],
       }
@@ -393,16 +466,16 @@ describe("start-work hook", () => {
       mkdirSync(plansDir, { recursive: true })
 
       const planPath = join(plansDir, "my-feature-plan.md")
-      writeFileSync(planPath, "# My Feature Plan\n- [ ] Task 1")
+      writeFileSync(planPath, "# My Feature Plan\n\n## TODOs\n- [ ] 1. Task 1")
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
         parts: [
           {
             type: "text",
-            text: `<session-context>
+            text: wrapStartWorkText(`<session-context>
 <user-request>my-feature-plan ultrawork</user-request>
-</session-context>`,
+</session-context>`),
           },
         ],
       }
@@ -424,16 +497,16 @@ describe("start-work hook", () => {
       mkdirSync(plansDir, { recursive: true })
 
       const planPath = join(plansDir, "api-refactor.md")
-      writeFileSync(planPath, "# API Refactor\n- [ ] Task 1")
+      writeFileSync(planPath, "# API Refactor\n\n## TODOs\n- [ ] 1. Task 1")
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
         parts: [
           {
             type: "text",
-            text: `<session-context>
+            text: wrapStartWorkText(`<session-context>
 <user-request>api-refactor ulw</user-request>
-</session-context>`,
+</session-context>`),
           },
         ],
       }
@@ -455,16 +528,16 @@ describe("start-work hook", () => {
       mkdirSync(plansDir, { recursive: true })
 
       const planPath = join(plansDir, "2026-01-15-feature-implementation.md")
-      writeFileSync(planPath, "# Feature Implementation\n- [ ] Task 1")
+      writeFileSync(planPath, "# Feature Implementation\n\n## TODOs\n- [ ] 1. Task 1")
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
         parts: [
           {
             type: "text",
-            text: `<session-context>
+            text: wrapStartWorkText(`<session-context>
 <user-request>feature-implementation</user-request>
-</session-context>`,
+</session-context>`),
           },
         ],
       }
@@ -488,7 +561,7 @@ describe("start-work hook", () => {
       
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
-        parts: [{ type: "text", text: "<session-context></session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context></session-context>") }],
       }
 
       // when
@@ -507,7 +580,7 @@ describe("start-work hook", () => {
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
         message: {} as Record<string, unknown>,
-        parts: [{ type: "text", text: "<session-context></session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context></session-context>") }],
       }
 
       // when
@@ -529,7 +602,7 @@ describe("start-work hook", () => {
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
         message: {} as Record<string, unknown>,
-        parts: [{ type: "text", text: "<session-context></session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context></session-context>") }],
       }
 
       // when
@@ -559,11 +632,11 @@ describe("start-work hook", () => {
       // given - single plan, no worktree flag
       const plansDir = join(testDir, ".sisyphus", "plans")
       mkdirSync(plansDir, { recursive: true })
-      writeFileSync(join(plansDir, "my-plan.md"), "# Plan\n- [ ] Task 1")
+      writeFileSync(join(plansDir, "my-plan.md"), "# Plan\n\n## TODOs\n- [ ] 1. Task 1")
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
-        parts: [{ type: "text", text: "<session-context></session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context></session-context>") }],
       }
 
       // when
@@ -579,12 +652,12 @@ describe("start-work hook", () => {
       // given - single plan + valid worktree path
       const plansDir = join(testDir, ".sisyphus", "plans")
       mkdirSync(plansDir, { recursive: true })
-      writeFileSync(join(plansDir, "my-plan.md"), "# Plan\n- [ ] Task 1")
+      writeFileSync(join(plansDir, "my-plan.md"), "# Plan\n\n## TODOs\n- [ ] 1. Task 1")
       detectSpy.mockReturnValue("/validated/worktree")
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
-        parts: [{ type: "text", text: "<session-context>\n<user-request>--worktree /validated/worktree</user-request>\n</session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context>\n<user-request>--worktree /validated/worktree</user-request>\n</session-context>") }],
       }
 
       // when
@@ -601,12 +674,12 @@ describe("start-work hook", () => {
       // given - plan + valid worktree
       const plansDir = join(testDir, ".sisyphus", "plans")
       mkdirSync(plansDir, { recursive: true })
-      writeFileSync(join(plansDir, "my-plan.md"), "# Plan\n- [ ] Task 1")
+      writeFileSync(join(plansDir, "my-plan.md"), "# Plan\n\n## TODOs\n- [ ] 1. Task 1")
       detectSpy.mockReturnValue("/valid/wt")
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
-        parts: [{ type: "text", text: "<session-context>\n<user-request>--worktree /valid/wt</user-request>\n</session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context>\n<user-request>--worktree /valid/wt</user-request>\n</session-context>") }],
       }
 
       // when
@@ -621,12 +694,12 @@ describe("start-work hook", () => {
       // given - plan + invalid worktree path (detectWorktreePath returns null)
       const plansDir = join(testDir, ".sisyphus", "plans")
       mkdirSync(plansDir, { recursive: true })
-      writeFileSync(join(plansDir, "my-plan.md"), "# Plan\n- [ ] Task 1")
+      writeFileSync(join(plansDir, "my-plan.md"), "# Plan\n\n## TODOs\n- [ ] 1. Task 1")
       // detectSpy already returns null by default
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
-        parts: [{ type: "text", text: "<session-context>\n<user-request>--worktree /nonexistent/wt</user-request>\n</session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context>\n<user-request>--worktree /nonexistent/wt</user-request>\n</session-context>") }],
       }
 
       // when
@@ -642,7 +715,7 @@ describe("start-work hook", () => {
     test("should update boulder worktree_path on resume when new --worktree given", async () => {
       // given - existing boulder with old worktree, user provides new worktree
       const planPath = join(testDir, "plan.md")
-      writeFileSync(planPath, "# Plan\n- [ ] Task 1")
+      writeFileSync(planPath, "# Plan\n\n## TODOs\n- [ ] 1. Task 1")
       const existingState: BoulderState = {
         active_plan: planPath,
         started_at: "2026-01-01T00:00:00Z",
@@ -655,7 +728,7 @@ describe("start-work hook", () => {
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
-        parts: [{ type: "text", text: "<session-context>\n<user-request>--worktree /new/wt</user-request>\n</session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context>\n<user-request>--worktree /new/wt</user-request>\n</session-context>") }],
       }
 
       // when
@@ -670,7 +743,7 @@ describe("start-work hook", () => {
     test("should show existing worktree on resume when no --worktree flag", async () => {
       // given - existing boulder already has worktree_path, no flag given
       const planPath = join(testDir, "plan.md")
-      writeFileSync(planPath, "# Plan\n- [ ] Task 1")
+      writeFileSync(planPath, "# Plan\n\n## TODOs\n- [ ] 1. Task 1")
       const existingState: BoulderState = {
         active_plan: planPath,
         started_at: "2026-01-01T00:00:00Z",
@@ -682,7 +755,7 @@ describe("start-work hook", () => {
 
       const hook = createStartWorkHook(createMockPluginInput())
       const output = {
-        parts: [{ type: "text", text: "<session-context></session-context>" }],
+        parts: [{ type: "text", text: wrapStartWorkText("<session-context></session-context>") }],
       }
 
       // when

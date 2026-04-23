@@ -1,8 +1,16 @@
-import { afterEach, describe, test, expect } from "bun:test"
+import { afterEach, beforeEach, describe, test, expect } from "bun:test"
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import { randomUUID } from "node:crypto"
 
 import { createChatMessageHandler } from "./chat-message"
 import { _resetForTesting, setMainSession, subagentSessions } from "../features/claude-code-session-state"
 import { clearSessionModel, getSessionModel, setSessionModel } from "../shared/session-model-state"
+import { createAutoSlashCommandHook } from "../hooks/auto-slash-command/hook"
+import { createStartWorkHook } from "../hooks/start-work"
+import { readBoulderState } from "../features/boulder-state"
+import { registerAgentName } from "../features/claude-code-session-state"
 
 type ChatMessagePart = { type: string; text?: string; [key: string]: unknown }
 type ChatMessageHandlerOutput = { message: Record<string, unknown>; parts: ChatMessagePart[] }
@@ -37,6 +45,91 @@ afterEach(() => {
   clearSessionModel("test-session")
   clearSessionModel("main-session")
   clearSessionModel("subagent-session")
+})
+
+describe("createChatMessageHandler - start-work integration", () => {
+  let testDir: string
+
+  beforeEach(() => {
+    _resetForTesting()
+    testDir = join(tmpdir(), `chat-message-start-work-${randomUUID()}`)
+    mkdirSync(join(testDir, ".sisyphus", "plans"), { recursive: true })
+    writeFileSync(
+      join(testDir, ".sisyphus", "plans", "ci-green-final.md"),
+      `# Plan
+
+## TODOs
+- [ ] 0.1. Real executable task
+
+## Final Verification Wave
+- [ ] F1. Final verification
+`,
+    )
+    registerAgentName("atlas")
+    registerAgentName("sisyphus")
+  })
+
+  afterEach(() => {
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true })
+    }
+  })
+
+  test("routes raw /start-work through auto-slash and start-work hooks in opencode run style sessions", async () => {
+    //#given
+    const autoSlashCommand = createAutoSlashCommandHook({
+      pluginsEnabled: true,
+      enabledPluginsOverride: {},
+    })
+    const startWork = createStartWorkHook({
+      directory: testDir,
+      client: { tui: { showToast: async () => {} } },
+    } as any)
+    const handler = createChatMessageHandler({
+      ctx: { client: { tui: { showToast: async () => {} } } } as any,
+      pluginConfig: {} as any,
+      firstMessageVariantGate: {
+        shouldOverride: () => false,
+        markApplied: () => {},
+      },
+      hooks: {
+        stopContinuationGuard: null,
+        backgroundNotificationHook: null,
+        runtimeFallback: null,
+        keywordDetector: null,
+        thinkMode: null,
+        claudeCodeHooks: null,
+        autoSlashCommand,
+        noSisyphusGpt: null,
+        noHephaestusNonGpt: null,
+        startWork,
+        ralphLoop: null,
+      } as any,
+    })
+    const output = {
+      message: {},
+      parts: [{ type: "text", text: "/start-work ci-green-final" }],
+    }
+
+    //#when
+    await handler(
+      {
+        sessionID: "session-start-work",
+        agent: "prometheus",
+      },
+      output,
+    )
+
+    //#then
+    expect(String(output.message["agent"])).toBe("Atlas (Plan Executor)")
+    expect(output.parts[0].text).toContain("Auto-Selected Plan")
+    expect(output.parts[0].text).toContain("ci-green-final")
+
+    const state = readBoulderState(testDir)
+    expect(state?.active_plan).toBe(join(testDir, ".sisyphus", "plans", "ci-green-final.md"))
+    expect(state?.session_ids).toContain("session-start-work")
+    expect(state?.agent).toBe("atlas")
+  })
 })
 
 function createMockInput(agent?: string, model?: { providerID: string; modelID: string }) {

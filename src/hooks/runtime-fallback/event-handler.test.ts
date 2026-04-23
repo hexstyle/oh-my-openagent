@@ -379,6 +379,97 @@ describe("createEventHandler", () => {
   })
 
   describe("#given an armed active-session watchdog", () => {
+    it("#given a delayed transient retry on a live planning session #when visible assistant deltas arrive #then the stale retry timer is cleared instead of spawning a fallback child later", async () => {
+      const sessionID = "session-progress-visible-delta-clears-transient-retry"
+      const deps = createDeps()
+      const abortCalls: string[] = []
+      const clearCalls: string[] = []
+      const state = createFallbackState("anthropic/claude-opus-4-6")
+      state.pendingTransientRetry = true
+      state.persistentTransientRetry = true
+      state.lastErrorAt = Date.now() - 10_000
+      deps.sessionStates.set(sessionID, state)
+      deps.sessionTransientRetryTimeouts.set(sessionID, 1)
+      const helpers = createHelpers(deps, abortCalls, clearCalls)
+      const handler = createEventHandler(deps, helpers)
+
+      await handler({
+        event: {
+          type: "message.part.delta",
+          properties: {
+            sessionID,
+            field: "text",
+            delta: "Собираю финальный план и готовлю write",
+            info: {
+              sessionID,
+              role: "assistant",
+              agent: "Prometheus (Plan Builder)",
+            },
+            part: {
+              sessionID,
+              type: "text",
+              text: "Собираю финальный план и готовлю write",
+            },
+          },
+        },
+      })
+
+      expect(abortCalls).toEqual([])
+      expect(clearCalls).toEqual([])
+      expect(helpers.__clearTransientCallsForTest).toEqual([sessionID])
+      expect(deps.sessionTransientRetryTimeouts.has(sessionID)).toBe(false)
+      expect(state.pendingTransientRetry).toBe(false)
+      expect(state.persistentTransientRetry).toBe(false)
+      expect(helpers.__scheduleCallsForTest).toEqual([
+        {
+          sessionID,
+          source: "message.part.delta.progress",
+          resolvedAgent: undefined,
+          timeoutMsOverride: 120_000,
+        },
+      ])
+    })
+
+    it("#given a delayed transient retry on a local write wave #when tool execution progress arrives #then the stale retry timer is cleared", async () => {
+      const sessionID = "session-progress-tool-execute-clears-transient-retry"
+      const deps = createDeps()
+      const abortCalls: string[] = []
+      const clearCalls: string[] = []
+      const state = createFallbackState("anthropic/claude-opus-4-6")
+      state.pendingTransientRetry = true
+      state.lastErrorAt = Date.now() - 10_000
+      deps.sessionStates.set(sessionID, state)
+      deps.sessionTransientRetryTimeouts.set(sessionID, 1)
+      const helpers = createHelpers(deps, abortCalls, clearCalls)
+      const handler = createEventHandler(deps, helpers)
+
+      await handler({
+        event: {
+          type: "tool.execute.before",
+          properties: {
+            sessionID,
+            tool: "write",
+            agent: "Prometheus (Plan Builder)",
+          },
+        },
+      })
+
+      expect(abortCalls).toEqual([])
+      expect(clearCalls).toEqual([])
+      expect(helpers.__clearTransientCallsForTest).toEqual([sessionID])
+      expect(deps.sessionTransientRetryTimeouts.has(sessionID)).toBe(false)
+      expect(state.pendingTransientRetry).toBe(false)
+      expect(state.persistentTransientRetry).toBe(false)
+      expect(helpers.__scheduleCallsForTest).toEqual([
+        {
+          sessionID,
+          source: "tool.execute.before.write",
+          resolvedAgent: undefined,
+          timeoutMsOverride: 120_000,
+        },
+      ])
+    })
+
     const progressCases: Array<{
       name: string
       properties: Record<string, unknown>
@@ -692,7 +783,7 @@ describe("createEventHandler", () => {
       ])
     })
 
-    it("#when a paid planner emits an empty pending write payload #then the handler opens a fresh same-model handoff", async () => {
+    it("#when a paid planner emits an empty pending write placeholder #then the handler keeps the watchdog alive without opening a fresh handoff", async () => {
       const sessionID = "session-progress-empty-write-pending"
       const deps = createDeps()
       const abortCalls: string[] = []
@@ -725,13 +816,7 @@ describe("createEventHandler", () => {
       expect(abortCalls).toEqual([])
       expect(clearCalls).toEqual([])
       expect(helpers.__retryCurrentModelCallsForTest).toEqual([])
-      expect(helpers.__freshRetryCallsForTest).toEqual([
-        {
-          sessionID,
-          resolvedAgent: "prometheus",
-          source: "message.part.updated.malformed-tool-pending",
-        },
-      ])
+      expect(helpers.__freshRetryCallsForTest).toEqual([])
       expect(helpers.__scheduleCallsForTest).toEqual([
         {
           sessionID,
@@ -742,7 +827,7 @@ describe("createEventHandler", () => {
       ])
     })
 
-    it("#when a paid planner emits an empty pending write payload with camelCase part.sessionId #then the handler still opens a fresh same-model handoff", async () => {
+    it("#when a paid planner emits an empty pending write placeholder with camelCase part.sessionId #then the handler still keeps the watchdog alive", async () => {
       const sessionID = "session-progress-empty-write-pending-session-id"
       const deps = createDeps()
       const abortCalls: string[] = []
@@ -775,13 +860,7 @@ describe("createEventHandler", () => {
       expect(abortCalls).toEqual([])
       expect(clearCalls).toEqual([])
       expect(helpers.__retryCurrentModelCallsForTest).toEqual([])
-      expect(helpers.__freshRetryCallsForTest).toEqual([
-        {
-          sessionID,
-          resolvedAgent: "prometheus",
-          source: "message.part.updated.malformed-tool-pending",
-        },
-      ])
+      expect(helpers.__freshRetryCallsForTest).toEqual([])
       expect(helpers.__scheduleCallsForTest).toEqual([
         {
           sessionID,
@@ -893,7 +972,7 @@ describe("createEventHandler", () => {
       ])
     })
 
-    it("#when a malformed pending write arrives without direct sessionID but with part and message ids #then the handler still opens a fresh same-model handoff", async () => {
+    it("#when an empty pending write placeholder arrives without direct sessionID but with part and message ids #then the handler still keeps the watchdog alive", async () => {
       const sessionID = "session-progress-empty-write-pending-db-session-id"
       const messageID = "msg-progress-empty-write-pending-db-session-id"
       const partID = "prt-progress-empty-write-pending-db-session-id"
@@ -935,13 +1014,7 @@ describe("createEventHandler", () => {
       expect(abortCalls).toEqual([])
       expect(clearCalls).toEqual([])
       expect(helpers.__retryCurrentModelCallsForTest).toEqual([])
-      expect(helpers.__freshRetryCallsForTest).toEqual([
-        {
-          sessionID,
-          resolvedAgent: "prometheus",
-          source: "message.part.updated.malformed-tool-pending",
-        },
-      ])
+      expect(helpers.__freshRetryCallsForTest).toEqual([])
       expect(helpers.__scheduleCallsForTest).toEqual([
         {
           sessionID,

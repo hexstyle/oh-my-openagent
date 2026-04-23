@@ -81,6 +81,29 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     return true
   }
 
+  const clearStaleTransientRetryAfterProgress = (sessionID: string, state: ReturnType<typeof sessionStates.get>): void => {
+    if (!state && !sessionTransientRetryTimeouts.has(sessionID)) {
+      return
+    }
+
+    if (
+      !sessionTransientRetryTimeouts.has(sessionID)
+      && !state?.pendingTransientRetry
+      && !state?.persistentTransientRetry
+    ) {
+      return
+    }
+
+    helpers.clearSessionTransientRetryTimeout(sessionID)
+    if (state) {
+      resetTransientRetryState(state)
+    }
+
+    log(`[${HOOK_NAME}] Cleared stale transient retry after meaningful progress`, {
+      sessionID,
+    })
+  }
+
   const handleAssistantProgressEvent = async (props: Record<string, unknown> | undefined, source: string) => {
     if (!timeoutEnabled) return
 
@@ -133,17 +156,6 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     const hasReasoningStreamProgress =
       partType === "reasoning"
       && (partText.length > 0 || delta.trim().length > 0)
-    const malformedPendingTool =
-      partType === "tool"
-      && toolStatus === "pending"
-      && ["write", "apply_patch", "todowrite"].includes(toolName ?? "")
-      && (() => {
-        const raw = typeof toolState?.raw === "string" ? toolState.raw.trim() : ""
-        const input = typeof toolState?.input === "object" && toolState.input !== null
-          ? (toolState.input as Record<string, unknown>)
-          : undefined
-        return raw.length === 0 && (!input || Object.keys(input).length === 0)
-      })()
     const hasMeaningfulProgress =
       hasVisibleTextDelta ||
       partType === "compaction" ||
@@ -203,6 +215,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       }
       state.lastTerminalIdleAt = undefined
       markMeaningfulProgress(state, now)
+      clearStaleTransientRetryAfterProgress(sessionID, state)
       if (isPreExecutionRegroupTool) {
         state.longRunningProgressUntil = now + longRunningTimeoutMs
       } else if (shouldExtendLiveStreamQuietWindow) {
@@ -289,47 +302,6 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       }
     }
 
-    if (malformedPendingTool) {
-      if (state) {
-        markLocalToolAbort(state)
-      }
-      const preferFreshPaidRetry =
-        !!state
-        && getRuntimeFallbackTier(state.currentModel) === "paid"
-      const retried = preferFreshPaidRetry
-        ? false
-        : await helpers.retryCurrentModel(
-          sessionID,
-          resolvedAgent,
-          `${source}.malformed-tool-pending`,
-          {
-            immediate: false,
-            persistent: true,
-            maxAttempts: 1,
-          },
-        )
-      let freshRetried = false
-      if (
-        !retried
-        && state
-        && getRuntimeFallbackTier(state.currentModel) === "paid"
-      ) {
-        freshRetried = await helpers.retryCurrentModelInFreshSession(
-          sessionID,
-          resolvedAgent,
-          `${source}.malformed-tool-pending`,
-        )
-      }
-      log(`[${HOOK_NAME}] Observed malformed pending regroup tool payload during assistant progress`, {
-        sessionID,
-        source,
-        toolName,
-        resolvedAgent,
-        retried,
-        freshRetried,
-      })
-    }
-
     if (sessionAwaitingFallbackResult.has(sessionID)) {
       sessionAwaitingFallbackResult.delete(sessionID)
       sessionStatusRetryKeys.delete(sessionID)
@@ -392,6 +364,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       }
       state.lastTerminalIdleAt = undefined
       markMeaningfulProgress(state)
+      clearStaleTransientRetryAfterProgress(sessionID, state)
     }
 
     sessionLastAccess.set(sessionID, Date.now())

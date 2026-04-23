@@ -7,6 +7,7 @@ import * as sharedModule from "../../shared"
 describe("runtime-fallback initial hang watchdog", () => {
   let logCalls: Array<{ msg: string; data?: unknown }>
   let logSpy: ReturnType<typeof spyOn>
+  const jestTimers = jest as unknown as { advanceTimersByTimeAsync?: (ms: number) => Promise<void> }
 
   function createMockConfig(overrides?: Partial<RuntimeFallbackConfig>): RuntimeFallbackConfig {
     return {
@@ -137,6 +138,8 @@ describe("runtime-fallback initial hang watchdog", () => {
     jest.advanceTimersByTime(25)
     await Promise.resolve()
     await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
 
     expect(createCalls).toHaveLength(1)
     expect(
@@ -256,6 +259,373 @@ describe("runtime-fallback initial hang watchdog", () => {
       providerID: "openai",
       modelID: "gpt-5.4",
     })
+  })
+
+  test("retries a stalled Prometheus final-plan promotion in the same session before spawning a scoped child", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-prometheus-plan-promotion"
+    const draftPath = "/test/dir/.sisyphus/drafts/ci-green-final.md"
+    const finalPath = "/test/dir/.sisyphus/plans/ci-green-final.md"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            create: async (args) => {
+              createCalls.push(args)
+              return { data: { id: "ses-unexpected-nested-child" } }
+            },
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "update the plan" }] },
+                {
+                  info: { role: "assistant", finish: "tool-calls" },
+                  parts: [
+                    {
+                      type: "tool",
+                      tool: "write",
+                      state: {
+                        status: "completed",
+                        input: { filePath: draftPath },
+                      },
+                    },
+                    {
+                      type: "tool",
+                      tool: "todowrite",
+                      state: { status: "completed" },
+                    },
+                  ],
+                },
+                {
+                  info: { role: "assistant" },
+                  parts: [
+                    { type: "step-start" },
+                    { type: "text", text: "Now I'll write the complete final plan." },
+                    {
+                      type: "tool",
+                      tool: "write",
+                      state: {
+                        status: "pending",
+                        input: {},
+                        raw: "",
+                      },
+                    },
+                  ],
+                },
+              ],
+            }),
+            promptAsync: async (args) => {
+              promptCalls.push(args)
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(10)
+    await hook.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+          part: {
+            sessionID,
+            type: "tool",
+            tool: "write",
+            state: {
+              status: "pending",
+              input: {},
+              raw: "",
+            },
+          },
+        },
+      },
+    })
+
+    const state = hook._deps?.sessionStates.get(sessionID)
+    if (state) {
+      state.resolvedAgent = "Prometheus (Plan Builder)"
+      state.lastMeaningfulProgressAt = Date.now() - 10 * 60 * 1000
+      state.longRunningProgressUntil = 0
+    }
+
+    if (typeof jestTimers.advanceTimersByTimeAsync === "function") {
+      await jestTimers.advanceTimersByTimeAsync(81)
+    } else {
+      jest.advanceTimersByTime(81)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
+    expect(createCalls).toHaveLength(0)
+    expect(promptCalls).toHaveLength(1)
+    expect(abortCalls.length).toBeLessThanOrEqual(1)
+    expect((promptCalls[0] as { path?: { id?: string } }).path?.id).toBe(sessionID)
+    expect(
+      (promptCalls[0] as { body?: { model?: { providerID?: string; modelID?: string } } }).body?.model,
+    ).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-opus-4-6",
+    })
+    const retryText = ((promptCalls[0] as {
+      body?: { parts?: Array<{ text?: string }> }
+    }).body?.parts?.[0]?.text) ?? ""
+    expect(retryText).toContain("Prometheus final-plan promotion retry.")
+    expect(retryText).toContain(draftPath)
+    expect(retryText).toContain(finalPath)
+    expect(retryText).toContain("Do NOT open another large write tool call")
+    expect(retryText).toContain("cp '")
+    expect(
+      logCalls.some((call) => call.msg.includes("Retrying stalled Prometheus final-plan promotion in the same session")),
+    ).toBe(true)
+  })
+
+  test("retries a stalled Prometheus final-plan promotion inside a scoped child without nesting another child", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-prometheus-plan-promotion-child"
+    const draftPath = "/test/dir/.sisyphus/drafts/ci-green-final.md"
+    const finalPath = "/test/dir/.sisyphus/plans/ci-green-final.md"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            create: async (args) => {
+              createCalls.push(args)
+              return { data: { id: "ses-unexpected-grandchild" } }
+            },
+            get: async () => ({
+              data: {
+                directory: "/test/dir",
+                parentID: "ses-prometheus-plan-parent",
+              },
+            }),
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "continue the plan" }] },
+                {
+                  info: { role: "assistant", finish: "tool-calls" },
+                  parts: [
+                    {
+                      type: "tool",
+                      tool: "write",
+                      state: {
+                        status: "completed",
+                        input: { filePath: draftPath },
+                      },
+                    },
+                    {
+                      type: "tool",
+                      tool: "todowrite",
+                      state: { status: "completed" },
+                    },
+                  ],
+                },
+                {
+                  info: { role: "assistant" },
+                  parts: [
+                    { type: "step-start" },
+                    { type: "text", text: "Promoting the final plan now." },
+                    {
+                      type: "tool",
+                      tool: "write",
+                      state: {
+                        status: "pending",
+                        input: {},
+                        raw: "",
+                      },
+                    },
+                  ],
+                },
+              ],
+            }),
+            promptAsync: async (args) => {
+              promptCalls.push(args)
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "session.created",
+        properties: {
+          info: {
+            id: sessionID,
+            title: "[runtime-fallback] Scoped Fallback: claude-opus-4-6",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(10)
+    await hook.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+          part: {
+            sessionID,
+            type: "tool",
+            tool: "write",
+            state: {
+              status: "pending",
+              input: {},
+              raw: "",
+            },
+          },
+        },
+      },
+    })
+
+    const state = hook._deps?.sessionStates.get(sessionID)
+    if (state) {
+      state.resolvedAgent = "Prometheus (Plan Builder)"
+      state.lastMeaningfulProgressAt = Date.now() - 10 * 60 * 1000
+      state.longRunningProgressUntil = 0
+    }
+
+    if (typeof jestTimers.advanceTimersByTimeAsync === "function") {
+      await jestTimers.advanceTimersByTimeAsync(81)
+    } else {
+      jest.advanceTimersByTime(81)
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
+    expect(createCalls).toHaveLength(0)
+    expect(promptCalls).toHaveLength(1)
+    expect(abortCalls.length).toBeLessThanOrEqual(1)
+    expect((promptCalls[0] as { path?: { id?: string } }).path?.id).toBe(sessionID)
+    const retryText = ((promptCalls[0] as {
+      body?: { parts?: Array<{ text?: string }> }
+    }).body?.parts?.[0]?.text) ?? ""
+    expect(retryText).toContain(draftPath)
+    expect(retryText).toContain(finalPath)
+    expect(retryText).toContain("Do NOT open another large write tool call")
   })
 
   test("still opens a fresh same-model handoff when timeout-side session.messages inspection fails", async () => {
@@ -3303,9 +3673,6 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(createCalls).toHaveLength(0)
     expect(promptCalls).toHaveLength(0)
     expect(abortCalls).toHaveLength(0)
-    expect(
-      logCalls.some((call) => call.msg.includes("Deferred session fallback timeout from live progress state while transcript is stale")),
-    ).toBe(true)
 
     jest.advanceTimersByTime(85)
     await Promise.resolve()
