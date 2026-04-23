@@ -3860,6 +3860,78 @@ describe("runtime-fallback initial hang watchdog", () => {
     ).toBe("[runtime-fallback] Scoped Fallback: claude-opus-4-6")
   })
 
+  test("suppresses per-delta timeout refresh noise for non-primary child sessions while still keeping the watchdog alive", async () => {
+    const sessionID = "ses-non-primary-delta-noise"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+                { info: { role: "assistant" }, parts: [] },
+              ],
+            }),
+            promptAsync: async () => ({}),
+            abort: async () => ({}),
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Sisyphus Junior (Focused Executor)",
+            model: {
+              providerID: "openai",
+              modelID: "gpt-5.4",
+            },
+          },
+        },
+      },
+    })
+
+    logCalls = []
+
+    for (let index = 0; index < 3; index += 1) {
+      await hook.event({
+        event: {
+          type: "message.part.delta",
+          properties: {
+            sessionID,
+            field: "text",
+            delta: `executor token ${index}`,
+          },
+        },
+      })
+    }
+
+    expect(
+      logCalls.some((call) => call.msg.includes("Refreshed session fallback timeout")),
+    ).toBe(false)
+    expect(
+      logCalls.some((call) => call.msg.includes("Skipping external watchdog for non-primary or unresolved agent")),
+    ).toBe(false)
+    expect(
+      logCalls.some((call) => call.msg.includes("Refreshed fallback timeout after assistant progress")),
+    ).toBe(false)
+  })
+
   test("gives a fresh visible Prometheus planning turn one longer quiet window before timing out", async () => {
     const retriedModels: string[] = []
     const abortCalls: string[] = []

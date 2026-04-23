@@ -100,6 +100,30 @@ describe("createAutoSlashCommandHook", () => {
       expect(output.parts[0].text).toContain("# /start-work Command")
       expect(output.message.agent).toBe("atlas")
     })
+
+    it("should detect quoted /start-work commands from opencode run style prompts", async () => {
+      const hook = createAutoSlashCommandHook()
+      const sessionID = `test-session-quoted-start-work-agent-${Date.now()}`
+      const input = createMockInput(sessionID)
+      const output = createMockOutput("\"/start-work ci-green-final\"\n")
+
+      await hook["chat.message"](input, output)
+
+      expect(output.parts[0].text).toContain("# /start-work Command")
+      expect(output.message.agent).toBe("atlas")
+    })
+
+    it("should detect double-wrapped quoted /start-work commands from live opencode run payloads", async () => {
+      const hook = createAutoSlashCommandHook()
+      const sessionID = `test-session-double-quoted-start-work-agent-${Date.now()}`
+      const input = createMockInput(sessionID)
+      const output = createMockOutput("\"\\\"/start-work ci-green-final\\\"\"")
+
+      await hook["chat.message"](input, output)
+
+      expect(output.parts[0].text).toContain("# /start-work Command")
+      expect(output.message.agent).toBe("atlas")
+    })
   })
 
   describe("no slash command", () => {

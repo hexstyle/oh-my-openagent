@@ -311,16 +311,18 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       }
     }
 
-    log(`[${HOOK_NAME}] Refreshed fallback timeout after assistant progress`, {
-      sessionID,
-      source,
-      partType,
-      toolName,
-      toolStatus,
-      field,
-      resolvedAgent,
-      timeoutMsOverride,
-    })
+    if (!(source === "message.part.delta" && field === "text" && partType !== "tool")) {
+      log(`[${HOOK_NAME}] Refreshed fallback timeout after assistant progress`, {
+        sessionID,
+        source,
+        partType,
+        toolName,
+        toolStatus,
+        field,
+        resolvedAgent,
+        timeoutMsOverride,
+      })
+    }
   }
 
   const handleToolExecutionProgressEvent = async (

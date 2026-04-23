@@ -1,5 +1,6 @@
 import { statSync } from "node:fs"
 import type { PluginInput } from "@opencode-ai/plugin"
+import { stripSingleEnclosingQuotes } from "../../shared/strip-enclosing-quotes"
 import {
   readBoulderState,
   writeBoulderState,
@@ -35,7 +36,7 @@ interface StartWorkHookOutput {
 }
 
 function isStartWorkPrompt(promptText: string): boolean {
-  const trimmed = promptText.trim()
+  const trimmed = stripSingleEnclosingQuotes(promptText)
   return trimmed.startsWith("/start-work")
     || promptText.includes("# /start-work Command")
     || promptText.includes("You are starting a Sisyphus work session.")

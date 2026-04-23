@@ -1,3 +1,5 @@
+import { stripSingleEnclosingQuotes } from "../../shared/strip-enclosing-quotes"
+
 const KEYWORD_PATTERN = /\b(ultrawork|ulw)\b/gi
 const WORKTREE_FLAG_PATTERN = /--worktree(?:\s+(\S+))?/
 
@@ -7,7 +9,7 @@ export interface ParsedUserRequest {
 }
 
 function extractRawStartWorkArguments(promptText: string): string | null {
-  const trimmed = promptText.trim()
+  const trimmed = stripSingleEnclosingQuotes(promptText)
   const match = trimmed.match(/^\/start-work(?:\s+([\s\S]*))?$/i)
   if (!match) return null
   return (match[1] ?? "").trim()

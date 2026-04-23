@@ -1994,6 +1994,7 @@ export function createEventHandler(args: {
   };
 
   const scheduleEmptyAssistantRecovery = (sessionID: string, messageID: string): void => {
+    const previousMeta = emptyAssistantRecoveryTimerMetaBySession.get(sessionID);
     clearEmptyAssistantRecoveryTimer(sessionID);
     const delayMs = getEmptyAssistantRecoveryDelayMs(sessionID, messageID);
     const timer = setTimeout(() => {
@@ -2066,7 +2067,6 @@ export function createEventHandler(args: {
         }
       })();
     }, delayMs);
-    const previousMeta = emptyAssistantRecoveryTimerMetaBySession.get(sessionID);
     emptyAssistantRecoveryTimers.set(sessionID, timer);
     emptyAssistantRecoveryTimerMetaBySession.set(sessionID, { messageID, delayMs });
     if (previousMeta?.messageID !== messageID || previousMeta.delayMs !== delayMs) {

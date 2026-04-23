@@ -669,11 +669,13 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     }
 
     if (!args.resolvedAgent || !isPrimaryRuntimeAgent(args.resolvedAgent)) {
-      log(`[${HOOK_NAME}] Skipping external watchdog for non-primary or unresolved agent`, {
-        sessionID: args.sessionID,
-        source: args.source,
-        resolvedAgent: args.resolvedAgent,
-      })
+      if (args.source !== "message.part.delta.progress") {
+        log(`[${HOOK_NAME}] Skipping external watchdog for non-primary or unresolved agent`, {
+          sessionID: args.sessionID,
+          source: args.source,
+          resolvedAgent: args.resolvedAgent,
+        })
+      }
       return
     }
 
@@ -1260,17 +1262,19 @@ fi
       return
     }
 
-    log(
-      `[${HOOK_NAME}] ${hadExistingTimer ? "Refreshed" : "Armed"} session fallback timeout`,
-      {
-        sessionID,
-        source,
-        timeoutMs,
-        mode,
-        timeoutMsOverride: args?.timeoutMsOverride,
-        currentModel: stateAtSchedule.currentModel,
-      },
-    )
+    if (!(hadExistingTimer && source === "message.part.delta.progress")) {
+      log(
+        `[${HOOK_NAME}] ${hadExistingTimer ? "Refreshed" : "Armed"} session fallback timeout`,
+        {
+          sessionID,
+          source,
+          timeoutMs,
+          mode,
+          timeoutMsOverride: args?.timeoutMsOverride,
+          currentModel: stateAtSchedule.currentModel,
+        },
+      )
+    }
     if (mode === "fallback" && !backgroundTasksAtArm.hasActiveTasks) {
       armExternalWatchdog({
         sessionID,

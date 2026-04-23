@@ -11,6 +11,7 @@ import { _resetEventRecoveryStateForTesting, createEventHandler } from "./event"
 import { _resetForTesting } from "../features/claude-code-session-state"
 import * as connectedProvidersCache from "../shared/connected-providers-cache"
 import * as emptyContentRecoverySdk from "../hooks/anthropic-context-window-limit-recovery/empty-content-recovery-sdk"
+import * as loggerModule from "../shared/logger"
 
 const promptAsyncMock = mock(async () => ({}))
 
@@ -546,6 +547,70 @@ describe("createEventHandler idle empty assistant recovery", () => {
         ]),
       }),
       query: { directory: "/tmp" },
+    })
+  })
+
+  test("logs delayed empty assistant recovery scheduling only once for repeated refreshes of the same message", async () => {
+    jest.useFakeTimers()
+
+    const logCalls: Array<{ message: string; data?: unknown }> = []
+    spyOn(loggerModule, "log").mockImplementation((message: string, data?: unknown) => {
+      logCalls.push({ message, data })
+    })
+
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_prometheus_delay",
+          role: "user",
+          agent: "Prometheus (Plan Builder)",
+          model: {
+            providerID: "anthropic",
+            modelID: "claude-opus-4-6",
+          },
+        },
+        parts: [{ type: "text", text: "continue" }],
+      },
+      {
+        info: {
+          id: "msg_prometheus_delay",
+          role: "assistant",
+          agent: "Prometheus (Plan Builder)",
+        },
+        parts: [],
+      },
+    ])
+
+    const event = {
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_prometheus_delay",
+            sessionID: "ses_prometheus_delay",
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+          },
+        },
+      },
+    } as const
+
+    await handler(event)
+    await handler(event)
+    await handler(event)
+
+    const scheduledRecoveryLogs = logCalls.filter(
+      ({ message }) => message === "[event] scheduled delayed empty assistant recovery",
+    )
+
+    expect(scheduledRecoveryLogs).toHaveLength(1)
+    expect(scheduledRecoveryLogs[0]).toEqual({
+      message: "[event] scheduled delayed empty assistant recovery",
+      data: {
+        sessionID: "ses_prometheus_delay",
+        messageID: "msg_prometheus_delay",
+        delayMs: 5000,
+      },
     })
   })
 })

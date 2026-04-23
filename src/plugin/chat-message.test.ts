@@ -130,6 +130,112 @@ describe("createChatMessageHandler - start-work integration", () => {
     expect(state?.session_ids).toContain("session-start-work")
     expect(state?.agent).toBe("atlas")
   })
+
+  test("routes quoted raw /start-work through auto-slash and start-work hooks in opencode run style sessions", async () => {
+    const autoSlashCommand = createAutoSlashCommandHook({
+      pluginsEnabled: true,
+      enabledPluginsOverride: {},
+    })
+    const startWork = createStartWorkHook({
+      directory: testDir,
+      client: { tui: { showToast: async () => {} } },
+    } as any)
+    const handler = createChatMessageHandler({
+      ctx: { client: { tui: { showToast: async () => {} } } } as any,
+      pluginConfig: {} as any,
+      firstMessageVariantGate: {
+        shouldOverride: () => false,
+        markApplied: () => {},
+      },
+      hooks: {
+        stopContinuationGuard: null,
+        backgroundNotificationHook: null,
+        runtimeFallback: null,
+        keywordDetector: null,
+        thinkMode: null,
+        claudeCodeHooks: null,
+        autoSlashCommand,
+        noSisyphusGpt: null,
+        noHephaestusNonGpt: null,
+        startWork,
+        ralphLoop: null,
+      } as any,
+    })
+    const output = {
+      message: {},
+      parts: [{ type: "text", text: "\"/start-work ci-green-final\"\n" }],
+    }
+
+    await handler(
+      {
+        sessionID: "session-quoted-start-work",
+        agent: "prometheus",
+      },
+      output,
+    )
+
+    expect(String(output.message["agent"])).toBe("Atlas (Plan Executor)")
+    expect(output.parts[0].text).toContain("Auto-Selected Plan")
+    expect(output.parts[0].text).toContain("ci-green-final")
+
+    const state = readBoulderState(testDir)
+    expect(state?.active_plan).toBe(join(testDir, ".sisyphus", "plans", "ci-green-final.md"))
+    expect(state?.session_ids).toContain("session-quoted-start-work")
+    expect(state?.agent).toBe("atlas")
+  })
+
+  test("routes double-wrapped quoted raw /start-work through auto-slash and start-work hooks in live opencode run style sessions", async () => {
+    const autoSlashCommand = createAutoSlashCommandHook({
+      pluginsEnabled: true,
+      enabledPluginsOverride: {},
+    })
+    const startWork = createStartWorkHook({
+      directory: testDir,
+      client: { tui: { showToast: async () => {} } },
+    } as any)
+    const handler = createChatMessageHandler({
+      ctx: { client: { tui: { showToast: async () => {} } } } as any,
+      pluginConfig: {} as any,
+      firstMessageVariantGate: {
+        shouldOverride: () => false,
+        markApplied: () => {},
+      },
+      hooks: {
+        stopContinuationGuard: null,
+        backgroundNotificationHook: null,
+        runtimeFallback: null,
+        keywordDetector: null,
+        thinkMode: null,
+        claudeCodeHooks: null,
+        autoSlashCommand,
+        noSisyphusGpt: null,
+        noHephaestusNonGpt: null,
+        startWork,
+        ralphLoop: null,
+      } as any,
+    })
+    const output = {
+      message: {},
+      parts: [{ type: "text", text: "\"\\\"/start-work ci-green-final\\\"\"" }],
+    }
+
+    await handler(
+      {
+        sessionID: "session-double-quoted-start-work",
+        agent: "prometheus",
+      },
+      output,
+    )
+
+    expect(String(output.message["agent"])).toBe("Atlas (Plan Executor)")
+    expect(output.parts[0].text).toContain("Auto-Selected Plan")
+    expect(output.parts[0].text).toContain("ci-green-final")
+
+    const state = readBoulderState(testDir)
+    expect(state?.active_plan).toBe(join(testDir, ".sisyphus", "plans", "ci-green-final.md"))
+    expect(state?.session_ids).toContain("session-double-quoted-start-work")
+    expect(state?.agent).toBe("atlas")
+  })
 })
 
 function createMockInput(agent?: string, model?: { providerID: string; modelID: string }) {

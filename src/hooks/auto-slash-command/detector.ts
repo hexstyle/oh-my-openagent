@@ -3,6 +3,7 @@ import {
   EXCLUDED_COMMANDS,
 } from "./constants"
 import type { ParsedSlashCommand } from "./types"
+import { stripSingleEnclosingQuotes } from "../../shared/strip-enclosing-quotes"
 
 const CODE_BLOCK_PATTERN = /```[\s\S]*?```/g
 
@@ -11,7 +12,7 @@ export function removeCodeBlocks(text: string): string {
 }
 
 export function parseSlashCommand(text: string): ParsedSlashCommand | null {
-  const trimmed = text.trim()
+  const trimmed = stripSingleEnclosingQuotes(text)
 
   if (!trimmed.startsWith("/")) {
     return null
@@ -36,7 +37,7 @@ export function isExcludedCommand(command: string): boolean {
 
 export function detectSlashCommand(text: string): ParsedSlashCommand | null {
   const textWithoutCodeBlocks = removeCodeBlocks(text)
-  const trimmed = textWithoutCodeBlocks.trim()
+  const trimmed = stripSingleEnclosingQuotes(textWithoutCodeBlocks)
 
   if (!trimmed.startsWith("/")) {
     return null
@@ -59,9 +60,9 @@ export function extractPromptText(
   parts: Array<{ type: string; text?: string }>
 ): string {
   const textParts = parts.filter((p) => p.type === "text")
-  const slashPart = textParts.find((p) => (p.text ?? "").trim().startsWith("/"))
+  const slashPart = textParts.find((p) => stripSingleEnclosingQuotes(p.text ?? "").startsWith("/"))
   if (slashPart?.text) {
-    return slashPart.text
+    return stripSingleEnclosingQuotes(slashPart.text)
   }
 
   const nonSyntheticParts = textParts.filter(
@@ -80,7 +81,7 @@ export function findSlashCommandPartIndex(
   for (let idx = 0; idx < parts.length; idx += 1) {
     const part = parts[idx]
     if (part.type !== "text") continue
-    if ((part.text ?? "").trim().startsWith("/")) {
+    if (stripSingleEnclosingQuotes(part.text ?? "").startsWith("/")) {
       return idx
     }
   }
