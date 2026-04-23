@@ -103,6 +103,26 @@ describe("runtime-fallback", () => {
     }
   }
 
+  function createMockPluginConfigWithAgentModel(
+    agentName: string,
+    model: string,
+    fallbackModels: string[],
+  ): OhMyOpenCodeConfig {
+    return {
+      git_master: {
+        commit_footer: true,
+        include_co_authored_by: true,
+        git_env_prefix: "GIT_MASTER=1",
+      },
+      agents: {
+        [agentName]: {
+          model,
+          fallback_models: fallbackModels,
+        },
+      },
+    }
+  }
+
   async function waitFor(check: () => boolean, timeoutMs = 120, intervalMs = 5): Promise<void> {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
@@ -3976,6 +3996,83 @@ describe("runtime-fallback", () => {
 
       expect(toastCalls.length).toBe(1)
       expect(toastCalls[0]?.message.includes("gpt-5.4")).toBe(true)
+    })
+
+    test("should override a brand-new session onto the next paid model when the requested model is globally cooling", async () => {
+      const hook = createRuntimeFallbackHook(createMockPluginInput(), {
+        config: createMockConfig({ notify_on_fallback: false }),
+        pluginConfig: {
+          git_master: {
+            commit_footer: true,
+            include_co_authored_by: true,
+            git_env_prefix: "GIT_MASTER=1",
+          },
+          agents: {
+            prometheus: {
+              model: "anthropic/claude-opus-4-6",
+              fallback_models: [
+                "anthropic/claude-opus-4-6",
+                { model: "openai/gpt-5.4", variant: "xhigh" },
+                "anthropic/claude-sonnet-4-6",
+              ],
+            },
+          },
+        },
+      })
+
+      hook._deps?.globalModelCooldowns.set("anthropic/claude-opus-4-6", Date.now() + 60_000)
+      const output: { message: { model?: { providerID: string; modelID: string }; variant?: string }; parts: Array<{ type: string; text?: string }> } = {
+        message: {},
+        parts: [],
+      }
+
+      await hook["chat.message"]?.(
+        {
+          sessionID: "test-session-global-cooldown-bootstrap",
+          agent: "Prometheus (Plan Builder)",
+          model: { providerID: "anthropic", modelID: "claude-opus-4-6" },
+        },
+        output,
+      )
+
+      expect(output.message.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" })
+      expect(output.message.variant).toBe("xhigh")
+      expect(hook._deps?.sessionStates.get("test-session-global-cooldown-bootstrap")?.currentModel).toBe("openai/gpt-5.4(xhigh)")
+    })
+
+    test("clears a stale output variant when the healthy bootstrap fallback has no variant", async () => {
+      const hook = createRuntimeFallbackHook(createMockPluginInput(), {
+        config: createMockConfig({ notify_on_fallback: false }),
+        pluginConfig: createMockPluginConfigWithAgentModel(
+          "prometheus",
+          "anthropic/claude-opus-4-6",
+          [
+            "anthropic/claude-opus-4-6",
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-4-6",
+          ],
+        ),
+      })
+
+      hook._deps?.globalModelCooldowns.set("anthropic/claude-opus-4-6", Date.now() + 60_000)
+      const output: { message: { model?: { providerID: string; modelID: string }; variant?: string }; parts: Array<{ type: string; text?: string }> } = {
+        message: {
+          variant: "max",
+        },
+        parts: [],
+      }
+
+      await hook["chat.message"]?.(
+        {
+          sessionID: "test-session-global-cooldown-bootstrap-clear-variant",
+          agent: "Prometheus (Plan Builder)",
+          model: { providerID: "anthropic", modelID: "claude-opus-4-6" },
+        },
+        output,
+      )
+
+      expect(output.message.model).toEqual({ providerID: "openai", modelID: "gpt-5.4" })
+      expect(output.message.variant).toBeUndefined()
     })
   })
 

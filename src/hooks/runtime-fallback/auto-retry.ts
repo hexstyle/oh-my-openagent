@@ -20,11 +20,13 @@ import { normalizeAgentName, resolveAgentForSession } from "./agent-resolver"
 import { getSessionAgent } from "../../features/claude-code-session-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import {
+  createFallbackState,
   beginTransientRetryWindow,
   canAutoResumeRecoveredModel,
   canKeepRetryingTransiently,
   getNextTransientRetryDelayMs,
   getPreferredRecoveryCandidate,
+  inheritCanonicalRetryParts,
   inheritFreshSameModelRetryWindow,
   isRecentLimitError,
   isFreshSameModelRetryWindowOpen,
@@ -65,6 +67,7 @@ import { normalizeSDKResponse } from "../../shared/normalize-sdk-response"
 import { hasVisibleAssistantEventContent } from "./visible-assistant-response"
 import { extractAutoRetrySignal } from "./error-classifier"
 import { getScopedFallbackParentSessionHint } from "./scoped-fallback-hints"
+import { markGlobalModelCooldown } from "./global-model-cooldown"
 
 const SESSION_TTL_MS = 30 * 60 * 1000
 const EXTERNAL_WATCHDOG_RESPAWN_MS = 10_000
@@ -78,7 +81,7 @@ const RECOVERY_PROBE_DIR_PREFIX = "oh-my-opencode-recovery-probe-"
 const RECOVERY_PROBE_PROMPT = "Reply with OK only."
 const RECOVERY_PROBE_RUNTIME_FALLBACK_DISABLE_ENV = "OH_MY_OPENCODE_DISABLE_RUNTIME_FALLBACK"
 const SCOPED_FALLBACK_HANDOFF_MAX_BRIEF_CHARS = 4000
-const FRESH_SAME_MODEL_RETRY_WINDOW_MS = 10 * 60 * 1000
+const FRESH_SAME_MODEL_RETRY_WINDOW_MS = 5 * 60 * 1000
 const RECOVERY_PROBE_FAILURE_PATTERNS = [
   /\[session\.error\]/i,
   /\bsession ended with error\b/i,
@@ -1583,12 +1586,21 @@ fi
           newModel,
         })
 
-        if (childSession) {
-          log(`[${HOOK_NAME}] Auto-retrying via scoped fallback handoff`, {
-            sessionID,
-            childSessionID: childSession.sessionID,
-            from: previousModel,
-            to: newModel,
+      if (childSession) {
+        const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
+        sessionAwaitingFallbackResult.add(sessionID)
+        scheduleSessionFallbackTimeout(sessionID, {
+          resolvedAgent: retryAgent,
+          source: `${source}.scoped-handoff`,
+          mode: args?.transientRetry ? "transient_retry" : "fallback",
+          timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
+        })
+
+        log(`[${HOOK_NAME}] Auto-retrying via scoped fallback handoff`, {
+          sessionID,
+          childSessionID: childSession.sessionID,
+          from: previousModel,
+          to: newModel,
             resolvedAgent: retryAgent,
           })
 
@@ -1611,8 +1623,6 @@ fi
           })
 
           markRecentRuntimeFallbackContinuationDispatch(sessionID)
-          sessionAwaitingFallbackResult.delete(sessionID)
-          clearSessionFallbackTimeout(sessionID)
           if (state?.pendingFallbackModel) {
             state.pendingFallbackModel = undefined
           }
@@ -1731,6 +1741,16 @@ fi
         state.currentModel,
         FRESH_SAME_MODEL_RETRY_WINDOW_MS,
       )) {
+        const globallyCoolingUntil = (
+          source === "session.timeout"
+          || source.endsWith(".timeout")
+        )
+          ? markGlobalModelCooldown(
+            deps.globalModelCooldowns,
+            state.currentModel,
+            config.transient_retry_window_seconds * 1000,
+          )
+          : undefined
         log(`[${HOOK_NAME}] Fresh same-model retry window exhausted; allowing fallback chain to advance`, {
           sessionID,
           retryParentSessionID,
@@ -1739,11 +1759,28 @@ fi
           freshSameModelRetryStartedAt: retryWindowState.freshSameModelRetryStartedAt,
           freshSameModelRetryCount: retryWindowState.freshSameModelRetryCount,
           retryWindowMs: FRESH_SAME_MODEL_RETRY_WINDOW_MS,
+          globallyCoolingUntil,
         })
         return false
       }
 
-      recordFreshSameModelRetry(retryWindowState, state.currentModel)
+      const now = Date.now()
+      const isFirstFreshSameModelRetryForModel =
+        retryWindowState.freshSameModelRetryStartedAt === undefined
+        || retryWindowState.freshSameModelRetryModelIdentity !== getWatchdogModelIdentity(state.currentModel)
+      const shouldBackdateInitialTimeoutBudget =
+        isFirstFreshSameModelRetryForModel
+        && (
+          source === "session.timeout"
+          || source.endsWith(".timeout")
+        )
+        && !source.includes("transient-timeout")
+      const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
+      const firstRetryRecordedAt = shouldBackdateInitialTimeoutBudget
+        ? now - resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
+        : now
+
+      recordFreshSameModelRetry(retryWindowState, state.currentModel, firstRetryRecordedAt)
       if (retryWindowState !== state) {
         inheritFreshSameModelRetryWindow(state, retryWindowState)
       }
@@ -1789,9 +1826,27 @@ fi
         query: { directory: childSession.directory },
       })
 
-      markRecentRuntimeFallbackContinuationDispatch(sessionID)
-      clearSessionFallbackTimeout(sessionID)
+      const parentState = sessionStates.get(retryParentSessionID)
+      if (!parentState) {
+        const bootstrappedParentState = createFallbackState(state.currentModel, [
+          ...state.fallbackModels,
+        ])
+        bootstrappedParentState.resolvedAgent = retryAgent
+        inheritCanonicalRetryParts(bootstrappedParentState, state)
+        inheritFreshSameModelRetryWindow(bootstrappedParentState, state)
+        sessionStates.set(retryParentSessionID, bootstrappedParentState)
+        sessionLastAccess.set(retryParentSessionID, Date.now())
+      }
+
       sessionAwaitingFallbackResult.delete(sessionID)
+      clearSessionFallbackTimeout(sessionID)
+      sessionAwaitingFallbackResult.add(retryParentSessionID)
+      scheduleSessionFallbackTimeout(retryParentSessionID, {
+        resolvedAgent: retryAgent,
+        source: `${source}.fresh-scoped-handoff`,
+        timeoutMsOverride: resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
+      })
+      markRecentRuntimeFallbackContinuationDispatch(retryParentSessionID)
       state.pendingFallbackModel = undefined
       state.pendingTransientRetry = false
       state.persistentTransientRetry = false

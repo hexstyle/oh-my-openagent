@@ -165,8 +165,8 @@ describe("runtime fallback state recovery", () => {
     expect(child.freshSameModelRetryModelIdentity).toBe("anthropic/claude-opus-4-6")
     expect(child.freshSameModelRetryStartedAt).toBe(100)
     expect(child.freshSameModelRetryCount).toBe(2)
-    expect(isFreshSameModelRetryWindowOpen(child, "anthropic/claude-opus-4-6", 600_000, 600_050)).toBe(true)
-    expect(isFreshSameModelRetryWindowOpen(child, "anthropic/claude-opus-4-6", 600_000, 700_100)).toBe(false)
+    expect(isFreshSameModelRetryWindowOpen(child, "anthropic/claude-opus-4-6", 300_000, 300_050)).toBe(true)
+    expect(isFreshSameModelRetryWindowOpen(child, "anthropic/claude-opus-4-6", 300_000, 400_100)).toBe(false)
 
     markMeaningfulProgress(child, 701_000)
     expect(child.freshSameModelRetryStartedAt).toBeUndefined()

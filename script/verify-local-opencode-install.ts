@@ -75,6 +75,13 @@ type SmokeMessageOutcome = {
   state: "success" | "skippable" | "failed" | "pending"
 }
 
+type SmokeChildSession = {
+  id?: string
+}
+
+const DEFAULT_SMOKE_TIMEOUT_MS = 5 * 60 * 1000
+const ANTHROPIC_RECOVERY_SMOKE_TIMEOUT_MS = 8 * 60 * 1000
+
 function buildExpectedAgents(pluginConfig: Record<string, unknown>): RuntimeAgentExpectation[] {
   const agents = (pluginConfig.agents ?? {}) as Record<string, { model?: unknown }>
   const expected: Array<{ key: string; configKey?: string; mode: "subagent" | "core" }> = [
@@ -311,8 +318,72 @@ export function interpretSmokeMessages(messages: SmokeMessage[] | unknown): Smok
   return { output, state: "pending" }
 }
 
+export async function interpretSmokeDescendantMessages(args: {
+  client: ReturnType<typeof createOpencodeClient>
+  smokeDirectory: string
+  sessionID: string
+  visited?: Set<string>
+}): Promise<SmokeMessageOutcome> {
+  const { client, smokeDirectory, sessionID } = args
+  const visited = args.visited ?? new Set<string>()
+  if (visited.has(sessionID)) {
+    return { output: "", state: "pending" }
+  }
+  visited.add(sessionID)
+
+  if (typeof client.session.children !== "function") {
+    return { output: "", state: "pending" }
+  }
+
+  const childrenResponse = await client.session.children({
+    path: { id: sessionID },
+    query: { directory: smokeDirectory },
+  })
+  const children = normalizeSdkResponse(childrenResponse, [] as SmokeChildSession[])
+  if (children.length === 0) {
+    return { output: "", state: "pending" }
+  }
+
+  for (let index = children.length - 1; index >= 0; index -= 1) {
+    const childSessionID = typeof children[index]?.id === "string" ? children[index]?.id : undefined
+    if (!childSessionID) {
+      continue
+    }
+
+    const childMessagesResponse = await client.session.messages({
+      path: { id: childSessionID },
+      query: { directory: smokeDirectory },
+    })
+    const childMessages = normalizeSdkResponse(childMessagesResponse, [] as SmokeMessage[])
+    const childOutcome = interpretSmokeMessages(childMessages)
+    if (childOutcome.state !== "pending") {
+      return childOutcome
+    }
+
+    const descendantOutcome = await interpretSmokeDescendantMessages({
+      client,
+      smokeDirectory,
+      sessionID: childSessionID,
+      visited,
+    })
+    if (descendantOutcome.state !== "pending") {
+      return descendantOutcome
+    }
+  }
+
+  return { output: "", state: "pending" }
+}
+
 export function createSmokeWorkspace(baseDir = os.tmpdir()): string {
   return mkdtempSync(join(baseDir, "oh-my-openagent-verify-smoke-"))
+}
+
+export function resolveSmokeTimeoutMs(agentName: string): number {
+  if (agentName === "Prometheus (Plan Builder)") {
+    return ANTHROPIC_RECOVERY_SMOKE_TIMEOUT_MS
+  }
+
+  return DEFAULT_SMOKE_TIMEOUT_MS
 }
 
 async function runSmoke(agentName: string): Promise<SmokeResult> {
@@ -323,7 +394,7 @@ async function runSmoke(agentName: string): Promise<SmokeResult> {
     baseUrl: server.url,
     directory: smokeDirectory,
   })
-  const timeoutAt = Date.now() + 5 * 60 * 1000
+  const timeoutAt = Date.now() + resolveSmokeTimeoutMs(agentName)
   let latestOutput = ""
 
   try {
@@ -371,6 +442,23 @@ async function runSmoke(agentName: string): Promise<SmokeResult> {
 
       if (outcome.state === "skippable" || outcome.state === "failed") {
         return { output: outcome.output, exitCode: 1 }
+      }
+
+      const descendantOutcome = await interpretSmokeDescendantMessages({
+        client,
+        smokeDirectory,
+        sessionID,
+      })
+      if (descendantOutcome.output.length > 0) {
+        latestOutput = descendantOutcome.output
+      }
+
+      if (descendantOutcome.state === "success") {
+        return { output: descendantOutcome.output, exitCode: 0 }
+      }
+
+      if (descendantOutcome.state === "skippable" || descendantOutcome.state === "failed") {
+        return { output: descendantOutcome.output, exitCode: 1 }
       }
 
       await new Promise((resolve) => setTimeout(resolve, 1_000))

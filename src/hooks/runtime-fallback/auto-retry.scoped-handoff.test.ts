@@ -20,6 +20,8 @@ function createDeps(args: {
   messagesBySessionID?: Record<string, unknown>
   messageCalls?: string[]
   bindCreateToSessionObject?: boolean
+  timeoutSeconds?: number
+  sessionTimeoutMs?: number
   sessionData?: {
     directory?: string
     parentID?: string
@@ -85,13 +87,15 @@ function createDeps(args: {
       max_fallback_attempts: 12,
       max_full_chain_cycles: 5,
       cooldown_seconds: 300,
-      timeout_seconds: 0,
+      timeout_seconds: args.timeoutSeconds ?? 0,
       transient_retry_window_seconds: 900,
       transient_retry_initial_delay_seconds: 10,
       transient_retry_max_delay_seconds: 300,
       notify_on_fallback: false,
     },
-    options: undefined,
+    options: typeof args.sessionTimeoutMs === "number"
+      ? { session_timeout_ms: args.sessionTimeoutMs }
+      : undefined,
     pluginConfig: {} as HookDeps["pluginConfig"],
     loopDetector: { record: () => 0, reset: () => {}, get: () => 0 },
     sessionStates: new Map(),
@@ -101,6 +105,7 @@ function createDeps(args: {
     sessionRecentActiveStatusUntil: new Map(),
     sessionSilentAssistantUpdateCounts: new Map(),
     sessionScopedFallbackHints: new Map(),
+    globalModelCooldowns: new Map(),
     sessionRetryInFlight: new Set(),
     sessionAwaitingFallbackResult: new Set(),
     sessionFallbackTimeouts: new Map(),
@@ -117,7 +122,11 @@ describe("runtime fallback scoped handoff", () => {
   it("launches a child session instead of replaying a paid planner session onto spark", async () => {
     const createCalls: Array<unknown> = []
     const promptCalls: Array<unknown> = []
-    const deps = createDeps({ createCalls, promptCalls })
+    const deps = createDeps({
+      createCalls,
+      promptCalls,
+      timeoutSeconds: 30,
+    })
     const sessionID = "ses_parent_scoped_handoff"
     const state = createFallbackState("anthropic/claude-opus-4-6", [
       "openai/gpt-5.4",
@@ -161,6 +170,8 @@ describe("runtime fallback scoped handoff", () => {
     expect(retryText).toContain(OMO_INTERNAL_INITIATOR_MARKER)
     expect(retryText).toContain("Scoped fallback handoff")
     expect(retryText).toContain("Implement the current plan and keep the todo state intact.")
+    expect(deps.sessionAwaitingFallbackResult.has(sessionID)).toBe(true)
+    expect(deps.sessionFallbackTimeouts.has(sessionID)).toBe(true)
   })
 
   it("keeps paid-to-paid fallback in the parent session", async () => {
@@ -473,6 +484,7 @@ describe("runtime fallback scoped handoff", () => {
     const deps = createDeps({
       createCalls,
       promptCalls,
+      timeoutSeconds: 30,
       sessionData: {
         directory: "/tmp/runtime-fallback-scoped-handoff/project",
         parentID: rootSessionID,
@@ -508,6 +520,10 @@ describe("runtime fallback scoped handoff", () => {
       providerID: "anthropic",
       modelID: "claude-opus-4-6",
     })
+    expect(deps.sessionAwaitingFallbackResult.has(rootSessionID)).toBe(true)
+    expect(deps.sessionAwaitingFallbackResult.has(sessionID)).toBe(false)
+    expect(deps.sessionFallbackTimeouts.has(rootSessionID)).toBe(true)
+    expect(wasRecentRuntimeFallbackContinuationDispatched(rootSessionID)).toBe(true)
   })
 
   it("uses the stored scoped parent hint when session.get no longer returns the original parent for a paid fresh retry", async () => {
@@ -631,7 +647,7 @@ describe("runtime fallback scoped handoff", () => {
       "anthropic/claude-sonnet-4-6",
     ])
     rootState.freshSameModelRetryModelIdentity = "anthropic/claude-opus-4-6"
-    rootState.freshSameModelRetryStartedAt = Date.now() - (10 * 60 * 1000) - 1
+    rootState.freshSameModelRetryStartedAt = Date.now() - (5 * 60 * 1000) - 1
     rootState.freshSameModelRetryCount = 4
     deps.sessionStates.set(rootSessionID, rootState)
 

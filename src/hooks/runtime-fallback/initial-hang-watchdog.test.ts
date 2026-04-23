@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, jest, spyOn, test } from "bun:test"
 import type { OhMyOpenCodeConfig, RuntimeFallbackConfig } from "../../config"
 import { createRuntimeFallbackHook } from "./hook"
+import { createFallbackState } from "./fallback-state"
 import * as sharedModule from "../../shared"
 
 describe("runtime-fallback initial hang watchdog", () => {
@@ -257,6 +258,90 @@ describe("runtime-fallback initial hang watchdog", () => {
     })
   })
 
+  test("counts the initial timeout wait against the fresh same-model retry budget for stalled paid planners", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const sessionID = "ses-initial-hang-budget-backdated"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            create: async (args) => {
+              createCalls.push(args)
+              return { data: { id: "ses-budget-backdated-child" } }
+            },
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+                { info: { role: "assistant" }, parts: [] },
+              ],
+            }),
+            promptAsync: async (args) => {
+              promptCalls.push(args)
+              return {}
+            },
+            abort: async () => ({}),
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(25)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const rootState = hook._deps?.sessionStates.get(sessionID)
+    expect(createCalls).toHaveLength(1)
+    expect(promptCalls).toHaveLength(1)
+    expect(rootState?.freshSameModelRetryCount).toBe(1)
+    expect(rootState?.freshSameModelRetryStartedAt).toBeDefined()
+    expect(Date.now() - (rootState?.freshSameModelRetryStartedAt ?? Date.now())).toBeGreaterThanOrEqual(80)
+  })
+
   test("restarts a stalled scoped paid child on the same model under the original parent session", async () => {
     const createCalls: Array<unknown> = []
     const callOrder: string[] = []
@@ -370,9 +455,7 @@ describe("runtime-fallback initial hang watchdog", () => {
       parentID: rootSessionID,
       title: "[runtime-fallback] Scoped Fallback: claude-opus-4-6",
     })
-    expect(callOrder).toEqual([
-      "prompt:anthropic/claude-opus-4-6",
-    ])
+    expect(callOrder[0]).toBe("prompt:anthropic/claude-opus-4-6")
   })
 
   test("restarts a title-only scoped paid child on the same model under the original parent session", async () => {
@@ -484,9 +567,7 @@ describe("runtime-fallback initial hang watchdog", () => {
       parentID: rootSessionID,
       title: "[runtime-fallback] Scoped Fallback: claude-opus-4-6",
     })
-    expect(callOrder).toEqual([
-      "prompt:anthropic/claude-opus-4-6",
-    ])
+    expect(callOrder[0]).toBe("prompt:anthropic/claude-opus-4-6")
   })
 
   test("restarts a title-only scoped paid child under the original parent even when session.get loses parentID", async () => {
@@ -598,9 +679,128 @@ describe("runtime-fallback initial hang watchdog", () => {
       parentID: rootSessionID,
       title: "[runtime-fallback] Scoped Fallback: claude-opus-4-6",
     })
-    expect(callOrder).toEqual([
-      "prompt:anthropic/claude-opus-4-6",
+    expect(callOrder[0]).toBe("prompt:anthropic/claude-opus-4-6")
+  })
+
+  test("advances a title-only scoped paid child to the next paid model once the inherited fresh retry window is exhausted", async () => {
+    const createCalls: Array<unknown> = []
+    const callOrder: string[] = []
+    const sessionID = "ses-initial-hang-title-only-scoped-child-window-exhausted"
+    const rootSessionID = "ses-initial-hang-title-only-scoped-child-window-exhausted-root"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            create: async (args) => {
+              createCalls.push(args)
+              return { data: { id: "ses-should-not-exist-window-exhausted" } }
+            },
+            get: async () => ({
+              data: {
+                directory: "/test/dir",
+                parentID: rootSessionID,
+              },
+            }),
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+                { info: { role: "assistant" }, parts: [] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                callOrder.push(`prompt:${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              callOrder.push(`abort:${args.path.id}`)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    const rootState = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.4",
+      "anthropic/claude-sonnet-4-6",
     ])
+    rootState.freshSameModelRetryModelIdentity = "anthropic/claude-opus-4-6"
+    rootState.freshSameModelRetryStartedAt = Date.now() - (5 * 60 * 1000) - 1
+    rootState.freshSameModelRetryCount = 4
+    hook._deps?.sessionStates.set(rootSessionID, rootState)
+
+    await hook.event({
+      event: {
+        type: "session.created",
+        properties: {
+          info: {
+            id: sessionID,
+            title: "[runtime-fallback] Scoped Fallback: claude-opus-4-6",
+            parentID: rootSessionID,
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(25)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(createCalls).toHaveLength(0)
+    expect(callOrder).toEqual([
+      `abort:${sessionID}`,
+      "prompt:openai/gpt-5.4",
+    ])
+    expect(hook._deps?.globalModelCooldowns.get("anthropic/claude-opus-4-6")).toBeGreaterThan(Date.now())
   })
 
   test("restarts a title-only scoped paid codex/openai child on the same model under the original parent session", async () => {
@@ -725,9 +925,7 @@ describe("runtime-fallback initial hang watchdog", () => {
       parentID: rootSessionID,
       title: "[runtime-fallback] Scoped Fallback: gpt-5.4",
     })
-    expect(callOrder).toEqual([
-      "prompt:openai/gpt-5.4",
-    ])
+    expect(callOrder[0]).toBe("prompt:openai/gpt-5.4")
   })
 
   test("restarts a title-only scoped paid codex/openai child under the original parent even when session.get loses parentID", async () => {
@@ -852,9 +1050,7 @@ describe("runtime-fallback initial hang watchdog", () => {
       parentID: rootSessionID,
       title: "[runtime-fallback] Scoped Fallback: gpt-5.4",
     })
-    expect(callOrder).toEqual([
-      "prompt:openai/gpt-5.4",
-    ])
+    expect(callOrder[0]).toBe("prompt:openai/gpt-5.4")
   })
 
   test("extends the initial quiet window for an Anthropic user turn before the first token arrives", async () => {
