@@ -1715,6 +1715,7 @@ fi
           })
 
           markRecentRuntimeFallbackContinuationDispatch(sessionID)
+          markRecentRuntimeFallbackContinuationDispatch(childSession.sessionID)
           if (state?.pendingFallbackModel) {
             state.pendingFallbackModel = undefined
           }

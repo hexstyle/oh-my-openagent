@@ -834,4 +834,30 @@ describe("runtime fallback scoped handoff", () => {
     expect(promptCalls).toHaveLength(1)
     expect(wasRecentRuntimeFallbackContinuationDispatched(sessionID)).toBe(true)
   })
+
+  it("marks the scoped fallback child session as recently recovered when opening a scoped fallback child", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({ createCalls, promptCalls })
+    const sessionID = "ses_child_recent_runtime_fallback_dispatch"
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.3-codex-spark",
+    ])
+
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    const dispatched = await helpers.autoRetryWithFallback(
+      sessionID,
+      "openai/gpt-5.3-codex-spark",
+      "Prometheus (Plan Builder)",
+      "session.error.fallback_chain",
+      { previousModel: "anthropic/claude-opus-4-6" },
+    )
+
+    expect(dispatched).toBe(true)
+    expect(createCalls).toHaveLength(1)
+    expect(promptCalls).toHaveLength(1)
+    expect(wasRecentRuntimeFallbackContinuationDispatched("ses_scoped_child")).toBe(true)
+  })
 })

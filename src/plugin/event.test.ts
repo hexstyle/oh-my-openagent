@@ -3521,6 +3521,150 @@ describe("createEventHandler - pending empty planning tool recovery", () => {
 		expect(promptAsyncCalls).toHaveLength(0)
 	})
 
+	it("does not recover an idle Prometheus reasoning-only turn while runtime fallback recently continued the same session", async () => {
+		//#given
+		const sessionID = "ses_prometheus_reasoning_idle_runtime_fallback_guard"
+		const promptAsyncCalls: Array<Record<string, unknown>> = []
+		markRecentRuntimeFallbackContinuationDispatch(sessionID)
+
+		const eventHandler = createEventHandler({
+			ctx: {
+				directory: "/tmp",
+				client: {
+					session: {
+						messages: async () => ({
+							data: [
+								{
+									id: "msg_user_reasoning_idle_runtime_fallback_guard",
+									role: "user",
+									agent: "Prometheus (Plan Builder)",
+									providerID: "anthropic",
+									modelID: "claude-opus-4-6",
+									parts: [{ type: "text", text: "Generate the final plan" }],
+								},
+								{
+									id: "msg_assistant_reasoning_idle_runtime_fallback_guard",
+									role: "assistant",
+									agent: "Prometheus (Plan Builder)",
+									finish: "other",
+									parts: [
+										{ type: "reasoning", text: "I have enough context to write the final plan now." },
+										{ type: "patch" },
+									],
+								},
+							],
+						}),
+						promptAsync: async (input: Record<string, unknown>) => {
+							promptAsyncCalls.push(input)
+							return {}
+						},
+					},
+				},
+			} as any,
+			pluginConfig: {
+				experimental: { auto_resume: true },
+			} as any,
+			firstMessageVariantGate: {
+				markSessionCreated: () => {},
+				clear: () => {},
+			},
+			managers: {
+				tmuxSessionManager: {
+					onSessionCreated: async () => {},
+					onSessionDeleted: async () => {},
+				},
+			} as any,
+			hooks: {
+				stopContinuationGuard: { isStopped: () => false },
+			} as any,
+		})
+
+		//#when
+		await eventHandler({
+			event: {
+				type: "session.idle",
+				properties: {
+					sessionID,
+				},
+			},
+		} as any)
+
+		//#then
+		expect(promptAsyncCalls).toHaveLength(0)
+	})
+
+	it("does not recover an idle Prometheus interrupted visible turn while runtime fallback recently continued the same session", async () => {
+		//#given
+		const sessionID = "ses_prometheus_visible_idle_runtime_fallback_guard"
+		const promptAsyncCalls: Array<Record<string, unknown>> = []
+		markRecentRuntimeFallbackContinuationDispatch(sessionID)
+
+		const eventHandler = createEventHandler({
+			ctx: {
+				directory: "/tmp",
+				client: {
+					session: {
+						messages: async () => ({
+							data: [
+								{
+									id: "msg_user_visible_idle_runtime_fallback_guard",
+									role: "user",
+									agent: "Prometheus (Plan Builder)",
+									providerID: "anthropic",
+									modelID: "claude-opus-4-6",
+									parts: [{ type: "text", text: "Generate the final plan" }],
+								},
+								{
+									id: "msg_assistant_visible_idle_runtime_fallback_guard",
+									role: "assistant",
+									agent: "Prometheus (Plan Builder)",
+									finish: "other",
+									parts: [
+										{ type: "text", text: "I have assembled the plan fragments and am ready to write the final artifact." },
+										{ type: "patch" },
+									],
+								},
+							],
+						}),
+						promptAsync: async (input: Record<string, unknown>) => {
+							promptAsyncCalls.push(input)
+							return {}
+						},
+					},
+				},
+			} as any,
+			pluginConfig: {
+				experimental: { auto_resume: true },
+			} as any,
+			firstMessageVariantGate: {
+				markSessionCreated: () => {},
+				clear: () => {},
+			},
+			managers: {
+				tmuxSessionManager: {
+					onSessionCreated: async () => {},
+					onSessionDeleted: async () => {},
+				},
+			} as any,
+			hooks: {
+				stopContinuationGuard: { isStopped: () => false },
+			} as any,
+		})
+
+		//#when
+		await eventHandler({
+			event: {
+				type: "session.idle",
+				properties: {
+					sessionID,
+				},
+			},
+		} as any)
+
+		//#then
+		expect(promptAsyncCalls).toHaveLength(0)
+	})
+
 	it("recovers a persisted provider-blocked Prometheus planning turn from session.idle on the same paid model", async () => {
 		//#given
 		const sessionID = "ses_prometheus_provider_blocked_idle_recovery"

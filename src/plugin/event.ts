@@ -179,6 +179,7 @@ const EMPTY_ASSISTANT_RECOVERY_DELAY_MS = 5000;
 const PROMETHEUS_STREAMING_DELTA_RECOVERY_DELAY_MS = 120000;
 const PROMETHEUS_ABORTED_TOOL_RECOVERY_DELAY_MS = 500;
 const PROMETHEUS_PROVIDER_BLOCKED_SAME_MODEL_WINDOW_MS = 10 * 60 * 1000;
+const PROMETHEUS_RUNTIME_FALLBACK_RECOVERY_GUARD_MS = 10 * 60 * 1000;
 const PROMETHEUS_EMPTY_TOOL_RECOVERY_TEXT = [
   "[session recovered - retry the interrupted plan write now]",
   "Your previous planning tool call was emitted without the required arguments and never executed.",
@@ -232,6 +233,23 @@ type AssistantRecoverySnapshot = {
 };
 const assistantRecoverySnapshotBySession = new Map<string, AssistantRecoverySnapshot>();
 const RECOVERABLE_PENDING_PROMETHEUS_TOOLS = new Set(["write", "edit", "todowrite"]);
+
+function hasRecentPrometheusRuntimeFallbackRecoveryGuard(
+  sessionID: string,
+  source: string,
+  recoveryKind: string,
+): boolean {
+  const guarded = wasRecentRuntimeFallbackContinuationDispatched(sessionID, {
+    guardMs: PROMETHEUS_RUNTIME_FALLBACK_RECOVERY_GUARD_MS,
+  });
+  if (guarded) {
+    log(`[event] ${recoveryKind} recovery skipped: runtime fallback continuation already dispatched`, {
+      sessionID,
+      source,
+    });
+  }
+  return guarded;
+}
 
 function normalizeProviderBlockedModelID(modelID: string | undefined): string | undefined {
   return typeof modelID === "string" && modelID.length > 0
@@ -932,6 +950,10 @@ async function maybeRecoverPrometheusReasoningOnlyAssistantMessage(
   source = "session.status.idle",
   options?: { abortBeforeResume?: boolean },
 ): Promise<boolean> {
+  if (hasRecentPrometheusRuntimeFallbackRecoveryGuard(sessionID, source, "planner reasoning-only")) {
+    return false;
+  }
+
   if (hasActivePrometheusProviderBlockedRetryWindow(sessionID)) {
     log("[event] planner reasoning-only recovery skipped: provider-blocked retry window active", {
       sessionID,
@@ -1090,6 +1112,10 @@ async function maybeRecoverPrometheusInterruptedVisibleAssistantMessage(
   expectedMessageID?: string,
   source = "session.status.idle",
 ): Promise<boolean> {
+  if (hasRecentPrometheusRuntimeFallbackRecoveryGuard(sessionID, source, "planner interrupted-visible")) {
+    return false;
+  }
+
   if (hasActivePrometheusProviderBlockedRetryWindow(sessionID)) {
     log("[event] planner interrupted-visible recovery skipped: provider-blocked retry window active", {
       sessionID,
