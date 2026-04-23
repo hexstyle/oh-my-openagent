@@ -6,6 +6,7 @@ import { createChatHeadersHandler } from "./plugin/chat-headers"
 import { createChatMessageHandler } from "./plugin/chat-message"
 import { createMessagesTransformHandler } from "./plugin/messages-transform"
 import { createSystemTransformHandler } from "./plugin/system-transform"
+import { createCommandExecuteBeforeHandler } from "./plugin/command-execute-before"
 import { createEventHandler } from "./plugin/event"
 import { createToolExecuteAfterHandler } from "./plugin/tool-execute-after"
 import { createToolExecuteBeforeHandler } from "./plugin/tool-execute-before"
@@ -54,6 +55,10 @@ export function createPluginInterface(args: {
     }),
 
     "experimental.chat.system.transform": createSystemTransformHandler(),
+
+    "command.execute.before": createCommandExecuteBeforeHandler({
+      hooks,
+    }),
 
     config: managers.configHandler,
 

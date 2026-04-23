@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -6,7 +6,6 @@ import { randomUUID } from "node:crypto"
 import { createPluginInterface } from "./plugin-interface"
 import { createAutoSlashCommandHook } from "./hooks/auto-slash-command"
 import { createStartWorkHook } from "./hooks/start-work"
-import { getAgentListDisplayName } from "./shared/agent-display-names"
 import { readBoulderState } from "./features/boulder-state"
 import {
   _resetForTesting,
@@ -15,14 +14,16 @@ import {
   updateSessionAgent,
 } from "./features/claude-code-session-state"
 
-
 describe("createPluginInterface - command.execute.before", () => {
   let testDir = ""
 
   beforeEach(() => {
     testDir = join(tmpdir(), `plugin-interface-start-work-${randomUUID()}`)
     mkdirSync(join(testDir, ".sisyphus", "plans"), { recursive: true })
-    writeFileSync(join(testDir, ".sisyphus", "plans", "worker-plan.md"), "# Plan\n- [ ] Task 1")
+    writeFileSync(
+      join(testDir, ".sisyphus", "plans", "worker-plan.md"),
+      "# Plan\n\n## TODOs\n- [ ] 1. Task 1\n",
+    )
     _resetForTesting()
     registerAgentName("prometheus")
     registerAgentName("sisyphus")
@@ -33,8 +34,57 @@ describe("createPluginInterface - command.execute.before", () => {
     rmSync(testDir, { recursive: true, force: true })
   })
 
+  test("exposes and routes native start-work command execution through the plugin interface", async () => {
+    const startWorkCommandHook = mock(async () => {})
+    const isStopped = mock(() => true)
+    const clear = mock(() => {})
+
+    const pluginInterface = createPluginInterface({
+      ctx: {
+        directory: testDir,
+        client: {},
+      } as never,
+      pluginConfig: {} as never,
+      firstMessageVariantGate: {
+        shouldOverride: () => false,
+        markApplied: () => {},
+        markSessionCreated: () => {},
+        clear: () => {},
+      },
+      managers: {
+        configHandler: async () => {},
+      } as never,
+      hooks: {
+        startWork: {
+          "command.execute.before": startWorkCommandHook,
+        },
+        stopContinuationGuard: {
+          isStopped,
+          clear,
+        },
+      } as never,
+      tools: {},
+    })
+
+    expect(typeof pluginInterface["command.execute.before"]).toBe("function")
+
+    await pluginInterface["command.execute.before"]?.(
+      {
+        command: "start-work",
+        sessionID: "ses-live-start-work",
+        arguments: "worker-plan",
+      },
+      {
+        parts: [],
+      } as never,
+    )
+
+    expect(startWorkCommandHook).toHaveBeenCalledTimes(1)
+    expect(isStopped).toHaveBeenCalledWith("ses-live-start-work")
+    expect(clear).toHaveBeenCalledWith("ses-live-start-work")
+  })
+
   test("executes start-work side effects for native command execution", async () => {
-    // given
     updateSessionAgent("ses-command-before", "prometheus")
     const pluginInterface = createPluginInterface({
       ctx: {
@@ -62,26 +112,23 @@ describe("createPluginInterface - command.execute.before", () => {
       parts: [{ type: "text", text: "original" }],
     }
 
-    // when
     await pluginInterface["command.execute.before"]?.(
       {
         command: "start-work",
         sessionID: "ses-command-before",
-        arguments: "",
+        arguments: "worker-plan",
       },
-      output as never
+      output as never,
     )
 
-    // then
     expect(pluginInterface["command.execute.before"]).toBeDefined()
     expect(output.parts[0]?.text).toContain("Auto-Selected Plan")
     expect(output.parts[0]?.text).toContain("boulder.json has been created")
-    expect(getSessionAgent("ses-command-before")).toBe("sisyphus")
-    expect(readBoulderState(testDir)?.agent).toBe("sisyphus")
+    expect(getSessionAgent("ses-command-before")).toBe("Prometheus (Plan Builder)")
+    expect(readBoulderState(testDir)?.agent).toBe("Prometheus (Plan Builder)")
   })
 
   test("does not run start-work side effects for other native commands with session context", async () => {
-    // given
     updateSessionAgent("ses-handoff", "prometheus")
     const pluginInterface = createPluginInterface({
       ctx: {
@@ -109,24 +156,21 @@ describe("createPluginInterface - command.execute.before", () => {
       parts: [{ type: "text", text: "original" }],
     }
 
-    // when
     await pluginInterface["command.execute.before"]?.(
       {
         command: "handoff",
         sessionID: "ses-handoff",
         arguments: "",
       },
-      output as never
+      output as never,
     )
 
-    // then
     expect(output.parts[0]?.text).toContain("HANDOFF CONTEXT")
     expect(readBoulderState(testDir)).toBeNull()
-    expect(getSessionAgent("ses-handoff")).toBe("prometheus")
+    expect(getSessionAgent("ses-handoff")).toBe("Prometheus (Plan Builder)")
   })
 
   test("switches native start-work to Atlas when Atlas is registered in config", async () => {
-    // given
     registerAgentName("atlas")
     updateSessionAgent("ses-command-atlas", "prometheus")
     const pluginInterface = createPluginInterface({
@@ -156,18 +200,16 @@ describe("createPluginInterface - command.execute.before", () => {
       parts: [{ type: "text", text: "/start-work" }],
     }
 
-    // when
     await pluginInterface["chat.message"]?.(
       {
         sessionID: "ses-command-atlas",
         agent: "prometheus",
       } as never,
-      output as never
+      output as never,
     )
 
-    // then
-    expect(output.message.agent).toBe("atlas")
-    expect(getSessionAgent("ses-command-atlas")).toBe("atlas")
+    expect(output.message.agent).toBe("Atlas (Plan Executor)")
+    expect(getSessionAgent("ses-command-atlas")).toBe("Atlas (Plan Executor)")
     expect(readBoulderState(testDir)?.agent).toBe("atlas")
   })
 })
@@ -188,7 +230,6 @@ describe("createPluginInterface - ulw-loop native command smoke", () => {
   })
 
   test("starts the ultrawork loop from the native command flow with parsed arguments intact", async () => {
-    // given
     const startLoopCalls: Array<{
       sessionID: string
       prompt: string
@@ -225,12 +266,11 @@ describe("createPluginInterface - ulw-loop native command smoke", () => {
       parts: [{ type: "text", text: "original" }],
     }
 
-    // when
     await pluginInterface["command.execute.before"]?.(
       {
         command: "ulw-loop",
         sessionID: "ses-ulw-native",
-        arguments: '"Ship feature" --strategy=continue',
+        arguments: "\"Ship feature\" --strategy=continue",
       },
       output as never,
     )
@@ -242,7 +282,6 @@ describe("createPluginInterface - ulw-loop native command smoke", () => {
       output as never,
     )
 
-    // then
     expect(output.parts[0]?.text).toContain("/ulw-loop Command")
     expect(startLoopCalls).toEqual([
       {

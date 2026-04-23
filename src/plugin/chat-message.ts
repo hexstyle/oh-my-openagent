@@ -5,6 +5,7 @@ import { hasConnectedProvidersCache } from "../shared"
 import { getSessionModel, setSessionModel } from "../shared/session-model-state"
 import { getMainSessionID, setSessionAgent, subagentSessions } from "../features/claude-code-session-state"
 import { applyUltraworkModelOverrideOnMessage } from "./ultrawork-model-override"
+import { NATIVE_LOOP_TRIGGERED_FLAG } from "./command-execute-before"
 import { parseRalphLoopArguments } from "../hooks/ralph-loop/command-arguments"
 
 import type { CreatedHooks } from "../create-hooks"
@@ -183,7 +184,9 @@ export function createChatMessageHandler(args: {
         .catch(() => {})
     }
 
-    if (hooks.ralphLoop) {
+    const nativeLoopTriggered = output.message?.[NATIVE_LOOP_TRIGGERED_FLAG] === true
+
+    if (hooks.ralphLoop && !nativeLoopTriggered) {
       const parts = output.parts
       const promptText =
         parts
