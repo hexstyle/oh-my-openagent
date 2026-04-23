@@ -554,6 +554,52 @@ describe("start-work hook", () => {
     })
   })
 
+  describe("command.execute.before handler", () => {
+    test("should inject start-work context for builtin /start-work command execution", async () => {
+      const plansDir = join(testDir, ".sisyphus", "plans")
+      mkdirSync(plansDir, { recursive: true })
+      writeFileSync(
+        join(plansDir, "ci-green-final.md"),
+        `# Plan
+
+## TODOs
+- [ ] 1. Real task
+`,
+      )
+
+      const hook = createStartWorkHook(createMockPluginInput())
+      const output = {
+        message: {},
+        parts: [
+          {
+            type: "text",
+            text: `# /start-work Command
+
+**Arguments**: ci-green-final
+
+<command-instruction>
+You are starting a Sisyphus work session.
+</command-instruction>`,
+          },
+        ],
+      }
+
+      await hook["command.execute.before"]?.(
+        {
+          sessionID: "session-command-start-work",
+          command: "start-work",
+          arguments: "ci-green-final",
+        },
+        output,
+      )
+
+      expect(output.parts[0].text).toContain("Auto-Selected Plan")
+      expect(output.parts[0].text).toContain("ci-green-final")
+      expect(output.message?.agent).toBe("Atlas (Plan Executor)")
+      expect(readBoulderState(testDir)?.session_ids).toContain("session-command-start-work")
+    })
+  })
+
   describe("session agent management", () => {
     test("should update session agent to Atlas when start-work command is triggered", async () => {
       // given
