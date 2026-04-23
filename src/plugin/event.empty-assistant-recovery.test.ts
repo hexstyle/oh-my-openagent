@@ -232,6 +232,87 @@ describe("createEventHandler idle empty assistant recovery", () => {
     expect(promptAsyncMock).toHaveBeenCalledTimes(1)
   })
 
+  test("does not recover when an assistant turn starts with internal parts but later streams visible object deltas", async () => {
+    jest.useFakeTimers()
+
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_object_delta",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{ type: "text", text: "continue" }],
+      },
+      {
+        info: {
+          id: "msg_object_delta",
+          role: "assistant",
+          agent: "Atlas (Plan Executor)",
+        },
+        parts: [],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_object_delta",
+            sessionID: "ses_object_delta",
+            role: "assistant",
+            agent: "Atlas (Plan Executor)",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part_reasoning_object_delta",
+            sessionID: "ses_object_delta",
+            messageID: "msg_object_delta",
+            type: "reasoning",
+            text: "",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.delta",
+        properties: {
+          sessionID: "ses_object_delta",
+          messageID: "msg_object_delta",
+          partID: "part_reasoning_object_delta",
+          field: "text",
+          delta: { text: "Visible streamed answer content" },
+        },
+      },
+    } as const)
+
+    if (typeof jest.advanceTimersByTimeAsync === "function") {
+      await jest.advanceTimersByTimeAsync(5001)
+    } else {
+      jest.advanceTimersByTime(5001)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
+    expect(fixEmptyMessagesWithSDKMock).not.toHaveBeenCalled()
+    expect(promptAsyncMock).not.toHaveBeenCalled()
+  })
+
   test("does not recover when idle session ends with a reasoning-only assistant turn", async () => {
     //#given
     const handler = createHandler([

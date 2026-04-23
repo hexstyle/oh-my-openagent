@@ -734,12 +734,35 @@ function updateAssistantRecoverySnapshotPart(
   rememberRecoverablePrometheusSnapshot(sessionID, snapshot);
 }
 
+function hasVisibleAssistantDeltaContent(delta: unknown): boolean {
+  if (typeof delta === "string") {
+    return delta.trim().length > 0;
+  }
+
+  if (Array.isArray(delta)) {
+    return delta.some((item) => hasVisibleAssistantDeltaContent(item));
+  }
+
+  if (!isRecord(delta)) {
+    return false;
+  }
+
+  const directKeys = ["text", "delta", "value", "content", "output"];
+  for (const key of directKeys) {
+    if (hasVisibleAssistantDeltaContent(delta[key])) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function updateAssistantRecoverySnapshotDelta(
   sessionID: string,
   messageID: string | undefined,
   delta: unknown,
 ): AssistantRecoverySnapshot | undefined {
-  if (typeof delta !== "string" || delta.trim().length === 0) {
+  if (!hasVisibleAssistantDeltaContent(delta)) {
     return getAssistantRecoverySnapshot(sessionID, messageID);
   }
 
@@ -751,6 +774,14 @@ function updateAssistantRecoverySnapshotDelta(
   }
 
   snapshot.hasVisibleContent = true;
+  const isPrometheusInternalStreamingDelta =
+    isPrometheusPlannerAgent(snapshot.agent ?? getSessionAgent(sessionID))
+    && snapshot.hasRecoverablePlannerInternalParts
+    && !snapshot.hasUserFacingContent;
+
+  if (!isPrometheusInternalStreamingDelta) {
+    snapshot.hasUserFacingContent = true;
+  }
   snapshot.hasStreamingDelta = true;
   return snapshot;
 }
