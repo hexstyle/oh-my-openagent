@@ -675,6 +675,68 @@ describe("boulder-state", () => {
     })
   })
 
+  describe("findPrometheusPlans", () => {
+    test("should exclude plans that have no executable TODO tasks", () => {
+      const plansDir = join(SISYPHUS_DIR, "plans")
+      mkdirSync(plansDir, { recursive: true })
+
+      const invalidPlanPath = join(plansDir, "invalid-final-only.md")
+      writeFileSync(invalidPlanPath, `# Plan
+
+## TODOs
+
+## Final Verification Wave
+- [ ] F1. Final review only
+`)
+
+      const validPlanPath = join(plansDir, "valid-plan.md")
+      writeFileSync(validPlanPath, `# Plan
+
+## TODOs
+- [ ] 1. Real executable task
+
+## Final Verification Wave
+- [ ] F1. Final review
+`)
+
+      const plans = findPrometheusPlans(TEST_DIR)
+
+      expect(plans).toEqual([validPlanPath])
+    })
+
+    test("should exclude older plans superseded by the newest executable plan", () => {
+      const plansDir = join(SISYPHUS_DIR, "plans")
+      mkdirSync(plansDir, { recursive: true })
+
+      const legacyPlanPath = join(plansDir, "legacy-plan.md")
+      writeFileSync(legacyPlanPath, `# Legacy Plan
+
+## TODOs
+- [ ] 1. Legacy task
+`)
+
+      const otherPlanPath = join(plansDir, "other-plan.md")
+      writeFileSync(otherPlanPath, `# Other Plan
+
+## TODOs
+- [ ] 1. Other task
+`)
+
+      const unifiedPlanPath = join(plansDir, "unified-plan.md")
+      writeFileSync(unifiedPlanPath, `# Unified Plan
+
+> **Supersedes**: \`legacy-plan.md\`
+
+## TODOs
+- [ ] 1. Unified task
+`)
+
+      const plans = findPrometheusPlans(TEST_DIR)
+
+      expect(plans).toEqual([unifiedPlanPath, otherPlanPath])
+    })
+  })
+
   describe("getPlanName", () => {
     test("should extract plan name from path", () => {
       // given

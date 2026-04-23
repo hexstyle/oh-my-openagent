@@ -66,7 +66,7 @@ export function createRuntimeFallbackHook(
     sessionRecentCompletionUntil: new Map(),
     sessionRecentActiveStatusUntil: new Map(),
     sessionSilentAssistantUpdateCounts: new Map(),
-    sessionScopedFallbackHints: new Set(),
+    sessionScopedFallbackHints: new Map(),
     sessionRetryInFlight: new Set(),
     sessionAwaitingFallbackResult: new Set(),
     sessionFallbackTimeouts: new Map(),

@@ -3,7 +3,7 @@ import { DEFAULT_CONFIG as DEFAULT_RUNTIME_FALLBACK_CONFIG } from "../runtime-fa
 
 export const HOOK_NAME = "todo-continuation-enforcer"
 
-export const DEFAULT_SKIP_AGENTS = ["prometheus", "compaction", "plan"]
+export const DEFAULT_SKIP_AGENTS = ["compaction", "plan"]
 
 export const CONTINUATION_PROMPT = `${createSystemDirective(SystemDirectiveTypes.TODO_CONTINUATION)}
 

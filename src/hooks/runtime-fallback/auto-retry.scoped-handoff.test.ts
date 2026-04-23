@@ -17,6 +17,8 @@ function createDeps(args: {
   createCalls: Array<unknown>
   promptCalls: Array<unknown>
   messagesResponse?: unknown
+  messagesBySessionID?: Record<string, unknown>
+  messageCalls?: string[]
   bindCreateToSessionObject?: boolean
   sessionData?: {
     directory?: string
@@ -39,17 +41,28 @@ function createDeps(args: {
       },
     }),
     abort: async () => undefined,
-    messages: async () => ({
-      data: [
-        {
-          info: { role: "user" },
-          parts: [{ type: "text", text: "Implement the current plan and keep the todo state intact." }],
-        },
-      ],
-      ...(typeof args.messagesResponse === "object" && args.messagesResponse !== null
-        ? args.messagesResponse as Record<string, unknown>
-        : {}),
-    }),
+    messages: async (input?: { path?: { id?: string } }) => {
+      const targetSessionID = input?.path?.id
+      args.messageCalls?.push(targetSessionID ?? "")
+
+      const sessionSpecificResponse =
+        typeof targetSessionID === "string"
+          ? args.messagesBySessionID?.[targetSessionID]
+          : undefined
+
+      return {
+        data: [
+          {
+            info: { role: "user" },
+            parts: [{ type: "text", text: "Implement the current plan and keep the todo state intact." }],
+          },
+        ],
+        ...(typeof (sessionSpecificResponse ?? args.messagesResponse) === "object"
+          && (sessionSpecificResponse ?? args.messagesResponse) !== null
+          ? (sessionSpecificResponse ?? args.messagesResponse) as Record<string, unknown>
+          : {}),
+      }
+    },
     promptAsync: async (input: unknown) => {
       args.promptCalls.push(input)
       return undefined
@@ -87,6 +100,7 @@ function createDeps(args: {
     sessionRecentCompletionUntil: new Map(),
     sessionRecentActiveStatusUntil: new Map(),
     sessionSilentAssistantUpdateCounts: new Map(),
+    sessionScopedFallbackHints: new Map(),
     sessionRetryInFlight: new Set(),
     sessionAwaitingFallbackResult: new Set(),
     sessionFallbackTimeouts: new Map(),
@@ -174,6 +188,39 @@ describe("runtime fallback scoped handoff", () => {
     expect(
       (promptCalls[0] as { path?: { id?: string } }).path?.id,
     ).toBe(sessionID)
+    expect(
+      (promptCalls[0] as { body?: { agent?: string } }).body?.agent,
+    ).toBe("Prometheus (Plan Builder)")
+  })
+
+  it("keeps the explicit planner agent on fresh same-model retry children after a paid model switch", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({ createCalls, promptCalls })
+    const sessionID = "ses_prometheus_fresh_retry"
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.4",
+    ])
+
+    state.currentModel = "openai/gpt-5.4"
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    const dispatched = await helpers.retryCurrentModelInFreshSession(
+      sessionID,
+      "Prometheus (Plan Builder)",
+      "session.error",
+    )
+
+    expect(dispatched).toBe(true)
+    expect(createCalls).toHaveLength(1)
+    expect(promptCalls).toHaveLength(1)
+    expect(
+      (promptCalls[0] as { path?: { id?: string } }).path?.id,
+    ).toBe("ses_scoped_child")
+    expect(
+      (promptCalls[0] as { body?: { agent?: string } }).body?.agent,
+    ).toBe("Prometheus (Plan Builder)")
   })
 
   it("keeps explore on the narrow same-session lane", async () => {
@@ -302,6 +349,51 @@ describe("runtime fallback scoped handoff", () => {
     expect(retryText).toContain("No reusable user brief was available from the parent session.")
   })
 
+  it("uses canonical retry parts from state when transcript no longer has a reusable user brief", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({
+      createCalls,
+      promptCalls,
+      messagesResponse: {
+        data: [
+          {
+            info: { role: "user" },
+            parts: [{
+              type: "text",
+              text: `${OMO_INTERNAL_INITIATOR_MARKER}\nContinue the current task from where you left off.`,
+            }],
+          },
+        ],
+      },
+    })
+    const sessionID = "ses_scoped_canonical_brief"
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.3-codex-spark",
+    ])
+    state.canonicalRetryParts = [{ type: "text", text: "Fix the failing eurochemeopt CI plan end-to-end." }]
+
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    const dispatched = await helpers.autoRetryWithFallback(
+      sessionID,
+      "openai/gpt-5.3-codex-spark",
+      "Prometheus (Plan Builder)",
+      "session.error.fallback_chain",
+      { previousModel: "anthropic/claude-opus-4-6" },
+    )
+
+    expect(dispatched).toBe(true)
+    expect(createCalls).toHaveLength(1)
+    expect(promptCalls).toHaveLength(1)
+    const retryText = (
+      promptCalls[0] as { body?: { parts?: Array<{ text?: string }> } }
+    ).body?.parts?.[0]?.text
+    expect(retryText).toContain("Fix the failing eurochemeopt CI plan end-to-end.")
+    expect(retryText).not.toContain("No reusable user brief was available from the parent session.")
+  })
+
   it("creates a fresh same-model handoff for exhausted paid transient retries", async () => {
     const createCalls: Array<unknown> = []
     const promptCalls: Array<unknown> = []
@@ -416,6 +508,150 @@ describe("runtime fallback scoped handoff", () => {
       providerID: "anthropic",
       modelID: "claude-opus-4-6",
     })
+  })
+
+  it("uses the stored scoped parent hint when session.get no longer returns the original parent for a paid fresh retry", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const sessionID = "ses_scoped_paid_fresh_retry_child_missing_parent"
+    const rootSessionID = "ses_scoped_paid_fresh_retry_root_missing_parent"
+    const deps = createDeps({
+      createCalls,
+      promptCalls,
+      sessionData: {
+        directory: "/tmp/runtime-fallback-scoped-handoff/project",
+      },
+    })
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.4",
+      "anthropic/claude-sonnet-4-6",
+    ])
+    state.isScopedFallbackChild = true
+    deps.sessionScopedFallbackHints?.set(sessionID, {
+      isScopedFallbackChild: true,
+      parentSessionID: rootSessionID,
+    })
+
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    const dispatched = await helpers.retryCurrentModelInFreshSession(
+      sessionID,
+      "Prometheus (Plan Builder)",
+      "session.error.transient_forbidden",
+    )
+
+    expect(dispatched).toBe(true)
+    expect(createCalls).toHaveLength(1)
+    expect(
+      (createCalls[0] as { body?: { parentID?: string; title?: string } }).body,
+    ).toMatchObject({
+      parentID: rootSessionID,
+      title: "[runtime-fallback] Scoped Fallback: claude-opus-4-6",
+    })
+    expect(promptCalls).toHaveLength(1)
+  })
+
+  it("reuses the original parent transcript for a scoped paid fresh retry brief instead of the child handoff transcript", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const messageCalls: string[] = []
+    const sessionID = "ses_scoped_paid_retry_child_brief"
+    const rootSessionID = "ses_scoped_paid_retry_root_brief"
+    const deps = createDeps({
+      createCalls,
+      promptCalls,
+      messageCalls,
+      messagesBySessionID: {
+        [sessionID]: {
+          data: [
+            {
+              info: { role: "user" },
+              parts: [{
+                type: "text",
+                text: `${OMO_INTERNAL_INITIATOR_MARKER}\nContinue the current task from where you left off.`,
+              }],
+            },
+          ],
+        },
+        [rootSessionID]: {
+          data: [
+            {
+              info: { role: "user" },
+              parts: [{ type: "text", text: "\"/start-work ci-green-final\"" }],
+            },
+          ],
+        },
+      },
+      sessionData: {
+        directory: "/tmp/runtime-fallback-scoped-handoff/project",
+        parentID: rootSessionID,
+      },
+    })
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.4",
+      "anthropic/claude-sonnet-4-6",
+    ])
+    state.isScopedFallbackChild = true
+
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    const dispatched = await helpers.retryCurrentModelInFreshSession(
+      sessionID,
+      "Prometheus (Plan Builder)",
+      "session.error.transient_forbidden",
+    )
+
+    expect(dispatched).toBe(true)
+    expect(messageCalls).toContain(rootSessionID)
+    expect(messageCalls).not.toContain(sessionID)
+    const retryText = (
+      promptCalls[0] as { body?: { parts?: Array<{ text?: string }> } }
+    ).body?.parts?.[0]?.text
+    expect(retryText).toContain("\"/start-work ci-green-final\"")
+    expect(retryText).not.toContain("No reusable user brief was available from the parent session.")
+  })
+
+  it("stops opening fresh same-model retries once the scoped paid retry window is exhausted", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const sessionID = "ses_scoped_paid_retry_child_exhausted"
+    const rootSessionID = "ses_scoped_paid_retry_root_exhausted"
+    const deps = createDeps({
+      createCalls,
+      promptCalls,
+      sessionData: {
+        directory: "/tmp/runtime-fallback-scoped-handoff/project",
+        parentID: rootSessionID,
+      },
+    })
+    const rootState = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.4",
+      "anthropic/claude-sonnet-4-6",
+    ])
+    rootState.freshSameModelRetryModelIdentity = "anthropic/claude-opus-4-6"
+    rootState.freshSameModelRetryStartedAt = Date.now() - (10 * 60 * 1000) - 1
+    rootState.freshSameModelRetryCount = 4
+    deps.sessionStates.set(rootSessionID, rootState)
+
+    const state = createFallbackState("anthropic/claude-opus-4-6", [
+      "openai/gpt-5.4",
+      "anthropic/claude-sonnet-4-6",
+    ])
+    state.isScopedFallbackChild = true
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    const dispatched = await helpers.retryCurrentModelInFreshSession(
+      sessionID,
+      "Prometheus (Plan Builder)",
+      "session.timeout",
+    )
+
+    expect(dispatched).toBe(false)
+    expect(createCalls).toHaveLength(0)
+    expect(promptCalls).toHaveLength(0)
   })
 
   it("preserves an explicit live planner agent on a boulder-tracked paid fallback instead of drifting to atlas", async () => {

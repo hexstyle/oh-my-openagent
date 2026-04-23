@@ -1,5 +1,11 @@
 import type { PluginInput } from "@opencode-ai/plugin"
-import { HOOK_NAME, BLOCKED_TOOLS, PLANNING_CONSULT_WARNING, PROMETHEUS_WORKFLOW_REMINDER } from "./constants"
+import {
+  HOOK_NAME,
+  BLOCKED_TOOLS,
+  PLAN_WRITE_DELEGATION_BLOCK,
+  PLANNING_CONSULT_WARNING,
+  PROMETHEUS_WORKFLOW_REMINDER,
+} from "./constants"
 import { log } from "../../shared/logger"
 import { SYSTEM_DIRECTIVE_PREFIX } from "../../shared/system-directive"
 import { getAgentDisplayName } from "../../shared/agent-display-names"
@@ -8,6 +14,7 @@ import { isPrometheusAgent } from "./agent-matcher"
 import { isAllowedFile } from "./path-policy"
 
 const TASK_TOOLS = ["task", "call_omo_agent"]
+const PLAN_WRITE_ALLOWED_SUBAGENTS = new Set(["metis", "momus"])
 
 export function createPrometheusMdOnlyHook(ctx: PluginInput) {
   return {
@@ -34,6 +41,20 @@ export function createPrometheusMdOnlyHook(ctx: PluginInput) {
             agent: agentName,
           })
         }
+
+        if (await isPlanWriteDelegationBlocked(ctx, input.sessionID, output.args)) {
+          const delegatedTarget = getDelegatedTarget(output.args)
+          log(`[${HOOK_NAME}] Blocked: plan-write delegation during final plan synthesis`, {
+            sessionID: input.sessionID,
+            tool: toolName,
+            agent: agentName,
+            delegatedTarget: delegatedTarget ?? "(unknown)",
+          })
+          throw new Error(
+            `${PLAN_WRITE_DELEGATION_BLOCK} Blocked target: ${delegatedTarget ?? "(unknown)"}.`
+          )
+        }
+
         return
       }
 
@@ -78,5 +99,86 @@ export function createPrometheusMdOnlyHook(ctx: PluginInput) {
         agent: agentName,
       })
     },
+  }
+}
+
+async function isPlanWriteDelegationBlocked(
+  ctx: PluginInput,
+  sessionID: string,
+  args: Record<string, unknown>
+): Promise<boolean> {
+  const todos = await readSessionTodos(ctx, sessionID)
+  if (!hasPlanWriteTodoInProgress(todos)) {
+    return false
+  }
+
+  const delegatedTarget = getDelegatedTarget(args)
+  if (!delegatedTarget) {
+    return true
+  }
+
+  return !PLAN_WRITE_ALLOWED_SUBAGENTS.has(delegatedTarget)
+}
+
+function getDelegatedTarget(args: Record<string, unknown>): string | undefined {
+  const candidates = [
+    args.subagent_type,
+    args.subagentType,
+    args.agent,
+    args.agent_name,
+    args.agentName,
+    args.category,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return candidate.trim().toLowerCase()
+    }
+  }
+
+  return undefined
+}
+
+function hasPlanWriteTodoInProgress(
+  todos: Array<{ content?: unknown; status?: unknown }>
+): boolean {
+  return todos.some((todo) => {
+    if (todo.status !== "in_progress" || typeof todo.content !== "string") {
+      return false
+    }
+
+    const content = todo.content.toLowerCase()
+    return (
+      content.includes("generate") &&
+      content.includes("plan") &&
+      (content.includes(".sisyphus/plans") || content.includes("work plan"))
+    )
+  })
+}
+
+async function readSessionTodos(
+  ctx: PluginInput,
+  sessionID: string
+): Promise<Array<{ content?: unknown; status?: unknown }>> {
+  const todoReader = (ctx as { client?: { session?: { todo?: (input: unknown) => Promise<unknown> } } }).client?.session
+    ?.todo
+
+  if (typeof todoReader !== "function") {
+    return []
+  }
+
+  try {
+    const response = await todoReader({ path: { id: sessionID } })
+    const data = (response as { data?: unknown[]; error?: unknown })?.data
+    if (!Array.isArray(data)) {
+      return []
+    }
+
+    return data.filter(
+      (todo): todo is { content?: unknown; status?: unknown } =>
+        typeof todo === "object" && todo !== null
+    )
+  } catch {
+    return []
   }
 }

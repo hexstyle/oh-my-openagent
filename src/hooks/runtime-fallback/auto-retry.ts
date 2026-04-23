@@ -25,17 +25,20 @@ import {
   canKeepRetryingTransiently,
   getNextTransientRetryDelayMs,
   getPreferredRecoveryCandidate,
+  inheritFreshSameModelRetryWindow,
   isRecentLimitError,
+  isFreshSameModelRetryWindowOpen,
   markTransientRetryDispatched,
   prepareFallback,
   markRecoveredModelAutoResume,
+  recordFreshSameModelRetry,
   recoverPreferredModel,
   resetTransientRetryState,
   wasRecentlyStopped,
 } from "./fallback-state"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { buildRetryModelPayload } from "./retry-model-payload"
-import { getLastUserRetryParts } from "./last-user-retry-parts"
+import { resolveRetryBriefParts } from "./last-user-retry-parts"
 import { extractSessionMessages } from "./session-messages"
 import { createInternalAgentTextPart } from "../../shared/internal-initiator-marker"
 import { getServerBaseUrl } from "../../shared/opencode-http-api"
@@ -61,6 +64,7 @@ import { markRecentRuntimeFallbackContinuationDispatch } from "../../shared/rece
 import { normalizeSDKResponse } from "../../shared/normalize-sdk-response"
 import { hasVisibleAssistantEventContent } from "./visible-assistant-response"
 import { extractAutoRetrySignal } from "./error-classifier"
+import { getScopedFallbackParentSessionHint } from "./scoped-fallback-hints"
 
 const SESSION_TTL_MS = 30 * 60 * 1000
 const EXTERNAL_WATCHDOG_RESPAWN_MS = 10_000
@@ -74,6 +78,7 @@ const RECOVERY_PROBE_DIR_PREFIX = "oh-my-opencode-recovery-probe-"
 const RECOVERY_PROBE_PROMPT = "Reply with OK only."
 const RECOVERY_PROBE_RUNTIME_FALLBACK_DISABLE_ENV = "OH_MY_OPENCODE_DISABLE_RUNTIME_FALLBACK"
 const SCOPED_FALLBACK_HANDOFF_MAX_BRIEF_CHARS = 4000
+const FRESH_SAME_MODEL_RETRY_WINDOW_MS = 10 * 60 * 1000
 const RECOVERY_PROBE_FAILURE_PATTERNS = [
   /\[session\.error\]/i,
   /\bsession ended with error\b/i,
@@ -118,7 +123,7 @@ function shouldOmitRetryAgent(
   }
 
   const normalizedAgent = normalizeAgentName(retryAgent)
-  return !normalizedAgent || normalizedAgent === "prometheus"
+  return !normalizedAgent
 }
 
 function isBoulderTrackedExecutionSession(sessionID: string, directory: string): boolean {
@@ -215,6 +220,7 @@ function inspectLatestAssistantProgress(messagesResponse: unknown): {
   }
 
   let lastAssistantMessage: (typeof messages)[number] | undefined
+  const assistantMessages: Array<(typeof messages)[number]> = []
   for (let i = messages.length - 1; i >= 0; i--) {
     const role = typeof messages[i]?.info?.role === "string" ? messages[i].info?.role : undefined
     if (role !== "assistant") {
@@ -223,8 +229,8 @@ function inspectLatestAssistantProgress(messagesResponse: unknown): {
     if (lastUserIndex >= 0 && i <= lastUserIndex) {
       break
     }
+    assistantMessages.unshift(messages[i])
     lastAssistantMessage = messages[i]
-    break
   }
 
   if (!lastAssistantMessage) {
@@ -238,47 +244,53 @@ function inspectLatestAssistantProgress(messagesResponse: unknown): {
     return { hasTerminalCompletion: true }
   }
 
-  const infoParts = Array.isArray(lastAssistantMessage.info?.parts)
-    ? lastAssistantMessage.info.parts
-    : []
-  const parts = Array.isArray(lastAssistantMessage.parts) && lastAssistantMessage.parts.length > 0
-    ? lastAssistantMessage.parts
-    : infoParts
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const part = parts[i]
-    const partType = typeof part?.type === "string" ? part.type : undefined
-    const toolName = typeof part?.tool === "string"
-      ? part.tool
-      : typeof part?.name === "string"
-        ? part.name
-        : undefined
-    const toolStatus = typeof part?.state?.status === "string" ? part.state.status : undefined
+  let hasVisibleNonTerminalResponse = false
+  for (let messageIndex = assistantMessages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const assistantMessage = assistantMessages[messageIndex]
+    const infoParts = Array.isArray(assistantMessage.info?.parts)
+      ? assistantMessage.info.parts
+      : []
+    const parts = Array.isArray(assistantMessage.parts) && assistantMessage.parts.length > 0
+      ? assistantMessage.parts
+      : infoParts
 
-    if (isLongRunningAssistantProgress({ partType, toolName, toolStatus })) {
-      return {
-        hasTerminalCompletion: false,
-        blockingProgress: {
-          partType,
-          toolName,
-          toolStatus,
-        },
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const part = parts[i]
+      const partType = typeof part?.type === "string" ? part.type : undefined
+      const toolName = typeof part?.tool === "string"
+        ? part.tool
+        : typeof part?.name === "string"
+          ? part.name
+          : undefined
+      const toolStatus = typeof part?.state?.status === "string" ? part.state.status : undefined
+
+      if (isLongRunningAssistantProgress({ partType, toolName, toolStatus })) {
+        return {
+          hasTerminalCompletion: false,
+          blockingProgress: {
+            partType,
+            toolName,
+            toolStatus,
+          },
+        }
       }
+    }
+
+    if (!assistantMessage.info?.error) {
+      hasVisibleNonTerminalResponse ||= hasVisibleAssistantEventContent(
+        extractAutoRetrySignal,
+        {
+          message: assistantMessage.info?.message,
+          parts,
+        },
+      )
     }
   }
 
-  if (!lastAssistantMessage.info?.error) {
-    const hasVisibleNonTerminalResponse = hasVisibleAssistantEventContent(
-      extractAutoRetrySignal,
-      {
-        message: lastAssistantMessage.info?.message,
-        parts,
-      },
-    )
-    if (hasVisibleNonTerminalResponse) {
-      return {
-        hasTerminalCompletion: false,
-        hasVisibleNonTerminalResponse: true,
-      }
+  if (hasVisibleNonTerminalResponse) {
+    return {
+      hasTerminalCompletion: false,
+      hasVisibleNonTerminalResponse: true,
     }
   }
 
@@ -793,6 +805,19 @@ fi
       return sessionID
     }
 
+    const stateScopedParentSessionID = typeof state.scopedFallbackParentSessionID === "string"
+      ? state.scopedFallbackParentSessionID.trim()
+      : ""
+    if (stateScopedParentSessionID.length > 0) {
+      return stateScopedParentSessionID
+    }
+
+    const hintedParentSessionID = getScopedFallbackParentSessionHint(deps, sessionID)?.trim()
+    if (typeof hintedParentSessionID === "string" && hintedParentSessionID.length > 0) {
+      state.scopedFallbackParentSessionID = hintedParentSessionID
+      return hintedParentSessionID
+    }
+
     const sessionGet = ctx.client.session.get
     if (typeof sessionGet !== "function") {
       return sessionID
@@ -800,9 +825,15 @@ fi
 
     try {
       const session = await sessionGet({ path: { id: sessionID } })
-      const parentSessionID = session?.data?.parentID
+      const parentSessionID = typeof session?.data?.parentID === "string"
+        ? session.data.parentID
+        : (typeof (session?.data as { parentId?: string } | undefined)?.parentId === "string"
+          ? (session?.data as { parentId?: string }).parentId
+          : undefined)
       if (typeof parentSessionID === "string" && parentSessionID.trim().length > 0) {
-        return parentSessionID
+        const normalizedParentSessionID = parentSessionID.trim()
+        state.scopedFallbackParentSessionID = normalizedParentSessionID
+        return normalizedParentSessionID
       }
     } catch (error) {
       log(`[${HOOK_NAME}] Failed to resolve fresh paid retry parent session`, {
@@ -1205,6 +1236,34 @@ fi
           })
         }
 
+        const stateOnlyQuietWindowMs = resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
+        const stateOnlyFreshUntil = Math.max(
+          typeof state.lastMeaningfulProgressAt === "number"
+            ? state.lastMeaningfulProgressAt + stateOnlyQuietWindowMs
+            : 0,
+          typeof state.longRunningProgressUntil === "number"
+            ? state.longRunningProgressUntil
+            : 0,
+        )
+        if (stateOnlyFreshUntil > Date.now()) {
+          const remainingFreshWindowMs = Math.max(1, stateOnlyFreshUntil - Date.now())
+          sessionLastAccess.set(sessionID, Date.now())
+          scheduleSessionFallbackTimeout(sessionID, {
+            resolvedAgent,
+            source: `${source}.assistant-live-state`,
+            timeoutMsOverride: remainingFreshWindowMs,
+          })
+          log(`[${HOOK_NAME}] Deferred session fallback timeout from live progress state while transcript is stale`, {
+            sessionID,
+            source,
+            resolvedAgent,
+            lastMeaningfulProgressAt: state.lastMeaningfulProgressAt,
+            longRunningProgressUntil: state.longRunningProgressUntil,
+            remainingFreshWindowMs,
+          })
+          return
+        }
+
         const descendantSessions = await inspectDescendantSessions(sessionID)
         if (descendantSessions.activeSessionIDs.length > 0) {
           sessionLastAccess.set(sessionID, Date.now())
@@ -1486,8 +1545,8 @@ fi
         path: { id: sessionID },
         query: { directory: ctx.directory },
       })
-      const lastUserRetryParts = getLastUserRetryParts(messagesResp)
-      if (lastUserRetryParts.length === 0) {
+      const retryBriefParts = resolveRetryBriefParts(messagesResp, state)
+      if (retryBriefParts.length === 0) {
         log(`[${HOOK_NAME}] No reusable user message found for auto-retry; continuing with internal fallback prompt (${source})`, {
           sessionID,
         })
@@ -1543,7 +1602,7 @@ fi
                   buildScopedFallbackHandoffPrompt({
                     parentSessionID: sessionID,
                     newModel,
-                    lastUserRetryParts,
+                    lastUserRetryParts: retryBriefParts,
                   }),
                 ),
               ],
@@ -1641,11 +1700,6 @@ fi
     }
 
     try {
-      const messagesResp = await ctx.client.session.messages({
-        path: { id: sessionID },
-        query: { directory: ctx.directory },
-      })
-      const lastUserRetryParts = getLastUserRetryParts(messagesResp)
       const explicitLiveRetryAgent = getExplicitLiveRetryAgent(resolvedAgent)
       const retryAgent = explicitLiveRetryAgent
         ?? await resolveAgentForSessionFromContext(
@@ -1655,6 +1709,54 @@ fi
         ?? resolvedAgent
         ?? getSessionAgent(sessionID)
       const retryParentSessionID = await resolveFreshRetryParentSessionID(sessionID, state)
+      if (state.isScopedFallbackChild && retryParentSessionID === sessionID) {
+        log(`[${HOOK_NAME}] Scoped paid retry lost its original parent; reusing the same session instead of nesting another child`, {
+          sessionID,
+          source,
+          model: state.currentModel,
+          resolvedAgent: retryAgent,
+        })
+
+        return retryCurrentModel(sessionID, retryAgent, `${source}.orphaned-scoped-child`, {
+          immediate: true,
+        })
+      }
+
+      const retryWindowState =
+        state.isScopedFallbackChild && retryParentSessionID !== sessionID
+          ? (sessionStates.get(retryParentSessionID) ?? state)
+          : state
+      if (!isFreshSameModelRetryWindowOpen(
+        retryWindowState,
+        state.currentModel,
+        FRESH_SAME_MODEL_RETRY_WINDOW_MS,
+      )) {
+        log(`[${HOOK_NAME}] Fresh same-model retry window exhausted; allowing fallback chain to advance`, {
+          sessionID,
+          retryParentSessionID,
+          source,
+          model: state.currentModel,
+          freshSameModelRetryStartedAt: retryWindowState.freshSameModelRetryStartedAt,
+          freshSameModelRetryCount: retryWindowState.freshSameModelRetryCount,
+          retryWindowMs: FRESH_SAME_MODEL_RETRY_WINDOW_MS,
+        })
+        return false
+      }
+
+      recordFreshSameModelRetry(retryWindowState, state.currentModel)
+      if (retryWindowState !== state) {
+        inheritFreshSameModelRetryWindow(state, retryWindowState)
+      }
+
+      const retryBriefSessionID =
+        state.isScopedFallbackChild && retryParentSessionID !== sessionID
+          ? retryParentSessionID
+          : sessionID
+      const messagesResp = await ctx.client.session.messages({
+        path: { id: retryBriefSessionID },
+        query: { directory: ctx.directory },
+      })
+      const retryBriefParts = resolveRetryBriefParts(messagesResp, state)
       const preserveRetryAgent = isBoulderTrackedExecutionSession(sessionID, ctx.directory)
       const retryPromptAgent = (!preserveRetryAgent
         && shouldOmitRetryAgent(state.currentModel, state.originalModel ?? state.currentModel, retryAgent))
@@ -1679,7 +1781,7 @@ fi
               buildFreshPaidRetryHandoffPrompt({
                 parentSessionID: retryParentSessionID,
                 currentModel: state.currentModel,
-                lastUserRetryParts,
+                lastUserRetryParts: retryBriefParts,
               }),
             ),
           ],

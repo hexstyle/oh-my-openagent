@@ -131,6 +131,7 @@ export function createSessionRecoveryHook(ctx: PluginInput, options?: SessionRec
         if (success && experimental?.auto_resume) {
           const lastUser = findLastUserMessage(msgs ?? [])
           const resumeConfig = extractResumeConfig(lastUser, sessionID)
+          resumeConfig.directory = ctx.directory
           await resumeSession(ctx.client, resumeConfig)
         }
       } else if (errorType === "thinking_disabled_violation") {
@@ -138,6 +139,7 @@ export function createSessionRecoveryHook(ctx: PluginInput, options?: SessionRec
         if (success && experimental?.auto_resume) {
           const lastUser = findLastUserMessage(msgs ?? [])
           const resumeConfig = extractResumeConfig(lastUser, sessionID)
+          resumeConfig.directory = ctx.directory
           await resumeSession(ctx.client, resumeConfig)
         }
       } else if (errorType === "assistant_prefill_unsupported") {

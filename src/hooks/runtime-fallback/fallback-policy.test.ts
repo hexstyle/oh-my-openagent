@@ -69,7 +69,7 @@ describe("runtime fallback policy", () => {
     ).toBe("retry_same_model_delayed")
   })
 
-  it("treats request-not-allowed 403 errors as bounded delayed same-model retries", () => {
+  it("treats request-not-allowed 403 errors as delayed same-model retries that stay inside the same paid model window", () => {
     expect(
       getRuntimeFallbackAction(
         { statusCode: 403, message: "Request not allowed" },
@@ -127,10 +127,10 @@ describe("runtime fallback policy", () => {
         { statusCode: 403, message: "Request not allowed" },
         "retry_same_model_delayed",
       ),
-    ).toBe(3)
+    ).toBeUndefined()
   })
 
-  it("treats gateway/proxy-blocked 403 forbidden errors as bounded delayed same-model retries", () => {
+  it("treats gateway/proxy-blocked 403 forbidden errors as delayed same-model retries that stay inside the same paid model window", () => {
     expect(
       getRuntimeFallbackAction(
         {

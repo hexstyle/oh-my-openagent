@@ -1,6 +1,12 @@
 export interface EventState {
   mainSessionIdle: boolean
   mainSessionError: boolean
+  /** Recoverable same-model retry is in flight; completion must not exit on a transiently-settled root. */
+  pendingSameModelRecovery: boolean
+  /** Error sequence that armed the pending same-model recovery window. */
+  pendingSameModelRecoverySequence: number
+  /** Timestamp when the pending same-model recovery window started. */
+  pendingSameModelRecoveryStartedAt: number | null
   lastError: string | null
   /** Monotonic counter of main-session error events */
   errorSequence: number
@@ -11,6 +17,8 @@ export interface EventState {
   currentTool: string | null
   /** Set to true when the main session has produced meaningful work (text, tool call, or tool result) */
   hasReceivedMeaningfulWork: boolean
+  /** Timestamp of the last meaningful assistant/tool activity observed on the main session. */
+  lastMeaningfulWorkTimestamp: number | null
   /** Timestamp of the last received event (for watchdog detection) */
   lastEventTimestamp: number
   /** Count of assistant messages for the main session */
@@ -55,6 +63,9 @@ export function createEventState(): EventState {
   return {
     mainSessionIdle: false,
     mainSessionError: false,
+    pendingSameModelRecovery: false,
+    pendingSameModelRecoverySequence: -1,
+    pendingSameModelRecoveryStartedAt: null,
     lastError: null,
     errorSequence: 0,
     lastErrorTimestamp: null,
@@ -62,6 +73,7 @@ export function createEventState(): EventState {
     lastPartText: "",
     currentTool: null,
     hasReceivedMeaningfulWork: false,
+    lastMeaningfulWorkTimestamp: null,
     lastEventTimestamp: Date.now(),
     messageCount: 0,
     currentAgent: null,

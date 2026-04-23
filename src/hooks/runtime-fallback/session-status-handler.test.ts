@@ -417,6 +417,48 @@ describe("createSessionStatusHandler", () => {
     })
   })
 
+  it("#given a request-not-allowed 403 retry status with camelCase sessionId #when the handler sees it #then it still opens a fresh same-model handoff", async () => {
+    const sessionID = "session-status-transient-forbidden-session-id"
+    SessionCategoryRegistry.clear()
+    SessionCategoryRegistry.register(sessionID, "test")
+    const deps = createDeps()
+    const abortCalls: string[] = []
+    const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const sameModelRetryCalls: Array<{ sessionID: string; source: string; immediate: boolean; persistent?: boolean; resolvedAgent?: string }> = []
+    const freshRetryCalls: Array<{ sessionID: string; source: string; resolvedAgent?: string }> = []
+    const scheduleCalls: Array<{ sessionID: string; resolvedAgent?: string; source?: string; mode?: "fallback" | "transient_retry" }> = []
+    const state = createFallbackState("anthropic/claude-opus-4-6")
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createSessionStatusHandler(
+      deps,
+      createHelpers(abortCalls, retryCalls, sameModelRetryCalls, freshRetryCalls, scheduleCalls, true),
+      deps.sessionStatusRetryKeys,
+    )
+
+    await handler({
+      sessionId: sessionID,
+      model: "anthropic/claude-opus-4-6",
+      status: {
+        type: "retry",
+        attempt: 1,
+        message: "403 Request not allowed [retrying in 10s attempt #1]",
+      },
+    })
+
+    expect(abortCalls).toEqual([sessionID])
+    expect(sameModelRetryCalls).toEqual([])
+    expect(retryCalls).toEqual([])
+    expect(freshRetryCalls).toEqual([
+      {
+        sessionID,
+        resolvedAgent: undefined,
+        source: "session.status",
+      },
+    ])
+    expect(scheduleCalls).toEqual([])
+  })
+
   it("#given a paid 403 retry status after same-model retries are exhausted #when the handler sees it #then it opens a fresh paid handoff before the paid fallback chain", async () => {
     const sessionID = "session-status-transient-forbidden-fresh-handoff"
     const deps = createDeps()

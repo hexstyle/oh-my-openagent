@@ -67,6 +67,7 @@ function createDeps(): HookDeps {
     sessionRecentCompletionUntil: new Map(),
     sessionRecentActiveStatusUntil: new Map(),
     sessionSilentAssistantUpdateCounts: new Map(),
+    sessionScopedFallbackHints: new Map(),
     sessionRetryInFlight: new Set(),
     sessionAwaitingFallbackResult: new Set(),
     sessionFallbackTimeouts: new Map(),
@@ -217,6 +218,36 @@ function withRuntimeFallbackDb(
 }
 
 describe("createEventHandler", () => {
+  it("#given a scoped fallback child session.created event #when the parent already has a canonical retry brief #then the child inherits that brief", async () => {
+    const deps = createDeps()
+    const parentSessionID = "session-parent-canonical-brief"
+    const childSessionID = "session-child-canonical-brief"
+    const parentState = createFallbackState("anthropic/claude-opus-4-6")
+    parentState.canonicalRetryParts = [{ type: "text", text: "Preserve the original eurochemeopt CI request." }]
+    deps.sessionStates.set(parentSessionID, parentState)
+
+    const handler = createEventHandler(deps, createHelpers(deps, [], []))
+
+    await handler({
+      event: {
+        type: "session.created",
+        properties: {
+          info: {
+            id: childSessionID,
+            parentID: parentSessionID,
+            title: "[runtime-fallback] Scoped Fallback: claude-opus-4-6",
+            providerID: "anthropic",
+            modelID: "claude-opus-4-6",
+          },
+        },
+      },
+    })
+
+    expect(deps.sessionStates.get(childSessionID)?.canonicalRetryParts).toEqual([
+      { type: "text", text: "Preserve the original eurochemeopt CI request." },
+    ])
+  })
+
   it("#given a session retry dedupe key #when session.stop fires #then the retry dedupe key is cleared", async () => {
     // given
     const sessionID = "session-stop"
@@ -492,6 +523,7 @@ describe("createEventHandler", () => {
               const toolName = typeof part?.tool === "string" ? part.tool : undefined
               const isLongRunning =
                 type === "compaction"
+                || type === "reasoning"
                 || type === "tool_use"
                 || type === "tool-call"
                 || (

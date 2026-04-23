@@ -72,6 +72,7 @@ function createDeps(messagesResponse: unknown): HookDeps {
     sessionLastUserMessageIDs: new Map(),
     sessionRecentCompletionUntil: new Map(),
     sessionRecentActiveStatusUntil: new Map(),
+    sessionScopedFallbackHints: new Map(),
     sessionRetryInFlight: new Set(),
     sessionAwaitingFallbackResult: new Set(),
     sessionFallbackTimeouts: new Map(),
@@ -199,9 +200,88 @@ describe("hasVisibleAssistantResponse", () => {
     // then
     expect(result).toBe(true)
   })
+
+  it("#given a prior visible assistant reply and a new current assistant turn without persisted content #when visibility is checked for the current assistant message id #then the stale prior reply does not count", async () => {
+    // given
+    const checkVisibleResponse = hasVisibleAssistantResponse(() => undefined)
+    const ctx = createContext({
+      data: [
+        { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "latest question" }] },
+        { info: { id: "msg-assistant-visible", role: "assistant" }, parts: [{ type: "text", text: "previous visible planning text" }] },
+        { info: { id: "msg-assistant-current", role: "assistant" } },
+      ],
+    })
+
+    // when
+    const result = await checkVisibleResponse(ctx, "session-current-assistant-only", {
+      id: "msg-assistant-current",
+      role: "assistant",
+    })
+
+    // then
+    expect(result).toBe(false)
+  })
 })
 
 describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
+  it("#given a real user message #when message.updated is handled #then the canonical retry brief is stored on session state", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?canonical-retry-brief-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-canonical-retry-brief"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const deps = createDeps({ data: [] })
+    const state = createFallbackState("openai/gpt-5.4")
+    deps.sessionStates.set(sessionID, state)
+    const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls))
+
+    await handler({
+      info: {
+        id: "msg-real-user",
+        sessionID,
+        role: "user",
+      },
+      parts: [{ type: "text", text: "Keep the original eurochemeopt CI request." }],
+    })
+
+    expect(state.canonicalRetryParts).toEqual([
+      { type: "text", text: "Keep the original eurochemeopt CI request." },
+    ])
+    expect(scheduleCalls).toHaveLength(1)
+  })
+
+  it("#given a title-only scoped child with a hinted parent brief #when a silent assistant bootstrap happens #then the child inherits the canonical retry brief from the parent", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?hinted-parent-brief-${Date.now()}-${Math.random()}`)
+    const parentSessionID = "session-parent-canonical-brief"
+    const childSessionID = "session-child-canonical-brief"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const deps = createDeps({ data: [] })
+    const parentState = createFallbackState("anthropic/claude-opus-4-6")
+    parentState.canonicalRetryParts = [{ type: "text", text: "\"/start-work ci-green-final\"" }]
+    deps.sessionStates.set(parentSessionID, parentState)
+    deps.sessionScopedFallbackHints?.set(childSessionID, {
+      isScopedFallbackChild: true,
+      parentSessionID,
+    })
+    const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls))
+
+    await handler({
+      info: {
+        id: "msg-silent-assistant-bootstrap",
+        sessionID: childSessionID,
+        role: "assistant",
+        agent: "Prometheus (Plan Builder)",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+        },
+      },
+    })
+
+    expect(deps.sessionStates.get(childSessionID)?.canonicalRetryParts).toEqual([
+      { type: "text", text: "\"/start-work ci-green-final\"" },
+    ])
+    expect(scheduleCalls).toHaveLength(1)
+  })
+
   it("#given a user internal initiator message #when message.updated is handled #then watchdog state is not re-armed or reset", async () => {
     const { createMessageUpdateHandler } = await import(`./message-update-handler?internal-initiator-${Date.now()}-${Math.random()}`)
     const sessionID = "session-internal-initiator"
@@ -215,6 +295,7 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     deps.sessionAwaitingFallbackResult.add(sessionID)
     deps.sessionStatusRetryKeys.set(sessionID, "retry:internal")
     deps.sessionLastUserMessageIDs.set(sessionID, "existing-user-message")
+    state.canonicalRetryParts = [{ type: "text", text: "keep the original user brief" }]
     const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls))
 
     await handler({
@@ -233,6 +314,7 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     expect(deps.sessionAwaitingFallbackResult.has(sessionID)).toBe(true)
     expect(deps.sessionStatusRetryKeys.get(sessionID)).toBe("retry:internal")
     expect(deps.sessionLastUserMessageIDs.get(sessionID)).toBe("existing-user-message")
+    expect(state.canonicalRetryParts).toEqual([{ type: "text", text: "keep the original user brief" }])
   })
 
   it("#given a raw watchdog continuation user message #when message.updated is handled #then watchdog state is not re-armed or reset", async () => {
@@ -538,6 +620,42 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
     expect(deps.sessionSilentAssistantUpdateCounts?.has(sessionID)).toBe(false)
   })
 
+  it("#given a previous visible assistant step and a new empty current assistant step #when message.updated is handled for the current message id #then the fallback timeout stays armed for the current turn", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?current-turn-visibility-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-current-turn-visibility"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const clearCalls: string[] = []
+    const deps = createDeps({
+      data: [
+        { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "create the plan" }] },
+        { info: { id: "msg-previous-visible", role: "assistant" }, parts: [{ type: "text", text: "I have synthesized the prior artifacts." }] },
+        { info: { id: "msg-current-empty", role: "assistant" } },
+      ],
+    })
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-6"))
+    deps.sessionRecentActiveStatusUntil?.set(sessionID, Date.now() + 5_000)
+    const handler = createMessageUpdateHandler(
+      deps,
+      createHelpers(scheduleCalls, clearCalls),
+    )
+
+    await handler({
+      info: {
+        id: "msg-current-empty",
+        sessionID,
+        role: "assistant",
+        agent: "Prometheus (Plan Builder)",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+        },
+      },
+    })
+
+    expect(clearCalls).toEqual([])
+    expect(scheduleCalls).toEqual([{ sessionID, timeoutMsOverride: 120_000 }])
+  })
+
   it("#given a pending fallback model that itself fails #when message.updated receives the new model error #then fallback advances instead of deadlocking on pending state", async () => {
     const { createMessageUpdateHandler } = await import(`./message-update-handler?pending-model-fails-${Date.now()}-${Math.random()}`)
     const sessionID = "session-pending-fallback-model-fails"
@@ -797,6 +915,82 @@ describe("createMessageUpdateHandler internal initiator watchdog skip", () => {
       {
         sessionID,
         resolvedAgent: "sisyphus-junior",
+        source: "message.updated",
+      },
+    ])
+    expect(retryCurrentModelCalls).toEqual([])
+    expect(autoRetryCalls).toEqual([])
+  })
+
+  it("#given a paid request-not-allowed 403 with camelCase sessionId #when message.updated handles the assistant error #then runtime-fallback still opens a fresh same-model handoff", async () => {
+    const { createMessageUpdateHandler } = await import(`./message-update-handler?fresh-paid-retry-session-id-${Date.now()}-${Math.random()}`)
+    const sessionID = "session-fresh-paid-retry-session-id"
+    const scheduleCalls: Array<{ sessionID: string; timeoutMsOverride?: number }> = []
+    const autoRetryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const freshRetryCalls: Array<{ sessionID: string; resolvedAgent?: string; source: string }> = []
+    const retryCurrentModelCalls: Array<{ sessionID: string; resolvedAgent?: string; source: string }> = []
+    const deps = createDeps({
+      data: [
+        { info: { role: "user" }, parts: [{ type: "text", text: "Continue the task." }] },
+      ],
+    })
+    deps.pluginConfig = {
+      ...deps.pluginConfig,
+      agents: {
+        prometheus: {
+          fallback_models: [
+            "anthropic/claude-opus-4-6",
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5.3-codex-spark",
+          ],
+        },
+      },
+    }
+    const state = createFallbackState("anthropic/claude-opus-4-6")
+    state.resolvedAgent = "prometheus"
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createMessageUpdateHandler(deps, createHelpers(scheduleCalls, {
+      retryCurrentModel: async (retrySessionID, resolvedAgent, source) => {
+        retryCurrentModelCalls.push({ sessionID: retrySessionID, resolvedAgent, source })
+        return false
+      },
+      retryCurrentModelInFreshSession: async (retrySessionID, resolvedAgent, source) => {
+        freshRetryCalls.push({ sessionID: retrySessionID, resolvedAgent, source })
+        return true
+      },
+      autoRetryWithFallback: async (retrySessionID, model, _resolvedAgent, source) => {
+        autoRetryCalls.push({
+          sessionID: retrySessionID,
+          model,
+          source,
+        })
+      },
+    }))
+
+    await handler({
+      info: {
+        id: "msg-fresh-paid-retry-session-id",
+        sessionId: sessionID,
+        role: "assistant",
+        agent: "Prometheus (Plan Builder)",
+        providerID: "anthropic",
+        modelID: "claude-opus-4-6",
+        error: {
+          name: "APIError",
+          data: {
+            statusCode: 403,
+            message: "Forbidden: {\n  \"error\": {\n    \"type\": \"forbidden\",\n    \"message\": \"Request not allowed\"\n  }\n}",
+          },
+        },
+      },
+    })
+
+    expect(freshRetryCalls).toEqual([
+      {
+        sessionID,
+        resolvedAgent: "prometheus",
         source: "message.updated",
       },
     ])

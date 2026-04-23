@@ -242,8 +242,10 @@ describe("normalizeAgentForExecution", () => {
 })
 
 describe("normalizeAgentForSessionPrompt", () => {
-  it("normalizes non-reserved agents to canonical display names", () => {
+  it("normalizes known agents to canonical prompt display names", () => {
     expect(normalizeAgentForSessionPrompt("atlas")).toBe("Atlas (Plan Executor)")
+    expect(normalizeAgentForSessionPrompt("Prometheus (Plan Builder)")).toBe("Prometheus (Plan Builder)")
+    expect(normalizeAgentForSessionPrompt("prometheus")).toBe("Prometheus (Plan Builder)")
   })
 
   it("preserves the explore runtime key for session prompt payloads", () => {

@@ -4,7 +4,7 @@ import { HOOK_NAME, resolveLongRunningProgressTimeoutMs } from "./constants"
 import { resolveRecentActiveStatusTimeoutOverride } from "./active-status-timeout"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, extractAutoRetrySignal, containsErrorContent, containsLocalToolAbortPart, isAbortWrapperError } from "./error-classifier"
-import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, markLimitError, markLocalToolAbort, markSessionError, isRecentLocalToolAbort } from "./fallback-state"
+import { createFallbackState, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, markLimitError, markLocalToolAbort, markSessionError, isRecentLocalToolAbort, rememberCanonicalRetryParts, inheritCanonicalRetryParts, inheritFreshSameModelRetryWindow } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
 import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
@@ -36,6 +36,7 @@ import {
 } from "./internal-continuation-loop-state"
 import { getRuntimeFallbackSessionID } from "./session-id"
 import { applyScopedFallbackSessionHint } from "./scoped-fallback-hints"
+import { extractRetryTextParts } from "./last-user-retry-parts"
 
 export { hasVisibleAssistantResponse } from "./visible-assistant-response"
 
@@ -82,6 +83,16 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
 
       const state = createFallbackState(model)
       applyScopedFallbackSessionHint(deps, args.sessionID, state)
+      if (state.scopedFallbackParentSessionID) {
+        inheritCanonicalRetryParts(
+          state,
+          sessionStates.get(state.scopedFallbackParentSessionID),
+        )
+        inheritFreshSameModelRetryWindow(
+          state,
+          sessionStates.get(state.scopedFallbackParentSessionID),
+        )
+      }
       sessionStates.set(args.sessionID, state)
       log(`[${HOOK_NAME}] Bootstrapped fallback state from message.updated`, {
         sessionID: args.sessionID,
@@ -203,6 +214,7 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       // Clear the stop inhibitor so the watchdog can re-arm for this new request.
       const stateForUser = sessionStates.get(sessionID)
       if (stateForUser) {
+        rememberCanonicalRetryParts(stateForUser, extractRetryTextParts(parts))
         if (stateForUser.stoppedAt) {
           stateForUser.stoppedAt = undefined
         }

@@ -4,7 +4,7 @@
  * Handles reading/writing boulder.json for active plan tracking.
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from "node:fs"
 import { dirname, join, basename, resolve } from "node:path"
 import type { BoulderSessionOrigin, BoulderState, PlanProgress, TaskSessionState } from "./types"
 import { BOULDER_DIR, BOULDER_FILE, PROMETHEUS_PLANS_DIR } from "./constants"
@@ -14,6 +14,8 @@ const TODO_HEADING_PATTERN = /^##\s+TODOs\b/i
 const FINAL_VERIFICATION_HEADING_PATTERN = /^##\s+Final Verification Wave\b/i
 const SECOND_LEVEL_HEADING_PATTERN = /^##\s+/
 const CHECKBOX_PATTERN = /^(\s*)[-*]\s*\[([xX\s])\]\s+.+$/
+const SUPERCEDES_PATTERN = /\bSupersedes\b/i
+const MARKDOWN_FILENAME_PATTERN = /`([^`]+\.md)`|([A-Za-z0-9._-]+\.md)/g
 
 type PlanSection = "todo" | "final-wave" | "other"
 type ParsedPlanTask = {
@@ -119,6 +121,49 @@ function parsePlanTasks(planPath: string): {
   }
 
   return { structuredTasks, fallbackTasks }
+}
+
+function hasTopLevelTodoTasks(content: string): boolean {
+  const lines = content.split(/\r?\n/)
+  let inTodoSection = false
+
+  for (const line of lines) {
+    if (SECOND_LEVEL_HEADING_PATTERN.test(line)) {
+      inTodoSection = TODO_HEADING_PATTERN.test(line)
+      continue
+    }
+
+    if (!inTodoSection) {
+      continue
+    }
+
+    const checkboxMatch = line.match(CHECKBOX_PATTERN)
+    if (checkboxMatch && checkboxMatch[1].length === 0) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function extractSupersededPlanNames(content: string): Set<string> {
+  const supersededPlanNames = new Set<string>()
+  const lines = content.split(/\r?\n/)
+
+  for (const line of lines) {
+    if (!SUPERCEDES_PATTERN.test(line)) {
+      continue
+    }
+
+    for (const match of line.matchAll(MARKDOWN_FILENAME_PATTERN)) {
+      const candidate = (match[1] ?? match[2] ?? "").trim()
+      if (candidate.length > 0) {
+        supersededPlanNames.add(candidate)
+      }
+    }
+  }
+
+  return supersededPlanNames
 }
 
 export function getBoulderFilePath(directory: string): string {
@@ -371,16 +416,33 @@ export function findPrometheusPlans(directory: string): string[] {
   }
 
   try {
-    const files = readdirSync(plansDir)
-    return files
+    const supersededPlanNames = new Set<string>()
+
+    return readdirSync(plansDir)
       .filter((f) => f.endsWith(".md"))
-      .map((f) => join(plansDir, f))
-      .sort((a, b) => {
-        // Sort by modification time, newest first
-        const aStat = require("node:fs").statSync(a)
-        const bStat = require("node:fs").statSync(b)
-        return bStat.mtimeMs - aStat.mtimeMs
+      .map((fileName) => {
+        const filePath = join(plansDir, fileName)
+        return {
+          fileName,
+          filePath,
+          content: readFileSync(filePath, "utf-8"),
+          mtimeMs: statSync(filePath).mtimeMs,
+        }
       })
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+      .filter((entry) => {
+        if (!hasTopLevelTodoTasks(entry.content)) {
+          return false
+        }
+        if (supersededPlanNames.has(entry.fileName)) {
+          return false
+        }
+        for (const supersededPlanName of extractSupersededPlanNames(entry.content)) {
+          supersededPlanNames.add(supersededPlanName)
+        }
+        return true
+      })
+      .map((entry) => entry.filePath)
   } catch {
     return []
   }

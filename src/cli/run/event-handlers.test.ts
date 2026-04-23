@@ -125,6 +125,36 @@ describe("handleSessionError", () => {
     expect(typeof state.lastErrorTimestamp).toBe("number")
     errorSpy.mockRestore()
   })
+
+  it("arms pending same-model recovery for recoverable provider 403 errors", () => {
+    //#given
+    const ctx = createMockContext("test-session")
+    const state = createEventState()
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {})
+
+    const payload = {
+      type: "session.error",
+      properties: {
+        sessionID: "test-session",
+        error: {
+          message: "Forbidden: Request not allowed",
+          statusCode: 403,
+          responseBody: JSON.stringify({
+            error: { type: "forbidden", message: "Request not allowed" },
+          }),
+        },
+      },
+    }
+
+    //#when
+    handleSessionError(ctx, payload as any, state)
+
+    //#then
+    expect(state.pendingSameModelRecovery).toBe(true)
+    expect(state.pendingSameModelRecoverySequence).toBe(state.errorSequence)
+    expect(typeof state.pendingSameModelRecoveryStartedAt).toBe("number")
+    errorSpy.mockRestore()
+  })
 })
 
 describe("handleMessagePartUpdated", () => {
@@ -134,6 +164,8 @@ describe("handleMessagePartUpdated", () => {
     const state = createEventState()
     state.mainSessionError = true
     state.lastError = "unknown certificate verification error"
+    state.pendingSameModelRecovery = true
+    state.pendingSameModelRecoveryStartedAt = Date.now()
     const stdoutSpy = spyOn(process.stdout, "write").mockImplementation(() => true)
 
     const payload = {
@@ -154,7 +186,9 @@ describe("handleMessagePartUpdated", () => {
 
     //#then
     expect(state.mainSessionError).toBe(false)
+    expect(state.pendingSameModelRecovery).toBe(false)
     expect(state.hasReceivedMeaningfulWork).toBe(true)
+    expect(typeof state.lastMeaningfulWorkTimestamp).toBe("number")
     stdoutSpy.mockRestore()
   })
 
@@ -436,6 +470,8 @@ describe("handleToolExecute", () => {
     const state = createEventState()
     state.mainSessionError = true
     state.lastError = "Forbidden: Request not allowed"
+    state.pendingSameModelRecovery = true
+    state.pendingSameModelRecoveryStartedAt = Date.now()
     const stdoutSpy = spyOn(process.stdout, "write").mockImplementation(() => true)
 
     const payload = {
@@ -452,8 +488,42 @@ describe("handleToolExecute", () => {
 
     //#then
     expect(state.mainSessionError).toBe(false)
+    expect(state.pendingSameModelRecovery).toBe(false)
     expect(state.currentTool).toBe("read")
     stdoutSpy.mockRestore()
+  })
+
+  it("does not clear a transient main-session error for assistant tool error wrappers", () => {
+    //#given - session.error fired and the follow-up assistant part is only an aborted tool wrapper
+    const ctx = createMockContext("ses_main")
+    const state = createEventState()
+    state.mainSessionError = true
+    state.lastError = "Aborted"
+
+    const payload = {
+      type: "message.part.updated",
+      properties: {
+        info: {
+          role: "assistant",
+        },
+        part: {
+          sessionID: "ses_main",
+          messageID: "msg_tool_abort",
+          type: "tool",
+          tool: "write",
+          state: {
+            status: "error",
+            error: "Tool execution aborted",
+          },
+        },
+      },
+    }
+
+    //#when
+    handleMessagePartUpdated(ctx, payload as any, state)
+
+    //#then
+    expect(state.mainSessionError).toBe(true)
   })
 })
 

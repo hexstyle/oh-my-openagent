@@ -9,7 +9,7 @@ import {
 import { resolveRecentActiveStatusTimeoutOverride } from "./active-status-timeout"
 import { log } from "../../shared/logger"
 import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, isAbortWrapperError } from "./error-classifier"
-import { createFallbackState, hasMeaningfulProgressSinceLastError, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, resetTransientRetryState, markLimitError, markLocalToolAbort, markSessionStopped, isRecentLimitError, isRecentLocalToolAbort, markSessionError } from "./fallback-state"
+import { createFallbackState, hasMeaningfulProgressSinceLastError, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, resetTransientRetryState, markLimitError, markLocalToolAbort, markSessionStopped, isRecentLimitError, isRecentLocalToolAbort, markSessionError, inheritCanonicalRetryParts, inheritFreshSameModelRetryWindow } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { resolveFallbackBootstrapModel } from "./fallback-bootstrap-model"
@@ -123,28 +123,15 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     const state = sessionStates.get(sessionID)
     const now = Date.now()
     const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
-    const isTextDeltaProgress =
-      source === "message.part.delta"
-      && field === "text"
+    const hasVisibleTextDelta =
+      (field === undefined || field === "text")
       && delta.trim().length > 0
-    if (isTextDeltaProgress && state) {
-      const durableAnchor = state.lastDurableAssistantProgressAt
-      if (
-        durableAnchor !== undefined
-        && now - durableAnchor >= baseTimeoutMs
-      ) {
-        log(`[${HOOK_NAME}] Ignored delta-only assistant churn after durable progress window expired`, {
-          sessionID,
-          source,
-          resolvedAgent: state.resolvedAgent,
-          durableAnchorAgeMs: now - durableAnchor,
-        })
-        return
-      }
-      if (durableAnchor === undefined) {
-        state.lastDurableAssistantProgressAt = now
-      }
-    }
+    const isStreamingTextDeltaProgress =
+      source === "message.part.delta"
+      && hasVisibleTextDelta
+    const hasReasoningStreamProgress =
+      partType === "reasoning"
+      && (partText.length > 0 || delta.trim().length > 0)
     const malformedPendingTool =
       partType === "tool"
       && toolStatus === "pending"
@@ -156,12 +143,8 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
           : undefined
         return raw.length === 0 && (!input || Object.keys(input).length === 0)
       })()
-    const reasoningHasFreshWatchdogBudget =
-      partType === "reasoning"
-      && (partText.length > 0 || delta.trim().length > 0)
-      && state?.lastMeaningfulProgressAt === undefined
     const hasMeaningfulProgress =
-      (field === "text" && delta.trim().length > 0) ||
+      hasVisibleTextDelta ||
       partType === "compaction" ||
       partType === "step-start" ||
       partType === "tool" ||
@@ -169,16 +152,9 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       partType === "tool_result" ||
       partType === "tool-call" ||
       (partType === "text" && partText.length > 0) ||
-      reasoningHasFreshWatchdogBudget
+      hasReasoningStreamProgress
 
     if (!hasMeaningfulProgress) {
-      if (partType === "reasoning" && (partText.length > 0 || delta.trim().length > 0)) {
-        log(`[${HOOK_NAME}] Ignored repeated reasoning-only assistant progress for watchdog refresh`, {
-          sessionID,
-          source,
-          resolvedAgent: state?.resolvedAgent,
-        })
-      }
       return
     }
 
@@ -190,6 +166,9 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       toolStatus,
       toolName,
     })
+    const shouldExtendLiveStreamQuietWindow =
+      isStreamingTextDeltaProgress
+      || hasReasoningStreamProgress
     const isPreExecutionRegroupTool = isPreExecutionRegroupToolProgress({
       partType,
       toolStatus,
@@ -201,14 +180,16 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
         : undefined
     const timeoutMsOverride = isLongRunningProgress
       ? longRunningTimeoutMs
-      : (
-        (
-          (field === "text" && delta.trim().length > 0)
-          || (partType === "text" && partText.length > 0)
+      : shouldExtendLiveStreamQuietWindow
+        ? longRunningTimeoutMs
+        : (
+          (
+            hasVisibleTextDelta
+            || (partType === "text" && partText.length > 0)
+          )
+            ? resolveRecentActiveStatusTimeoutOverride(deps, sessionID)
+            : undefined
         )
-          ? resolveRecentActiveStatusTimeoutOverride(deps, sessionID)
-          : undefined
-      )
 
     const resolvedAgent = await helpers.resolveAgentForSessionFromContext(
       sessionID,
@@ -223,14 +204,14 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       markMeaningfulProgress(state, now)
       if (isPreExecutionRegroupTool) {
         state.longRunningProgressUntil = now + longRunningTimeoutMs
+      } else if (shouldExtendLiveStreamQuietWindow) {
+        state.longRunningProgressUntil = now + longRunningTimeoutMs
       } else if (typeof inheritedLongRunningTimeoutMs === "number") {
         state.longRunningProgressUntil = now + inheritedLongRunningTimeoutMs
       } else {
         state.longRunningProgressUntil = undefined
       }
-      if (!isTextDeltaProgress) {
-        state.lastDurableAssistantProgressAt = now
-      }
+      state.lastDurableAssistantProgressAt = now
     }
 
     helpers.scheduleSessionFallbackTimeout(sessionID, {
@@ -421,6 +402,9 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   const handleSessionCreated = (props: Record<string, unknown> | undefined) => {
     const sessionInfo = props?.info as Record<string, unknown> | undefined
     const sessionID = typeof sessionInfo?.id === "string" ? sessionInfo.id : undefined
+    const parentSessionID = typeof sessionInfo?.parentID === "string"
+      ? sessionInfo.parentID
+      : (typeof sessionInfo?.parentId === "string" ? sessionInfo.parentId : undefined)
     const title = typeof sessionInfo?.title === "string" ? sessionInfo.title : undefined
     const model = extractEventModelString({
       model: sessionInfo?.model,
@@ -430,11 +414,20 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     })
 
     if (sessionID) {
-      rememberScopedFallbackSessionHint(deps, sessionID, title)
+      rememberScopedFallbackSessionHint(deps, sessionID, title, parentSessionID)
     }
 
     if (sessionID && model) {
+      const previousState = sessionStates.get(sessionID)
       const state = createFallbackState(model)
+      if (previousState) {
+        inheritCanonicalRetryParts(state, previousState)
+        inheritFreshSameModelRetryWindow(state, previousState)
+      }
+      if (parentSessionID) {
+        inheritCanonicalRetryParts(state, sessionStates.get(parentSessionID))
+        inheritFreshSameModelRetryWindow(state, sessionStates.get(parentSessionID))
+      }
       applyScopedFallbackSessionHint(deps, sessionID, state)
       log(`[${HOOK_NAME}] Session created with model`, { sessionID, model })
       sessionStates.set(sessionID, state)

@@ -706,9 +706,13 @@ function getEmptyAssistantRecoveryDelayMs(sessionID: string, messageID: string):
   const snapshot = getAssistantRecoverySnapshot(sessionID, messageID);
   if (
     snapshot
-    && snapshot.hasStreamingDelta
+    && !snapshot.pendingPrometheusTool
     && !snapshot.hasUserFacingContent
     && isPrometheusPlannerAgent(snapshot.agent ?? getSessionAgent(sessionID))
+    && (
+      snapshot.hasStreamingDelta
+      || snapshot.hasRecoverablePlannerInternalParts
+    )
   ) {
     return PROMETHEUS_STREAMING_DELTA_RECOVERY_DELAY_MS;
   }

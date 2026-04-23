@@ -4736,7 +4736,7 @@ describe("createEventHandler - pending empty planning tool recovery", () => {
 	it("recovers a delayed Prometheus planner turn that only emitted internal parts", async () => {
 		//#given
 		jest.useFakeTimers()
-		const sessionID = "ses_planner_internal_only"
+		const sessionID = "ses_planner_internal_only_runtime_fallback"
 		const abortCalls: string[] = []
 		const eventHandler = createEventHandler({
 			ctx: {
@@ -5008,6 +5008,17 @@ describe("createEventHandler - pending empty planning tool recovery", () => {
 		for (let index = 0; index < 10; index += 1) {
 			await Promise.resolve()
 		}
+		expect(abortCalls).toEqual([])
+		expect(promptAsyncCalls).toHaveLength(0)
+
+		if (typeof jestTimers.advanceTimersByTimeAsync === "function") {
+			await jestTimers.advanceTimersByTimeAsync(115_000)
+		} else {
+			jest.advanceTimersByTime(115_000)
+		}
+		for (let index = 0; index < 10; index += 1) {
+			await Promise.resolve()
+		}
 
 		//#then
 		expect(abortCalls).toEqual([])
@@ -5082,6 +5093,8 @@ describe("createEventHandler - pending empty planning tool recovery", () => {
 		for (let index = 0; index < 10; index += 1) {
 			await Promise.resolve()
 		}
+		expect(abortCalls).toEqual([])
+		expect(promptAsyncCalls).toHaveLength(0)
 		await eventHandler({
 			event: {
 				type: "message.part.updated",
@@ -5113,6 +5126,17 @@ describe("createEventHandler - pending empty planning tool recovery", () => {
 			await jestTimers.advanceTimersByTimeAsync(5_000)
 		} else {
 			jest.advanceTimersByTime(5_000)
+		}
+		for (let index = 0; index < 10; index += 1) {
+			await Promise.resolve()
+		}
+		expect(abortCalls).toEqual([])
+		expect(promptAsyncCalls).toHaveLength(0)
+
+		if (typeof jestTimers.advanceTimersByTimeAsync === "function") {
+			await jestTimers.advanceTimersByTimeAsync(115_000)
+		} else {
+			jest.advanceTimersByTime(115_000)
 		}
 		for (let index = 0; index < 10; index += 1) {
 			await Promise.resolve()
@@ -5216,6 +5240,119 @@ describe("createEventHandler - pending empty planning tool recovery", () => {
 					sessionID,
 					field: "text",
 					delta: "Now I have a comprehensive picture of the current state.",
+				},
+			},
+		} as any)
+		const jestTimers = jest as unknown as { advanceTimersByTimeAsync?: (ms: number) => Promise<void> }
+		if (typeof jestTimers.advanceTimersByTimeAsync === "function") {
+			await jestTimers.advanceTimersByTimeAsync(5_000)
+		} else {
+			jest.advanceTimersByTime(5_000)
+		}
+		for (let index = 0; index < 10; index += 1) {
+			await Promise.resolve()
+		}
+		expect(abortCalls).toEqual([])
+		expect(promptAsyncCalls).toHaveLength(0)
+
+		if (typeof jestTimers.advanceTimersByTimeAsync === "function") {
+			await jestTimers.advanceTimersByTimeAsync(115_000)
+		} else {
+			jest.advanceTimersByTime(115_000)
+		}
+		for (let index = 0; index < 10; index += 1) {
+			await Promise.resolve()
+		}
+
+		//#then
+		expect(abortCalls).toEqual([])
+		expect(promptAsyncCalls).toHaveLength(1)
+		const promptBody = promptAsyncCalls[0]?.body as { parts?: Array<{ text?: string }> } | undefined
+		expect(promptBody?.parts?.[0]?.text).toContain("complete plan generation now")
+	})
+
+	it("waits for an extended quiet window before recovering a Prometheus turn that only emitted internal planner parts", async () => {
+		//#given
+		jest.useFakeTimers()
+		const sessionID = "ses_planner_internal_only"
+		const abortCalls: string[] = []
+		const promptAsyncCalls: Array<Record<string, unknown>> = []
+		const eventHandler = createEventHandler({
+			ctx: {
+				directory: "/tmp",
+				client: {
+					session: {
+						messages: async () => {
+							throw new Error("messages unavailable while planner turn is active")
+						},
+						abort: async ({ path }: { path: { id: string } }) => {
+							abortCalls.push(path.id)
+							return {}
+						},
+						promptAsync: async (input: Record<string, unknown>) => {
+							promptAsyncCalls.push(input)
+							return {}
+						},
+					},
+				},
+			} as any,
+			pluginConfig: {
+				experimental: { auto_resume: true },
+				runtime_fallback: { enabled: true },
+			} as any,
+			firstMessageVariantGate: {
+				markSessionCreated: () => {},
+				clear: () => {},
+			},
+			managers: {
+				tmuxSessionManager: {
+					onSessionCreated: async () => {},
+					onSessionDeleted: async () => {},
+				},
+			} as any,
+			hooks: {
+				stopContinuationGuard: { isStopped: () => false },
+			} as any,
+		})
+
+		//#when
+		await eventHandler({
+			event: {
+				type: "message.updated",
+				properties: {
+					info: {
+						id: "msg_assistant_internal_only",
+						sessionID,
+						role: "assistant",
+						agent: "Prometheus (Plan Builder)",
+					},
+				},
+			},
+		} as any)
+		await eventHandler({
+			event: {
+				type: "message.part.updated",
+				properties: {
+					part: {
+						id: "part_step_internal_only",
+						sessionID,
+						messageID: "msg_assistant_internal_only",
+						type: "step-start",
+					},
+				},
+			},
+		} as any)
+		await eventHandler({
+			event: {
+				type: "message.part.updated",
+				properties: {
+					part: {
+						id: "part_reasoning_internal_only",
+						sessionID,
+						messageID: "msg_assistant_internal_only",
+						type: "reasoning",
+						text: "",
+					},
 				},
 			},
 		} as any)

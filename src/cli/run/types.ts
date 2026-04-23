@@ -93,7 +93,7 @@ export interface MessagePartUpdatedProps {
     /** Tool name (for part.type === "tool") */
     tool?: string
     /** Tool state (for part.type === "tool") */
-    state?: { status?: string; input?: Record<string, unknown>; output?: string }
+    state?: { status?: string; input?: Record<string, unknown>; output?: string; error?: string }
     name?: string
     input?: unknown
     time?: { start?: number; end?: number }

@@ -83,4 +83,45 @@ describe("runtime fallback session id resolution", () => {
       },
     })).toBe(sessionID)
   })
+
+  it("reuses a cached part to session binding for later delta-only events before the part row is committed", () => {
+    const messageID = "msg_live_part_cache_only"
+    const partID = "prt_live_part_cache_only"
+    const sessionID = "ses_live_part_cache_only"
+
+    expect(getRuntimeFallbackSessionID({
+      part: {
+        id: partID,
+        sessionID,
+        messageID,
+        type: "reasoning",
+      },
+    })).toBe(sessionID)
+
+    expect(getRuntimeFallbackSessionID({
+      partID,
+      field: "text",
+      delta: "Still streaming the same assistant turn.",
+    })).toBe(sessionID)
+  })
+
+  it("reuses a cached message to session binding for later info-only events before the message row is committed", () => {
+    const messageID = "msg_live_message_cache_only"
+    const sessionID = "ses_live_message_cache_only"
+
+    expect(getRuntimeFallbackSessionID({
+      info: {
+        sessionID,
+        id: messageID,
+        role: "assistant",
+      },
+    })).toBe(sessionID)
+
+    expect(getRuntimeFallbackSessionID({
+      info: {
+        id: messageID,
+        role: "assistant",
+      },
+    })).toBe(sessionID)
+  })
 })

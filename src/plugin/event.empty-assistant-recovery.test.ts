@@ -116,6 +116,7 @@ describe("createEventHandler idle empty assistant recovery", () => {
           modelID: "claude-opus-4-6",
         },
       }),
+      query: { directory: "/tmp" },
     })
   })
 
@@ -173,9 +174,9 @@ describe("createEventHandler idle empty assistant recovery", () => {
     const handler = createHandler([
       {
         info: {
-          id: "msg_user_reasoning_only",
+          id: "msg_user_reasoning_only_non_planner",
           role: "user",
-          agent: "Prometheus (Plan Builder)",
+          agent: "Atlas (Plan Executor)",
           model: {
             providerID: "anthropic",
             modelID: "claude-opus-4-6",
@@ -185,8 +186,9 @@ describe("createEventHandler idle empty assistant recovery", () => {
       },
       {
         info: {
-          id: "msg_reasoning_only",
+          id: "msg_reasoning_only_non_planner",
           role: "assistant",
+          agent: "Atlas (Plan Executor)",
           finish: "other",
         },
         parts: [
@@ -207,7 +209,7 @@ describe("createEventHandler idle empty assistant recovery", () => {
       event: {
         type: "session.status",
         properties: {
-          sessionID: "ses_reasoning_only",
+          sessionID: "ses_reasoning_only_non_planner",
           status: { type: "idle" },
         },
       },
@@ -216,5 +218,190 @@ describe("createEventHandler idle empty assistant recovery", () => {
     //#then
     expect(fixEmptyMessagesWithSDKMock).not.toHaveBeenCalled()
     expect(promptAsyncMock).not.toHaveBeenCalled()
+  })
+
+  test("recovers and resumes when idle prometheus session ends with a reasoning-only assistant turn", async () => {
+    //#given
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_reasoning_only_planner",
+          role: "user",
+          agent: "Prometheus (Plan Builder)",
+          model: {
+            providerID: "anthropic",
+            modelID: "claude-opus-4-6",
+          },
+        },
+        parts: [{ type: "text", text: "finish the plan" }],
+      },
+      {
+        info: {
+          id: "msg_reasoning_only_planner",
+          role: "assistant",
+          agent: "Prometheus (Plan Builder)",
+          finish: "other",
+        },
+        parts: [
+          {
+            type: "reasoning",
+            text: "I have enough information to write the plan but need to continue the generation flow.",
+          },
+          {
+            type: "step-finish",
+            reason: "other",
+          },
+        ],
+      },
+    ])
+
+    //#when
+    await handler({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionID: "ses_reasoning_only_planner",
+          status: { type: "idle" },
+        },
+      },
+    })
+
+    //#then
+    expect(fixEmptyMessagesWithSDKMock).not.toHaveBeenCalled()
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_reasoning_only_planner" },
+      body: expect.objectContaining({
+        agent: "Prometheus (Plan Builder)",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+        },
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
+  test("recovers and resumes when idle prometheus session ends with a raw-shape reasoning-only assistant turn", async () => {
+    //#given
+    const handler = createHandler([
+      {
+        id: "msg_user_reasoning_only_planner_raw",
+        role: "user",
+        agent: "Prometheus (Plan Builder)",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+        },
+        parts: [{ type: "text", text: "finish the plan" }],
+      },
+      {
+        id: "msg_reasoning_only_planner_raw",
+        role: "assistant",
+        agent: "Prometheus (Plan Builder)",
+        finish: "other",
+        parts: [
+          {
+            type: "reasoning",
+            text: "I now have enough information to consolidate the final plan.",
+          },
+          {
+            type: "step-finish",
+            reason: "other",
+          },
+        ],
+      },
+    ])
+
+    //#when
+    await handler({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionID: "ses_reasoning_only_planner_raw",
+          status: { type: "idle" },
+        },
+      },
+    })
+
+    //#then
+    expect(fixEmptyMessagesWithSDKMock).not.toHaveBeenCalled()
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_reasoning_only_planner_raw" },
+      body: expect.objectContaining({
+        agent: "Prometheus (Plan Builder)",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+        },
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining("Do not stop at reasoning."),
+          }),
+        ]),
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
+  test("recovers planner reasoning-only idle turns when session.status uses camelCase sessionId", async () => {
+    //#given
+    const handler = createHandler([
+      {
+        id: "msg_user_reasoning_only_planner_raw_camel",
+        role: "user",
+        agent: "Prometheus (Plan Builder)",
+        providerID: "anthropic",
+        modelID: "claude-opus-4-6",
+        parts: [{ type: "text", text: "finish the plan" }],
+      },
+      {
+        id: "msg_reasoning_only_planner_raw_camel",
+        role: "assistant",
+        agent: "Prometheus (Plan Builder)",
+        finish: "other",
+        parts: [
+          {
+            type: "reasoning",
+            text: "I have enough context and should now write the final plan.",
+          },
+          {
+            type: "step-finish",
+            reason: "other",
+          },
+        ],
+      },
+    ])
+
+    //#when
+    await handler({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionId: "ses_reasoning_only_planner_raw_camel",
+          status: { type: "idle" },
+        },
+      },
+    })
+
+    //#then
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_reasoning_only_planner_raw_camel" },
+      body: expect.objectContaining({
+        agent: "Prometheus (Plan Builder)",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+        },
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining("TodoWrite"),
+          }),
+        ]),
+      }),
+      query: { directory: "/tmp" },
+    })
   })
 })

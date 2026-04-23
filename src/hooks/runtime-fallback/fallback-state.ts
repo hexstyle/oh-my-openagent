@@ -1,4 +1,4 @@
-import type { FallbackState, FallbackResult } from "./types"
+import type { FallbackState, FallbackResult, RuntimeFallbackTextPart } from "./types"
 import { HOOK_NAME } from "./constants"
 import { log } from "../../shared/logger"
 import type { ResolvedRuntimeFallbackConfig } from "./types"
@@ -40,6 +40,10 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     originalModel,
     currentModel: originalModel,
     isScopedFallbackChild: false,
+    scopedFallbackParentSessionID: undefined,
+    freshSameModelRetryModelIdentity: undefined,
+    freshSameModelRetryStartedAt: undefined,
+    freshSameModelRetryCount: undefined,
     fallbackIndex: -1,
     fallbackModels: dedupeModels(fallbackModels),
     failedModels: new Map<string, number>(),
@@ -54,6 +58,8 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     pendingFallbackModel: undefined,
     lastLimitErrorAt: undefined,
     lastMeaningfulProgressAt: undefined,
+    lastDurableAssistantProgressAt: undefined,
+    longRunningProgressUntil: undefined,
     lastErrorAt: undefined,
     lastLocalToolAbortAt: undefined,
     lastActiveStatusRefreshAt: undefined,
@@ -64,6 +70,10 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     manualProviderClearanceUrl: undefined,
     manualProviderClearanceNotifiedAt: undefined,
   }
+}
+
+function cloneRetryParts(parts: RuntimeFallbackTextPart[]): RuntimeFallbackTextPart[] {
+  return parts.map((part) => ({ type: "text", text: part.text }))
 }
 
 const LIMIT_ERROR_SIGNAL_WINDOW_MS = 5 * 60 * 1000
@@ -144,7 +154,97 @@ export function markFallbackResponseSuccess(state: FallbackState): void {
   clearLocalToolAbort(state)
   state.lastErrorAt = undefined
   state.lastActiveStatusRefreshAt = undefined
+  resetFreshSameModelRetryWindow(state)
   resetTransientRetryState(state)
+}
+
+export function rememberCanonicalRetryParts(
+  state: FallbackState,
+  parts: RuntimeFallbackTextPart[] | undefined,
+): void {
+  if (!parts || parts.length === 0) {
+    return
+  }
+
+  state.canonicalRetryParts = cloneRetryParts(parts)
+}
+
+export function inheritCanonicalRetryParts(
+  target: FallbackState,
+  source: Pick<FallbackState, "canonicalRetryParts"> | undefined,
+): void {
+  if (target.canonicalRetryParts?.length) {
+    return
+  }
+
+  const canonicalRetryParts = source?.canonicalRetryParts
+  if (!canonicalRetryParts || canonicalRetryParts.length === 0) {
+    return
+  }
+
+  target.canonicalRetryParts = cloneRetryParts(canonicalRetryParts)
+}
+
+export function inheritFreshSameModelRetryWindow(
+  target: FallbackState,
+  source: Pick<FallbackState, "freshSameModelRetryModelIdentity" | "freshSameModelRetryStartedAt" | "freshSameModelRetryCount"> | undefined,
+): void {
+  if (target.freshSameModelRetryStartedAt !== undefined) {
+    return
+  }
+
+  if (
+    !source?.freshSameModelRetryModelIdentity
+    || source.freshSameModelRetryStartedAt === undefined
+  ) {
+    return
+  }
+
+  target.freshSameModelRetryModelIdentity = source.freshSameModelRetryModelIdentity
+  target.freshSameModelRetryStartedAt = source.freshSameModelRetryStartedAt
+  target.freshSameModelRetryCount = source.freshSameModelRetryCount
+}
+
+export function resetFreshSameModelRetryWindow(state: FallbackState): void {
+  state.freshSameModelRetryModelIdentity = undefined
+  state.freshSameModelRetryStartedAt = undefined
+  state.freshSameModelRetryCount = undefined
+}
+
+export function isFreshSameModelRetryWindowOpen(
+  state: FallbackState,
+  model: string,
+  windowMs: number,
+  now = Date.now(),
+): boolean {
+  const modelIdentity = getModelIdentity(model)
+  if (
+    state.freshSameModelRetryModelIdentity !== modelIdentity
+    || state.freshSameModelRetryStartedAt === undefined
+  ) {
+    return true
+  }
+
+  return now - state.freshSameModelRetryStartedAt < windowMs
+}
+
+export function recordFreshSameModelRetry(
+  state: FallbackState,
+  model: string,
+  now = Date.now(),
+): void {
+  const modelIdentity = getModelIdentity(model)
+  if (
+    state.freshSameModelRetryModelIdentity !== modelIdentity
+    || state.freshSameModelRetryStartedAt === undefined
+  ) {
+    state.freshSameModelRetryModelIdentity = modelIdentity
+    state.freshSameModelRetryStartedAt = now
+    state.freshSameModelRetryCount = 1
+    return
+  }
+
+  state.freshSameModelRetryCount = (state.freshSameModelRetryCount ?? 0) + 1
 }
 
 export function markMeaningfulProgress(state: FallbackState, now = Date.now()): void {
@@ -153,6 +253,7 @@ export function markMeaningfulProgress(state: FallbackState, now = Date.now()): 
   clearLocalToolAbort(state)
   state.lastErrorAt = undefined
   state.lastActiveStatusRefreshAt = undefined
+  resetFreshSameModelRetryWindow(state)
   clearManualProviderClearance(state)
 }
 

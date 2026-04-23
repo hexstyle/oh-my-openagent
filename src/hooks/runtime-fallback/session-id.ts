@@ -14,6 +14,24 @@ function getDbPath(): string {
 const messageSessionCache = new Map<string, string>()
 const partSessionCache = new Map<string, string>()
 
+function primeEventSessionCaches(
+  sessionID: string | undefined,
+  messageID: string | undefined,
+  partID: string | undefined,
+): void {
+  if (!sessionID) {
+    return
+  }
+
+  if (messageID) {
+    messageSessionCache.set(messageID, sessionID)
+  }
+
+  if (partID) {
+    partSessionCache.set(partID, sessionID)
+  }
+}
+
 function lookupSessionIDByMessageID(messageID: string | undefined): string | undefined {
   if (!messageID) return undefined
 
@@ -113,13 +131,32 @@ export function resetRuntimeFallbackSessionIDCache(): void {
 export function getRuntimeFallbackSessionID(props: Record<string, unknown> | undefined): string | undefined {
   const info = props?.info as Record<string, unknown> | undefined
   const part = props?.part as Record<string, unknown> | undefined
-
-  return asSessionID(info?.sessionID)
+  const directSessionID =
+    asSessionID(info?.sessionID)
     ?? asSessionID(info?.sessionId)
     ?? asSessionID(part?.sessionID)
     ?? asSessionID(part?.sessionId)
     ?? asSessionID(props?.sessionID)
     ?? asSessionID(props?.sessionId)
-    ?? lookupSessionIDByMessageID(getEventMessageID(props))
-    ?? lookupSessionIDByPartID(getEventPartID(props))
+  const messageID = getEventMessageID(props)
+  const partID = getEventPartID(props)
+
+  if (directSessionID) {
+    primeEventSessionCaches(directSessionID, messageID, partID)
+    return directSessionID
+  }
+
+  const resolvedFromMessageID = lookupSessionIDByMessageID(messageID)
+  if (resolvedFromMessageID) {
+    primeEventSessionCaches(resolvedFromMessageID, messageID, partID)
+    return resolvedFromMessageID
+  }
+
+  const resolvedFromPartID = lookupSessionIDByPartID(partID)
+  if (resolvedFromPartID) {
+    primeEventSessionCaches(resolvedFromPartID, messageID, partID)
+    return resolvedFromPartID
+  }
+
+  return undefined
 }

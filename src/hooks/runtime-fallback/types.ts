@@ -12,6 +12,11 @@ export interface RuntimeFallbackInterval {
 
 export type RuntimeFallbackTimeout = object | number
 
+export type RuntimeFallbackTextPart = {
+  type: "text"
+  text: string
+}
+
 export interface ResolvedRuntimeFallbackConfig {
   enabled: boolean
   retry_on_errors: number[]
@@ -78,7 +83,12 @@ export interface FallbackState {
   originalModel: string
   currentModel: string
   resolvedAgent?: string
+  canonicalRetryParts?: RuntimeFallbackTextPart[]
   isScopedFallbackChild?: boolean
+  scopedFallbackParentSessionID?: string
+  freshSameModelRetryModelIdentity?: string
+  freshSameModelRetryStartedAt?: number
+  freshSameModelRetryCount?: number
   fallbackIndex: number
   fallbackModels: string[]
   failedModels: Map<string, number>
@@ -103,10 +113,9 @@ export interface FallbackState {
   /** Timestamp of the last real assistant/tool progress that should allow
    *  the active session.status path to extend the watchdog once more. */
   lastMeaningfulProgressAt?: number
-  /** Timestamp of the last durable assistant progress marker stored from
-   *  message.updated / message.part.updated events. Delta-only streaming churn
-   *  may refresh the watchdog for a bounded grace window, but should not keep
-   *  a stalled session alive forever without any persisted transcript change. */
+  /** Timestamp of the last assistant progress marker observed from transcript
+   *  updates or live streaming deltas. Active streaming should keep the
+   *  watchdog alive while the model is still producing content. */
   lastDurableAssistantProgressAt?: number
   /** Absolute deadline for an already-earned long-running assistant progress
    *  window. Shorter follow-up bookkeeping updates should not immediately
@@ -174,6 +183,11 @@ export interface RuntimeFallbackHook {
   _deps?: HookDeps
 }
 
+export interface ScopedFallbackSessionHint {
+  isScopedFallbackChild: boolean
+  parentSessionID?: string
+}
+
 export interface HookDeps {
   ctx: RuntimeFallbackPluginInput
   config: ResolvedRuntimeFallbackConfig
@@ -186,7 +200,7 @@ export interface HookDeps {
   sessionRecentCompletionUntil: Map<string, number>
   sessionRecentActiveStatusUntil?: Map<string, number>
   sessionSilentAssistantUpdateCounts?: Map<string, number>
-  sessionScopedFallbackHints?: Set<string>
+  sessionScopedFallbackHints?: Map<string, ScopedFallbackSessionHint>
   sessionRetryInFlight: Set<string>
   sessionAwaitingFallbackResult: Set<string>
   sessionFallbackTimeouts: Map<string, RuntimeFallbackTimeout>

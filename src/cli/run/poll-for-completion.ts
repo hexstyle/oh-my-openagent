@@ -12,7 +12,8 @@ const ERROR_GRACE_CYCLES = 3
 const MIN_STABILIZATION_MS = 1_000
 const DEFAULT_EVENT_WATCHDOG_MS = 30_000 // 30 seconds
 const DEFAULT_SECONDARY_MEANINGFUL_WORK_TIMEOUT_MS = 60_000 // 60 seconds
-const DEFAULT_DELAYED_RETRY_ERROR_GRACE_MS = 15_000 // 15 seconds
+const DEFAULT_DELAYED_RETRY_ERROR_GRACE_MS =
+  DEFAULT_CONFIG.transient_retry_window_seconds * 1000
 
 export interface PollOptions {
   pollIntervalMs?: number
@@ -146,9 +147,45 @@ export async function pollForCompletion(
     }
 
     if (mainSessionStatus === "busy" || mainSessionStatus === "retry") {
+      eventState.pendingSameModelRecovery = false
+      eventState.pendingSameModelRecoverySequence = -1
+      eventState.pendingSameModelRecoveryStartedAt = null
       eventState.mainSessionIdle = false
     } else if (mainSessionStatus === "idle") {
       eventState.mainSessionIdle = true
+    }
+
+    if (eventState.pendingSameModelRecovery) {
+      const pendingStartedAt =
+        eventState.pendingSameModelRecoveryStartedAt
+        ?? eventState.lastErrorTimestamp
+        ?? Date.now()
+      const hasObservedPostErrorProgress =
+        eventState.lastMeaningfulWorkTimestamp !== null
+        && eventState.lastErrorTimestamp !== null
+        && eventState.lastMeaningfulWorkTimestamp > eventState.lastErrorTimestamp
+
+      if (hasObservedPostErrorProgress) {
+        eventState.pendingSameModelRecovery = false
+        eventState.pendingSameModelRecoverySequence = -1
+        eventState.pendingSameModelRecoveryStartedAt = null
+      } else if (Date.now() - pendingStartedAt < delayedRetryErrorGraceMs) {
+        const sessionStillSettled = await checkCompletionConditions(ctx)
+        if (sessionStillSettled) {
+          consecutiveCompleteChecks = 0
+          continue
+        }
+
+        eventState.pendingSameModelRecovery = false
+        eventState.pendingSameModelRecoverySequence = -1
+        eventState.pendingSameModelRecoveryStartedAt = null
+        consecutiveCompleteChecks = 0
+        continue
+      } else {
+        eventState.pendingSameModelRecovery = false
+        eventState.pendingSameModelRecoverySequence = -1
+        eventState.pendingSameModelRecoveryStartedAt = null
+      }
     }
 
     if (!eventState.mainSessionIdle) {

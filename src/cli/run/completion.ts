@@ -29,7 +29,7 @@ type CompletionProbeMessage = {
   parts?: CompletionProbeMessagePart[]
 }
 
-const NON_TERMINAL_FINISH_REASONS = new Set(["tool-calls", "unknown"])
+const NON_TERMINAL_FINISH_REASONS = new Set(["tool-calls", "unknown", "other"])
 const BACKGROUND_TASK_ID_PATTERN = /\bbg_[a-zA-Z0-9_-]+\b/g
 const BACKGROUND_TASK_STATUS_LINE_PATTERN = /`(bg_[a-zA-Z0-9_-]+)`:[^\n]*\[(RUNNING|PENDING|COMPLETED|ERROR|CANCELLED|INTERRUPTED)\]/g
 const BACKGROUND_TASK_STATUS_TABLE_ID_PATTERN = /\|\s*Task ID\s*\|\s*`?(bg_[a-zA-Z0-9_-]+)`?\s*\|/i
@@ -147,6 +147,20 @@ function hasVisibleAssistantContent(messages: CompletionProbeMessage[]): boolean
   })
 }
 
+function hasUserFacingAssistantContent(message: CompletionProbeMessage | undefined): boolean {
+  if (!message || message.info?.role !== "assistant") {
+    return false
+  }
+
+  return (message.parts ?? []).some((part) => {
+    if (part.type !== "text") {
+      return false
+    }
+
+    return (part.text ?? "").trim().length > 0
+  })
+}
+
 function hasOpenAssistantExecution(message: CompletionProbeMessage | undefined): boolean {
   if (!message || message.info?.role !== "assistant") {
     return false
@@ -194,7 +208,8 @@ function isSessionSettledFromMessages(messages: CompletionProbeMessage[]): boole
   if (
     lastAssistant?.info?.finish &&
     !NON_TERMINAL_FINISH_REASONS.has(lastAssistant.info.finish) &&
-    lastUser
+    lastUser &&
+    hasUserFacingAssistantContent(lastAssistant)
   ) {
     return true
   }
@@ -245,7 +260,7 @@ export async function checkCompletionConditions(ctx: RunContext): Promise<boolea
       return false
     }
 
-    if (!continuationState.hasTodoHookMarker && !await areAllTodosComplete(ctx)) {
+    if (!await areAllTodosComplete(ctx)) {
       return false
     }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { getLastUserRetryParts } from "./last-user-retry-parts"
+import { getLastUserRetryParts, resolveRetryBriefParts } from "./last-user-retry-parts"
 import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
 
 const WATCHDOG_CONTINUATION_PROMPT = "Continue the current task from where you left off. The previous request appears stalled. Resume from the existing context, do not redo completed work, and continue."
@@ -206,5 +206,41 @@ describe("getLastUserRetryParts", () => {
     const result = getLastUserRetryParts(undefined)
 
     expect(result).toEqual([])
+  })
+
+  it("#given no reusable user message but a canonical retry brief is stored in state #when resolving retry brief parts #then it uses the canonical brief instead of returning empty", () => {
+    const result = resolveRetryBriefParts(
+      {
+        data: [
+          {
+            info: { role: "user" },
+            parts: [{ type: "text", text: `Continue.\n${OMO_INTERNAL_INITIATOR_MARKER}` }],
+          },
+        ],
+      },
+      {
+        canonicalRetryParts: [{ type: "text", text: "original user request" }],
+      },
+    )
+
+    expect(result).toEqual([{ type: "text", text: "original user request" }])
+  })
+
+  it("#given both a reusable user message and a canonical retry brief #when resolving retry brief parts #then the live user message still wins", () => {
+    const result = resolveRetryBriefParts(
+      {
+        data: [
+          {
+            info: { role: "user" },
+            parts: [{ type: "text", text: "current live retry brief" }],
+          },
+        ],
+      },
+      {
+        canonicalRetryParts: [{ type: "text", text: "stale canonical brief" }],
+      },
+    )
+
+    expect(result).toEqual([{ type: "text", text: "current live retry brief" }])
   })
 })

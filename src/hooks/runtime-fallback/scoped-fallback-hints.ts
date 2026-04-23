@@ -1,9 +1,18 @@
-import type { FallbackState, HookDeps } from "./types"
+import type { FallbackState, HookDeps, ScopedFallbackSessionHint } from "./types"
 import { isRuntimeFallbackScopedHandoffTitle } from "../../shared/runtime-fallback-session-titles"
 
-function getScopedFallbackHintSet(deps: HookDeps): Set<string> {
+function normalizeParentSessionID(parentSessionID: string | undefined): string | undefined {
+  if (typeof parentSessionID !== "string") {
+    return undefined
+  }
+
+  const normalizedParentSessionID = parentSessionID.trim()
+  return normalizedParentSessionID.length > 0 ? normalizedParentSessionID : undefined
+}
+
+function getScopedFallbackHintMap(deps: HookDeps): Map<string, ScopedFallbackSessionHint> {
   if (!deps.sessionScopedFallbackHints) {
-    deps.sessionScopedFallbackHints = new Set()
+    deps.sessionScopedFallbackHints = new Map()
   }
 
   return deps.sessionScopedFallbackHints
@@ -13,16 +22,22 @@ export function rememberScopedFallbackSessionHint(
   deps: HookDeps,
   sessionID: string,
   title: string | undefined,
+  parentSessionID?: string,
 ): boolean {
-  const hintSet = getScopedFallbackHintSet(deps)
+  const hintMap = getScopedFallbackHintMap(deps)
   const isScopedFallbackChild = isRuntimeFallbackScopedHandoffTitle(title)
+  const normalizedParentSessionID = normalizeParentSessionID(parentSessionID)
 
   if (isScopedFallbackChild) {
-    hintSet.add(sessionID)
+    const previousHint = hintMap.get(sessionID)
+    hintMap.set(sessionID, {
+      isScopedFallbackChild: true,
+      parentSessionID: normalizedParentSessionID ?? previousHint?.parentSessionID,
+    })
     return true
   }
 
-  hintSet.delete(sessionID)
+  hintMap.delete(sessionID)
   return false
 }
 
@@ -31,14 +46,25 @@ export function applyScopedFallbackSessionHint(
   sessionID: string,
   state: FallbackState,
 ): void {
-  if (getScopedFallbackHintSet(deps).has(sessionID)) {
+  const hint = getScopedFallbackHintMap(deps).get(sessionID)
+  if (hint?.isScopedFallbackChild) {
     state.isScopedFallbackChild = true
+    if (hint.parentSessionID) {
+      state.scopedFallbackParentSessionID = hint.parentSessionID
+    }
   }
+}
+
+export function getScopedFallbackParentSessionHint(
+  deps: HookDeps,
+  sessionID: string,
+): string | undefined {
+  return getScopedFallbackHintMap(deps).get(sessionID)?.parentSessionID
 }
 
 export function clearScopedFallbackSessionHint(
   deps: HookDeps,
   sessionID: string,
 ): void {
-  getScopedFallbackHintSet(deps).delete(sessionID)
+  getScopedFallbackHintMap(deps).delete(sessionID)
 }

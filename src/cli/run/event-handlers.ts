@@ -22,6 +22,11 @@ import {
   renderAgentHeader,
   writePaddedText,
 } from "./output-renderer"
+import { DEFAULT_CONFIG } from "../../hooks/runtime-fallback/constants"
+import {
+  getRuntimeFallbackAction,
+  isSameModelRetryAction,
+} from "../../hooks/runtime-fallback/fallback-policy"
 
 function getSessionId(props?: { sessionID?: string; sessionId?: string }): string | undefined {
   return props?.sessionID ?? props?.sessionId
@@ -72,6 +77,33 @@ function clearRecoveredSessionError(state: EventState): void {
   state.mainSessionError = false
 }
 
+function clearPendingSameModelRecovery(state: EventState): void {
+  state.pendingSameModelRecovery = false
+  state.pendingSameModelRecoverySequence = -1
+  state.pendingSameModelRecoveryStartedAt = null
+}
+
+function markMeaningfulWork(state: EventState, options: { clearRecoveredError?: boolean } = {}): void {
+  if (options.clearRecoveredError !== false) {
+    clearRecoveredSessionError(state)
+  }
+  clearPendingSameModelRecovery(state)
+  state.hasReceivedMeaningfulWork = true
+  state.lastMeaningfulWorkTimestamp = Date.now()
+}
+
+function armPendingSameModelRecovery(state: EventState, error: unknown): void {
+  const action = getRuntimeFallbackAction(error, DEFAULT_CONFIG.retry_on_errors)
+  if (!isSameModelRetryAction(action)) {
+    clearPendingSameModelRecovery(state)
+    return
+  }
+
+  state.pendingSameModelRecovery = true
+  state.pendingSameModelRecoverySequence = state.errorSequence
+  state.pendingSameModelRecoveryStartedAt = state.lastErrorTimestamp ?? Date.now()
+}
+
 function isRecoveringAssistantPart(
   part: NonNullable<MessagePartUpdatedProps["part"]>,
   state: EventState,
@@ -88,7 +120,7 @@ function isRecoveringAssistantPart(
 
   if (part.type === "tool") {
     const status = part.state?.status
-    return status === "running" || status === "completed" || status === "error"
+    return status === "running" || status === "completed"
   }
 
   return false
@@ -110,10 +142,14 @@ export function handleSessionStatus(ctx: RunContext, payload: EventPayload, stat
   if (getSessionId(props) !== ctx.sessionID) return
 
   if (props?.status?.type === "busy") {
+    clearRecoveredSessionError(state)
+    clearPendingSameModelRecovery(state)
     state.mainSessionIdle = false
   } else if (props?.status?.type === "idle") {
     state.mainSessionIdle = true
   } else if (props?.status?.type === "retry") {
+    clearRecoveredSessionError(state)
+    clearPendingSameModelRecovery(state)
     state.mainSessionIdle = false
   }
 }
@@ -127,6 +163,7 @@ export function handleSessionError(ctx: RunContext, payload: EventPayload, state
     state.lastError = serializeError(props?.error)
     state.errorSequence += 1
     state.lastErrorTimestamp = Date.now()
+    armPendingSameModelRecovery(state, props?.error)
     console.error(pc.red(`\n[session.error] ${state.lastError}`))
   }
 }
@@ -165,7 +202,7 @@ export function handleMessagePartUpdated(ctx: RunContext, payload: EventPayload,
       const padded = writePaddedText(newText, state.thinkingAtLineStart)
       process.stdout.write(pc.dim(padded.output))
       state.thinkingAtLineStart = padded.atLineStart
-      state.hasReceivedMeaningfulWork = true
+      markMeaningfulWork(state)
     }
     state.lastReasoningText = reasoningText
     return
@@ -179,7 +216,7 @@ export function handleMessagePartUpdated(ctx: RunContext, payload: EventPayload,
       const padded = writePaddedText(newText, state.textAtLineStart)
       process.stdout.write(padded.output)
       state.textAtLineStart = padded.atLineStart
-      state.hasReceivedMeaningfulWork = true
+      markMeaningfulWork(state)
     }
     state.lastPartText = part.text
 
@@ -216,24 +253,22 @@ export function handleMessagePartDelta(ctx: RunContext, payload: EventPayload, s
   if (!delta) return
 
   if (partType === "reasoning") {
-    clearRecoveredSessionError(state)
     ensureThinkBlockOpen(state)
     const padded = writePaddedText(delta, state.thinkingAtLineStart)
     process.stdout.write(pc.dim(padded.output))
     state.thinkingAtLineStart = padded.atLineStart
     state.lastReasoningText += delta
-    state.hasReceivedMeaningfulWork = true
+    markMeaningfulWork(state)
     return
   }
 
-  clearRecoveredSessionError(state)
   closeThinkBlockIfNeeded(state)
 
   const padded = writePaddedText(delta, state.textAtLineStart)
   process.stdout.write(padded.output)
   state.textAtLineStart = padded.atLineStart
   state.lastPartText += delta
-  state.hasReceivedMeaningfulWork = true
+  markMeaningfulWork(state)
 }
 
 function handleToolPart(
@@ -249,7 +284,7 @@ function handleToolPart(
     state.currentTool = toolName
     const header = formatToolHeader(toolName, part.state?.input ?? {})
     const suffix = header.description ? ` ${pc.dim(header.description)}` : ""
-    state.hasReceivedMeaningfulWork = true
+    markMeaningfulWork(state)
     process.stdout.write(`\n  ${pc.cyan(header.icon)} ${pc.bold(header.title)}${suffix}  \n`)
   }
 
@@ -320,6 +355,7 @@ export function handleToolExecute(ctx: RunContext, payload: EventPayload, state:
   if (getSessionId(props) !== ctx.sessionID) return
 
   clearRecoveredSessionError(state)
+  clearPendingSameModelRecovery(state)
   closeThinkBlockIfNeeded(state)
 
   if (state.currentTool !== null) return
@@ -329,7 +365,7 @@ export function handleToolExecute(ctx: RunContext, payload: EventPayload, state:
   const header = formatToolHeader(toolName, props?.input ?? {})
   const suffix = header.description ? ` ${pc.dim(header.description)}` : ""
 
-  state.hasReceivedMeaningfulWork = true
+  markMeaningfulWork(state, { clearRecoveredError: false })
   process.stdout.write(`\n  ${pc.cyan(header.icon)} ${pc.bold(header.title)}${suffix}  \n`)
 }
 
@@ -340,12 +376,14 @@ export function handleToolResult(ctx: RunContext, payload: EventPayload, state: 
   if (getSessionId(props) !== ctx.sessionID) return
 
   clearRecoveredSessionError(state)
+  clearPendingSameModelRecovery(state)
   closeThinkBlockIfNeeded(state)
 
   if (state.currentTool === null) return
 
   const output = props?.output || ""
   if (output.trim()) {
+    markMeaningfulWork(state, { clearRecoveredError: false })
     process.stdout.write(pc.dim(`  ${displayChars.treeEnd} output  \n`))
     const padded = writePaddedText(output, true)
     process.stdout.write(pc.dim(padded.output + (padded.atLineStart ? "" : "  ")))
@@ -371,6 +409,7 @@ export function handleTuiToast(_ctx: RunContext, payload: EventPayload, state: E
       state.lastError = `${title}${message}`
       state.errorSequence += 1
       state.lastErrorTimestamp = Date.now()
+      armPendingSameModelRecovery(state, state.lastError)
     }
   }
 }

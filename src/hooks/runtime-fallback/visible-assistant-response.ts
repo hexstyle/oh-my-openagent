@@ -87,7 +87,7 @@ export function hasVisibleAssistantResponse(extractAutoRetrySignalFn: typeof ext
   return async (
     ctx: HookDeps["ctx"],
     sessionID: string,
-    _info: Record<string, unknown> | undefined,
+    info: Record<string, unknown> | undefined,
   ): Promise<boolean> => {
     try {
       const messagesResponse = await ctx.client.session.messages({
@@ -96,6 +96,35 @@ export function hasVisibleAssistantResponse(extractAutoRetrySignalFn: typeof ext
       })
       const messages = extractSessionMessages(messagesResponse)
       if (!messages || messages.length === 0) return false
+
+      const currentAssistantMessageID =
+        info?.role === "assistant" && typeof info?.id === "string"
+          ? info.id.trim()
+          : ""
+
+      if (currentAssistantMessageID.length > 0) {
+        const currentAssistantMessage = messages.find((message) => message?.info?.id === currentAssistantMessageID)
+        if (!currentAssistantMessage || currentAssistantMessage?.info?.role !== "assistant") {
+          return false
+        }
+
+        if (currentAssistantMessage.info?.error) {
+          return false
+        }
+
+        const infoParts = currentAssistantMessage.info?.parts
+        const infoMessageParts = Array.isArray(infoParts)
+          ? infoParts.filter((part): part is SessionMessagePart => typeof part === "object" && part !== null)
+          : undefined
+        const parts = currentAssistantMessage.parts && currentAssistantMessage.parts.length > 0
+          ? currentAssistantMessage.parts
+          : infoMessageParts
+
+        return hasVisibleAssistantEventContent(extractAutoRetrySignalFn, {
+          message: currentAssistantMessage.info?.message,
+          parts,
+        })
+      }
 
       const lastUserMessageIndex = getLastUserMessageIndex(messages)
       if (lastUserMessageIndex === -1) return false

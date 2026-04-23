@@ -497,6 +497,130 @@ describe("pollForCompletion", () => {
     expect(statusCalls).toBeGreaterThan(0)
   })
 
+  it("does not exit while a recoverable same-model retry is pending but the session still looks temporarily settled", async () => {
+    //#given - root session hit a recoverable 403, recovery child has not materialized in API yet, and transcript still looks settled
+    const ctx = createMockContext()
+    const eventState = createEventState()
+    eventState.mainSessionIdle = true
+    eventState.hasReceivedMeaningfulWork = true
+    eventState.mainSessionError = false
+    eventState.lastError = "Forbidden: Request not allowed"
+    eventState.errorSequence = 1
+    eventState.lastErrorTimestamp = Date.now()
+    eventState.pendingSameModelRecovery = true
+    eventState.pendingSameModelRecoverySequence = 1
+    eventState.pendingSameModelRecoveryStartedAt = Date.now()
+    eventState.lastMeaningfulWorkTimestamp = Date.now() - 1000
+    const abortController = new AbortController()
+
+    //#when - abort before the transient recovery window expires
+    abortAfter(abortController, 80)
+    const result = await pollForCompletion(ctx, eventState, abortController, {
+      pollIntervalMs: 10,
+      requiredConsecutive: 1,
+      minStabilizationMs: 10,
+      delayedRetryErrorGraceMs: 500,
+    })
+
+    //#then - poller should keep waiting instead of exiting successfully on a transiently-settled root
+    expect(result).toBe(130)
+  })
+
+  it("clears pending same-model recovery once completion probes observe active work again", async () => {
+    //#given - pending recovery initially hides behind a settled transcript, then child work appears
+    let childVisible = false
+    const ctx = createMockContext({
+      childrenBySession: {
+        "test-session": [],
+        "child-1": [],
+      },
+      statuses: {},
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user-root", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+          {
+            info: { id: "msg-assistant-root", role: "assistant", finish: "stop" },
+            parts: [{ type: "text", text: "All tasks completed." }],
+          },
+        ],
+        "child-1": [
+          { info: { id: "msg-user-child", role: "user" }, parts: [{ type: "text", text: "recover" }] },
+          {
+            info: { id: "msg-assistant-child", role: "assistant" },
+            parts: [{ type: "step-start" }],
+          },
+        ],
+      },
+    })
+    ;(ctx.client.session as any).children = mock(async (opts: { path: { id: string } }) => {
+      if (opts.path.id === "test-session") {
+        return { data: childVisible ? [{ id: "child-1" }] : [] }
+      }
+      return { data: [] }
+    })
+    ;(ctx.client.session as any).status = mock(async () => ({
+      data: childVisible
+        ? { "child-1": { type: "busy" } }
+        : {},
+    }))
+
+    const eventState = createEventState()
+    eventState.mainSessionIdle = true
+    eventState.hasReceivedMeaningfulWork = true
+    eventState.lastError = "Forbidden: Request not allowed"
+    eventState.errorSequence = 1
+    eventState.lastErrorTimestamp = Date.now()
+    eventState.pendingSameModelRecovery = true
+    eventState.pendingSameModelRecoverySequence = 1
+    eventState.pendingSameModelRecoveryStartedAt = Date.now()
+    eventState.lastMeaningfulWorkTimestamp = Date.now() - 1000
+    const abortController = new AbortController()
+
+    setTimeout(() => {
+      childVisible = true
+    }, 25)
+
+    setTimeout(() => {
+      ;(ctx.client.session as any).messages = mock(async (opts: { path: { id: string } }) => {
+        if (opts.path.id === "child-1") {
+          return {
+            data: [
+              { info: { id: "msg-user-child", role: "user" }, parts: [{ type: "text", text: "recover" }] },
+              {
+                info: { id: "msg-assistant-child", role: "assistant", finish: "stop" },
+                parts: [{ type: "text", text: "Recovered" }],
+              },
+            ],
+          }
+        }
+        return {
+          data: [
+            { info: { id: "msg-user-root", role: "user" }, parts: [{ type: "text", text: "start-work" }] },
+            {
+              info: { id: "msg-assistant-root", role: "assistant", finish: "stop" },
+              parts: [{ type: "text", text: "All tasks completed." }],
+            },
+          ],
+        }
+      })
+      ;(ctx.client.session as any).status = mock(async () => ({
+        data: { "child-1": { type: "idle" } },
+      }))
+    }, 60)
+
+    //#when
+    const result = await pollForCompletion(ctx, eventState, abortController, {
+      pollIntervalMs: 10,
+      requiredConsecutive: 1,
+      minStabilizationMs: 10,
+      delayedRetryErrorGraceMs: 500,
+    })
+
+    //#then - once active child work appears, pending recovery should clear and completion can finish normally
+    expect(result).toBe(0)
+    expect(eventState.pendingSameModelRecovery).toBe(false)
+  })
+
   it("does not fail when assistant activity clears a transient error before busy status appears", async () => {
     //#given - session.error fires, but assistant output resumes before status flips to busy/retry
     let statusCalls = 0

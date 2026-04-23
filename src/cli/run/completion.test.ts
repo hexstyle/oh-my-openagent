@@ -1,11 +1,33 @@
-import { describe, it, expect, mock, spyOn } from "bun:test"
+import { afterEach, describe, it, expect, mock, spyOn } from "bun:test"
+import { mkdtempSync, rmSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
 import type { RunContext, Todo, ChildSession, SessionStatus } from "./types"
+import { setContinuationMarkerSource } from "../../features/run-continuation-state"
+
+const tempDirs: string[] = []
+
+function createTempDir(): string {
+  const directory = mkdtempSync(join(tmpdir(), "omo-run-completion-"))
+  tempDirs.push(directory)
+  return directory
+}
+
+afterEach(() => {
+  while (tempDirs.length > 0) {
+    const directory = tempDirs.pop()
+    if (directory) {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  }
+})
 
 const createMockContext = (overrides: {
   todo?: Todo[]
   childrenBySession?: Record<string, ChildSession[]>
   statuses?: Record<string, SessionStatus>
   messagesBySession?: Record<string, unknown[]>
+  directory?: string
 } = {}): RunContext => {
   const {
     todo = [],
@@ -20,6 +42,7 @@ const createMockContext = (overrides: {
         },
       ],
     },
+    directory = "/test",
   } = overrides
 
   return {
@@ -36,7 +59,7 @@ const createMockContext = (overrides: {
       },
     } as unknown as RunContext["client"],
     sessionID: "test-session",
-    directory: "/test",
+    directory,
     abortController: new AbortController(),
   }
 }
@@ -72,6 +95,26 @@ describe("checkCompletionConditions", () => {
       todo: [
         { id: "1", content: "Done", status: "completed", priority: "high" },
         { id: "2", content: "WIP", status: "in_progress", priority: "high" },
+      ],
+    })
+    const { checkCompletionConditions } = await import("./completion")
+
+    // when
+    const result = await checkCompletionConditions(ctx)
+
+    // then
+    expect(result).toBe(false)
+  })
+
+  it("returns false when an idle todo marker exists but todos are still incomplete", async () => {
+    // given
+    spyOn(console, "log").mockImplementation(() => {})
+    const directory = createTempDir()
+    setContinuationMarkerSource(directory, "test-session", "todo", "idle")
+    const ctx = createMockContext({
+      directory,
+      todo: [
+        { id: "1", content: "Write final plan", status: "in_progress", priority: "high" },
       ],
     })
     const { checkCompletionConditions } = await import("./completion")
@@ -524,6 +567,59 @@ describe("checkCompletionConditions", () => {
           {
             info: { id: "msg-assistant", role: "assistant" },
             parts: [{ type: "text", text: "Still checking..." }, { type: "step-start" }],
+          },
+        ],
+      },
+    })
+    const { checkCompletionConditions } = await import("./completion")
+
+    // when
+    const result = await checkCompletionConditions(ctx)
+
+    // then
+    expect(result).toBe(false)
+  })
+
+  it("returns false when the root session ends with a reasoning-only finish-other assistant turn", async () => {
+    // given
+    spyOn(console, "log").mockImplementation(() => {})
+    const ctx = createMockContext({
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "plan this work" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant", finish: "other" },
+            parts: [
+              { type: "reasoning", text: "I have enough information and should now write the final plan." },
+              { type: "step-finish", reason: "other" },
+            ],
+          },
+        ],
+      },
+    })
+    const { checkCompletionConditions } = await import("./completion")
+
+    // when
+    const result = await checkCompletionConditions(ctx)
+
+    // then
+    expect(result).toBe(false)
+  })
+
+  it("returns false when the root session ends with a visible finish-other assistant turn", async () => {
+    // given
+    spyOn(console, "log").mockImplementation(() => {})
+    const ctx = createMockContext({
+      messagesBySession: {
+        "test-session": [
+          { info: { id: "msg-user", role: "user" }, parts: [{ type: "text", text: "plan this work" }] },
+          {
+            info: { id: "msg-assistant", role: "assistant", finish: "other" },
+            parts: [
+              { type: "reasoning", text: "I need to read the remaining draft and then write the final plan." },
+              { type: "text", text: "Let me read the remaining parts and the draf" },
+              { type: "step-finish", reason: "other" },
+            ],
           },
         ],
       },

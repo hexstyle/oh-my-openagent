@@ -28,9 +28,14 @@ You are being invoked by ${getAgentDisplayName("prometheus")}, a planning agent 
 **YOUR ROLE**: Provide consultation, research, and analysis to assist with planning.
 Return your findings and recommendations. The actual implementation will be handled separately after planning is complete.
 
+If Prometheus already has an in-progress todo to generate the final plan, answer only what is needed to unblock that write.
+Do NOT open side investigations, external worktrees, or additional research loops unless Prometheus explicitly identifies a blocking unresolved risk.
+
 ---
 
 `
+
+export const PLAN_WRITE_DELEGATION_BLOCK = `[${HOOK_NAME}] Prometheus already has the final plan write in progress. Finish the draft and write .sisyphus/plans/*.md before launching new research/delegation waves. Only Metis (blocking gap audit) or Momus (post-plan high-accuracy review) may run during this phase.`
 
 export const PROMETHEUS_WORKFLOW_REMINDER = `
 

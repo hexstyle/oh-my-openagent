@@ -15,6 +15,39 @@ import type { SessionStateStore } from "./session-state"
 import { handleSessionIdle } from "./idle-event"
 import { handleNonIdleEvent } from "./non-idle-events"
 
+function getSessionID(properties: Record<string, unknown> | undefined): string | undefined {
+  if (!properties) return undefined
+  const directSessionID = properties.sessionID
+  if (typeof directSessionID === "string" && directSessionID.length > 0) {
+    return directSessionID
+  }
+
+  const camelSessionID = properties.sessionId
+  if (typeof camelSessionID === "string" && camelSessionID.length > 0) {
+    return camelSessionID
+  }
+
+  const info = properties.info as Record<string, unknown> | undefined
+  if (!info) return undefined
+
+  const nestedSessionID = info.sessionID
+  if (typeof nestedSessionID === "string" && nestedSessionID.length > 0) {
+    return nestedSessionID
+  }
+
+  const nestedCamelSessionID = info.sessionId
+  if (typeof nestedCamelSessionID === "string" && nestedCamelSessionID.length > 0) {
+    return nestedCamelSessionID
+  }
+
+  const infoID = info.id
+  if (typeof infoID === "string" && infoID.length > 0) {
+    return infoID
+  }
+
+  return undefined
+}
+
 export function createTodoContinuationHandler(args: {
   ctx: PluginInput
   sessionStateStore: SessionStateStore
@@ -34,7 +67,7 @@ export function createTodoContinuationHandler(args: {
     const props = event.properties as Record<string, unknown> | undefined
 
     if (event.type === "session.error") {
-      const sessionID = props?.sessionID as string | undefined
+      const sessionID = getSessionID(props)
       if (!sessionID) return
 
       const error = props?.error as { name?: string } | undefined
@@ -64,7 +97,7 @@ export function createTodoContinuationHandler(args: {
     }
 
     if (event.type === "session.idle") {
-      const sessionID = props?.sessionID as string | undefined
+      const sessionID = getSessionID(props)
       if (!sessionID) return
 
       try {
@@ -86,7 +119,7 @@ export function createTodoContinuationHandler(args: {
     }
 
     if (event.type === "session.compacted") {
-      const sessionID = (props?.sessionID ?? (props?.info as { id?: string } | undefined)?.id) as string | undefined
+      const sessionID = getSessionID(props)
       if (sessionID) {
         const state = sessionStateStore.getState(sessionID)
         const compactionEpoch = armCompactionGuard(state, Date.now())

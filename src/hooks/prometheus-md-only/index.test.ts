@@ -4,7 +4,8 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { randomUUID } from "node:crypto"
 import { SYSTEM_DIRECTIVE_PREFIX } from "../../shared/system-directive"
-import { clearSessionAgent, updateSessionAgent } from "../../features/claude-code-session-state"
+import { clearSessionAgent, updateSessionAgent } from "../../features/claude-code-session-state/state"
+import { getOpenCodeStorageDir } from "../../shared/data-path"
 // Force stable (JSON) mode for tests that rely on message file storage
 mock.module("../../shared/opencode-storage-detection", () => ({
   isSqliteBackend: () => false,
@@ -12,7 +13,6 @@ mock.module("../../shared/opencode-storage-detection", () => ({
 }))
 
 const { createPrometheusMdOnlyHook } = await import("./index")
-const { MESSAGE_STORAGE } = await import("../../features/hook-message-injector")
 
 describe("prometheus-md-only", () => {
   const TEST_SESSION_ID = "ses_test_prometheus"
@@ -20,14 +20,21 @@ describe("prometheus-md-only", () => {
 
   function createMockPluginInput() {
     return {
-      client: {},
+      client: {
+        session: {
+          todo: mock(() => Promise.resolve({ data: [] })),
+        },
+      },
       directory: "/tmp/test",
     } as never
   }
 
   function setupMessageStorage(sessionID: string, agent: string | undefined): void {
-    testMessageDir = join(MESSAGE_STORAGE, sessionID)
+    testMessageDir = join(getOpenCodeStorageDir(), "message", sessionID)
     mkdirSync(testMessageDir, { recursive: true })
+    if (agent) {
+      updateSessionAgent(sessionID, agent)
+    }
     const messageContent = {
       ...(agent ? { agent } : {}),
       model: { providerID: "test", modelID: "test-model" },
@@ -393,6 +400,101 @@ describe("prometheus-md-only", () => {
 
       // then
       expect(output.args.prompt).toContain(SYSTEM_DIRECTIVE_PREFIX)
+    })
+
+    test("should block Explore delegation while final plan write todo is in progress", async () => {
+      const hook = createPrometheusMdOnlyHook({
+        client: {
+          session: {
+            todo: mock(() =>
+              Promise.resolve({
+                data: [
+                  {
+                    content: "Generate unified work plan to .sisyphus/plans/ci-green-final.md",
+                    status: "in_progress",
+                  },
+                ],
+              })
+            ),
+          },
+        },
+        directory: "/tmp/test",
+      } as never)
+      const input = {
+        tool: "task",
+        sessionID: TEST_SESSION_ID,
+        callID: "call-1",
+      }
+      const output = {
+        args: { subagent_type: "explore", prompt: "Check hotfix worktree state" },
+      }
+
+      await expect(hook["tool.execute.before"](input, output)).rejects.toThrow(
+        "Prometheus already has the final plan write in progress"
+      )
+    })
+
+    test("should allow Metis consultation while final plan write todo is in progress", async () => {
+      const hook = createPrometheusMdOnlyHook({
+        client: {
+          session: {
+            todo: mock(() =>
+              Promise.resolve({
+                data: [
+                  {
+                    content: "Generate unified work plan to .sisyphus/plans/ci-green-final.md",
+                    status: "in_progress",
+                  },
+                ],
+              })
+            ),
+          },
+        },
+        directory: "/tmp/test",
+      } as never)
+      const input = {
+        tool: "task",
+        sessionID: TEST_SESSION_ID,
+        callID: "call-1",
+      }
+      const output = {
+        args: { subagent_type: "metis", prompt: "Review unresolved planning risk" },
+      }
+
+      await expect(hook["tool.execute.before"](input, output)).resolves.toBeUndefined()
+      expect(output.args.prompt).toContain(SYSTEM_DIRECTIVE_PREFIX)
+    })
+
+    test("should block generic delegation without explicit allowed target while final plan write todo is in progress", async () => {
+      const hook = createPrometheusMdOnlyHook({
+        client: {
+          session: {
+            todo: mock(() =>
+              Promise.resolve({
+                data: [
+                  {
+                    content: "Generate work plan to .sisyphus/plans/final.md",
+                    status: "in_progress",
+                  },
+                ],
+              })
+            ),
+          },
+        },
+        directory: "/tmp/test",
+      } as never)
+      const input = {
+        tool: "task",
+        sessionID: TEST_SESSION_ID,
+        callID: "call-1",
+      }
+      const output = {
+        args: { category: "quick", prompt: "Check another code path" },
+      }
+
+      await expect(hook["tool.execute.before"](input, output)).rejects.toThrow(
+        "Prometheus already has the final plan write in progress"
+      )
     })
 
     test("should not double-inject warning if already present", async () => {

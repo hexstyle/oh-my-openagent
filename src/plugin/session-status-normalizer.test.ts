@@ -30,6 +30,32 @@ describe("normalizeSessionStatusToIdle", () => {
 		})
 	})
 
+	it("converts session.status with camelCase sessionId to synthetic session.idle event", () => {
+		//#given
+		const input: EventInput = {
+			event: {
+				type: "session.status",
+				properties: {
+					sessionId: "ses_camel123",
+					status: { type: "idle" },
+				},
+			},
+		}
+
+		//#when
+		const result = normalizeSessionStatusToIdle(input)
+
+		//#then
+		expect(result).toEqual({
+			event: {
+				type: "session.idle",
+				properties: {
+					sessionID: "ses_camel123",
+				},
+			},
+		})
+	})
+
 	it("returns null for session.status with busy type", () => {
 		//#given - a session.status event with type=busy
 		const input: EventInput = {

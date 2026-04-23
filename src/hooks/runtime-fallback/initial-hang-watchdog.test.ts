@@ -489,6 +489,120 @@ describe("runtime-fallback initial hang watchdog", () => {
     ])
   })
 
+  test("restarts a title-only scoped paid child under the original parent even when session.get loses parentID", async () => {
+    const createCalls: Array<unknown> = []
+    const callOrder: string[] = []
+    const sessionID = "ses-initial-hang-title-only-scoped-child-missing-parent"
+    const rootSessionID = "ses-initial-hang-title-only-scoped-child-missing-parent-root"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            create: async (args) => {
+              createCalls.push(args)
+              return { data: { id: "ses-should-not-exist-missing-parent" } }
+            },
+            get: async () => ({
+              data: {
+                directory: "/test/dir",
+              },
+            }),
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+                { info: { role: "assistant" }, parts: [] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                callOrder.push(`prompt:${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              callOrder.push(`abort:${args.path.id}`)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "session.created",
+        properties: {
+          info: {
+            id: sessionID,
+            parentID: rootSessionID,
+            title: "[runtime-fallback] Scoped Fallback: claude-opus-4-6",
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(25)
+    await Promise.resolve()
+
+    expect(createCalls).toHaveLength(1)
+    expect(
+      (createCalls[0] as { body?: { parentID?: string; title?: string } }).body,
+    ).toEqual({
+      parentID: rootSessionID,
+      title: "[runtime-fallback] Scoped Fallback: claude-opus-4-6",
+    })
+    expect(callOrder).toEqual([
+      "prompt:anthropic/claude-opus-4-6",
+    ])
+  })
+
   test("restarts a title-only scoped paid codex/openai child on the same model under the original parent session", async () => {
     const createCalls: Array<unknown> = []
     const callOrder: string[] = []
@@ -561,6 +675,133 @@ describe("runtime-fallback initial hang watchdog", () => {
         properties: {
           info: {
             id: sessionID,
+            title: "[runtime-fallback] Scoped Fallback: gpt-5.4",
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "openai",
+              modelID: "gpt-5.4",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "openai",
+              modelID: "gpt-5.4",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(25)
+    await Promise.resolve()
+
+    expect(createCalls).toHaveLength(1)
+    expect(
+      (createCalls[0] as { body?: { parentID?: string; title?: string } }).body,
+    ).toEqual({
+      parentID: rootSessionID,
+      title: "[runtime-fallback] Scoped Fallback: gpt-5.4",
+    })
+    expect(callOrder).toEqual([
+      "prompt:openai/gpt-5.4",
+    ])
+  })
+
+  test("restarts a title-only scoped paid codex/openai child under the original parent even when session.get loses parentID", async () => {
+    const createCalls: Array<unknown> = []
+    const callOrder: string[] = []
+    const sessionID = "ses-initial-hang-title-only-scoped-openai-child-missing-parent"
+    const rootSessionID = "ses-initial-hang-title-only-scoped-openai-child-missing-parent-root"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            create: async (args) => {
+              createCalls.push(args)
+              return { data: { id: "ses-openai-should-not-exist-missing-parent" } }
+            },
+            get: async () => ({
+              data: {
+                directory: "/test/dir",
+              },
+            }),
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+                { info: { role: "assistant" }, parts: [] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                callOrder.push(`prompt:${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              callOrder.push(`abort:${args.path.id}`)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: {
+          ...createPluginConfig(),
+          agents: {
+            ...createPluginConfig().agents,
+            prometheus: {
+              model: "openai/gpt-5.4",
+              fallback_models: [
+                "openai/gpt-5.4",
+                "anthropic/claude-sonnet-4-6",
+                "openai/gpt-5.3-codex-spark",
+              ],
+            },
+          },
+        },
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "session.created",
+        properties: {
+          info: {
+            id: sessionID,
+            parentID: rootSessionID,
             title: "[runtime-fallback] Scoped Fallback: gpt-5.4",
           },
         },
@@ -1224,6 +1465,113 @@ describe("runtime-fallback initial hang watchdog", () => {
         ),
       ).toBe(true)
     })
+  })
+
+  test("does not abort a pending task when newer background-status reminder turns are appended above it", async () => {
+    const retriedModels: string[] = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-background-reminder-over-pending-task"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            messages: async () => ({
+              data: [
+                { info: { id: "msg-user-1", role: "user" }, parts: [{ type: "text", text: "/start-work" }] },
+                {
+                  info: { id: "msg-assistant-1", role: "assistant", finish: "tool-calls" },
+                  parts: [{ type: "tool", tool: "task", state: { status: "pending" } }],
+                },
+                {
+                  info: { id: "msg-assistant-2", role: "assistant" },
+                  parts: [{
+                    type: "text",
+                    text: "<system-reminder>\n[BACKGROUND TASK STATUS]\n**Active background tasks:** 1\n**Summary:** 1 pending",
+                  }],
+                },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                retriedModels.push(`${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Atlas (Plan Executor)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Atlas (Plan Executor)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+          part: {
+            sessionID,
+            type: "tool",
+            tool: "task",
+            state: { status: "pending" },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(160)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toHaveLength(0)
+    expect(retriedModels).toHaveLength(0)
+    expect(
+      logCalls.some((call) =>
+        call.msg.includes("Deferred session fallback timeout while latest assistant tool progress is still active")
+        && (call.data as { toolName?: string; toolStatus?: string } | undefined)?.toolName === "task"
+        && (call.data as { toolName?: string; toolStatus?: string } | undefined)?.toolStatus === "pending",
+      ),
+    ).toBe(true)
   })
 
   test("aborts the stalled parent once the latest assistant transcript no longer shows a pending task tool", async () => {
@@ -2240,7 +2588,7 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(retriedModels).toContain("openai/gpt-5.4")
   })
 
-  test("does not keep extending the watchdog on repeated reasoning-only churn after a step starts", async () => {
+  test("keeps extending the watchdog while reasoning progress keeps streaming after a step starts", async () => {
     const retriedModels: string[] = []
     const abortCalls: string[] = []
     const sessionID = "ses-reasoning-churn-after-step-start"
@@ -2328,7 +2676,7 @@ describe("runtime-fallback initial hang watchdog", () => {
       },
     })
 
-    for (let index = 0; index < 5; index += 1) {
+    for (let index = 0; index < 7; index += 1) {
       jest.advanceTimersByTime(15)
       await hook.event({
         event: {
@@ -2347,7 +2695,14 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(abortCalls).toHaveLength(0)
     expect(retriedModels).toHaveLength(0)
 
-    jest.advanceTimersByTime(15)
+    jest.advanceTimersByTime(60)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toHaveLength(0)
+    expect(retriedModels).toHaveLength(0)
+
+    jest.advanceTimersByTime(25)
     await Promise.resolve()
     await Promise.resolve()
 
@@ -2355,7 +2710,7 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(retriedModels).toContain("openai/gpt-5.4")
   })
 
-  test("does not keep extending the watchdog forever on delta-only text churn after a step starts", async () => {
+  test("keeps extending the watchdog while delta-only text planning keeps streaming after a step starts", async () => {
     const retriedModels: string[] = []
     const abortCalls: string[] = []
     const sessionID = "ses-delta-only-text-churn"
@@ -2443,7 +2798,7 @@ describe("runtime-fallback initial hang watchdog", () => {
       },
     })
 
-    for (let index = 0; index < 2; index += 1) {
+    for (let index = 0; index < 7; index += 1) {
       jest.advanceTimersByTime(15)
       await hook.event({
         event: {
@@ -2460,25 +2815,131 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(abortCalls).toHaveLength(0)
     expect(retriedModels).toHaveLength(0)
 
-    for (let index = 2; index < 4; index += 1) {
-      jest.advanceTimersByTime(15)
-      await hook.event({
-        event: {
-          type: "message.part.delta",
-          properties: {
-            sessionID,
-            field: "text",
-            delta: `planning token ${index}`,
-          },
-        },
-      })
-    }
+    jest.advanceTimersByTime(60)
+    await Promise.resolve()
+    await Promise.resolve()
 
+    expect(abortCalls).toHaveLength(0)
+    expect(retriedModels).toHaveLength(0)
+
+    jest.advanceTimersByTime(25)
     await Promise.resolve()
     await Promise.resolve()
 
     expect(abortCalls).toContain(sessionID)
     expect(retriedModels).toContain("openai/gpt-5.4")
+  })
+
+  test("does not spawn a scoped fallback when live planning deltas arrive right as a stale-transcript timeout fires", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-stale-transcript-live-delta-race"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            create: async (args) => {
+              createCalls.push(args)
+              return { data: { id: "ses-raced-fallback-child" } }
+            },
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+                { info: { role: "assistant" }, parts: [] },
+              ],
+            }),
+            promptAsync: async (args) => {
+              promptCalls.push(args)
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(19)
+
+    const deltaEvent = hook.event({
+      event: {
+        type: "message.part.delta",
+        properties: {
+          sessionID,
+          field: "text",
+          delta: "checking Bamboo log and extracting failing shards",
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(2)
+    await Promise.resolve()
+    await Promise.resolve()
+    await deltaEvent
+    await Promise.resolve()
+
+    expect(createCalls).toHaveLength(0)
+    expect(promptCalls).toHaveLength(0)
+    expect(abortCalls).toHaveLength(0)
+    expect(
+      logCalls.some((call) => call.msg.includes("Deferred session fallback timeout from live progress state while transcript is stale")),
+    ).toBe(true)
+
+    jest.advanceTimersByTime(85)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(createCalls).toHaveLength(1)
+    expect(
+      (createCalls[0] as { body?: { title?: string } }).body?.title,
+    ).toBe("[runtime-fallback] Scoped Fallback: claude-opus-4-6")
   })
 
   test("gives a fresh visible Prometheus planning turn one longer quiet window before timing out", async () => {
@@ -2698,6 +3159,214 @@ describe("runtime-fallback initial hang watchdog", () => {
           sessionID,
           field: "text",
           delta: "Now I'll build the complete draft.",
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(25)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toHaveLength(0)
+    expect(retriedModels).toHaveLength(0)
+    expect(hook._deps?.sessionStates.get(sessionID)?.lastMeaningfulProgressAt).toBeDefined()
+  })
+
+  test("treats a live planning text delta without an explicit field as visible progress", async () => {
+    const retriedModels: string[] = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-visible-progress-delta-without-field"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            abort: async ({ path }: { path: { id: string } }) => {
+              abortCalls.push(path.id)
+            },
+            messages: async () => ({
+              data: [
+                {
+                  info: { role: "user" },
+                  parts: [{ type: "text", text: "Finish the planning draft." }],
+                },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                retriedModels.push(`${model.providerID}/${model.modelID}`)
+              }
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(10)
+    await hook.event({
+      event: {
+        type: "message.part.delta",
+        properties: {
+          sessionID,
+          delta: "I am still synthesizing the draft from the latest evidence.",
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(25)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toHaveLength(0)
+    expect(retriedModels).toHaveLength(0)
+    expect(hook._deps?.sessionStates.get(sessionID)?.lastMeaningfulProgressAt).toBeDefined()
+  })
+
+  test("keeps a live planning stream alive when delta events only carry partID after an earlier part update", async () => {
+    const retriedModels: string[] = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-visible-progress-delta-part-id-only"
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            messages: async () => ({
+              data: [
+                {
+                  info: { role: "user" },
+                  parts: [{ type: "text", text: "Finish the planning draft." }],
+                },
+              ],
+            }),
+            abort: async ({ path }: { path: { id: string } }) => {
+              abortCalls.push(path.id)
+            },
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                retriedModels.push(`${model.providerID}/${model.modelID}`)
+              }
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part-plan-stream-1",
+            sessionID,
+            messageID: "msg-plan-stream-1",
+            type: "reasoning",
+            text: "",
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(10)
+    await hook.event({
+      event: {
+        type: "message.part.delta",
+        properties: {
+          partID: "part-plan-stream-1",
+          field: "text",
+          delta: "I am still assembling the final CI plan from the latest evidence.",
         },
       },
     })
@@ -3364,7 +4033,7 @@ describe("runtime-fallback initial hang watchdog", () => {
     ])
   })
 
-  test("omits the agent when timeout fallback switches Prometheus off its primary model", async () => {
+  test("keeps the explicit planner agent when timeout fallback switches Prometheus off its primary model", async () => {
     const retryCalls: Array<{ model?: string; agent?: string }> = []
     const sessionID = "ses-timeout-omit-agent-on-distinct-fallback"
 
@@ -3446,7 +4115,7 @@ describe("runtime-fallback initial hang watchdog", () => {
 
     expect(retryCalls).toContainEqual({
       model: "openai/gpt-5.4",
-      agent: undefined,
+      agent: "Prometheus (Plan Builder)",
     })
   })
 

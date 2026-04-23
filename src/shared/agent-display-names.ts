@@ -113,8 +113,8 @@ export function normalizeAgentForDisplay(agentName: string | undefined): string 
 
 /**
  * Normalize an agent name for session prompt APIs (`session.prompt` / `session.promptAsync`).
- * Reserved runtime agents such as `explore` must stay on their internal execution key.
- * All other known agents are normalized to their canonical display names.
+ * Core runtime prompt APIs resolve against the registered agent names, which are the canonical
+ * display names for managed agents. `explore` remains the only reserved runtime-key exception.
  */
 export function normalizeAgentForSessionPrompt(agentName: string | undefined): string | undefined {
   if (typeof agentName !== "string") {
@@ -130,10 +130,8 @@ export function normalizeAgentForSessionPrompt(agentName: string | undefined): s
   if (PRESERVE_CONFIG_KEY_AGENTS.has(configKey)) {
     return configKey
   }
-
-  const displayName = getAgentDisplayName(configKey)
-  if (displayName !== configKey) {
-    return displayName
+  if (KNOWN_AGENT_CONFIG_KEYS.has(configKey)) {
+    return getAgentDisplayName(configKey)
   }
 
   return trimmed

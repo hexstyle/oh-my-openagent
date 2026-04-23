@@ -6,13 +6,18 @@ import {
   createFallbackState,
   getNextTransientRetryDelayMs,
   hasMeaningfulProgressSinceLastError,
+  inheritCanonicalRetryParts,
+  inheritFreshSameModelRetryWindow,
+  isFreshSameModelRetryWindowOpen,
   isRecentLocalToolAbort,
   markFallbackResponseSuccess,
   markLimitError,
   markLocalToolAbort,
   markMeaningfulProgress,
   prepareFallback,
+  recordFreshSameModelRetry,
   recoverPreferredModel,
+  rememberCanonicalRetryParts,
 } from "./fallback-state"
 
 describe("runtime fallback state recovery", () => {
@@ -127,6 +132,45 @@ describe("runtime fallback state recovery", () => {
     expect(state.transientRetryDelayMs).toBeUndefined()
     expect(state.pendingTransientRetry).toBe(false)
     expect(state.currentModel).toBe("anthropic/claude-sonnet-4-6")
+  })
+
+  it("stores canonical retry parts for later fresh-session handoffs", () => {
+    const state = createFallbackState("anthropic/claude-opus-4-6")
+
+    rememberCanonicalRetryParts(state, [{ type: "text", text: "ship the CI fix" }])
+
+    expect(state.canonicalRetryParts).toEqual([{ type: "text", text: "ship the CI fix" }])
+  })
+
+  it("inherits canonical retry parts from a parent state without overwriting child-specific brief", () => {
+    const parent = createFallbackState("anthropic/claude-opus-4-6")
+    rememberCanonicalRetryParts(parent, [{ type: "text", text: "original request" }])
+    const child = createFallbackState("anthropic/claude-opus-4-6")
+
+    inheritCanonicalRetryParts(child, parent)
+    expect(child.canonicalRetryParts).toEqual([{ type: "text", text: "original request" }])
+
+    rememberCanonicalRetryParts(child, [{ type: "text", text: "child-specific brief" }])
+    inheritCanonicalRetryParts(child, parent)
+    expect(child.canonicalRetryParts).toEqual([{ type: "text", text: "child-specific brief" }])
+  })
+
+  it("inherits and resets the fresh same-model retry window across scoped children", () => {
+    const parent = createFallbackState("anthropic/claude-opus-4-6")
+    recordFreshSameModelRetry(parent, "anthropic/claude-opus-4-6", 100)
+    recordFreshSameModelRetry(parent, "anthropic/claude-opus-4-6", 200)
+    const child = createFallbackState("anthropic/claude-opus-4-6")
+
+    inheritFreshSameModelRetryWindow(child, parent)
+    expect(child.freshSameModelRetryModelIdentity).toBe("anthropic/claude-opus-4-6")
+    expect(child.freshSameModelRetryStartedAt).toBe(100)
+    expect(child.freshSameModelRetryCount).toBe(2)
+    expect(isFreshSameModelRetryWindowOpen(child, "anthropic/claude-opus-4-6", 600_000, 600_050)).toBe(true)
+    expect(isFreshSameModelRetryWindowOpen(child, "anthropic/claude-opus-4-6", 600_000, 700_100)).toBe(false)
+
+    markMeaningfulProgress(child, 701_000)
+    expect(child.freshSameModelRetryStartedAt).toBeUndefined()
+    expect(child.freshSameModelRetryCount).toBeUndefined()
   })
 
   it("clears recent quota context after meaningful progress or fallback success", () => {

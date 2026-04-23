@@ -5,6 +5,26 @@ import { isInternalInitiatorMessage } from "../runtime-fallback/internal-continu
 import { COUNTDOWN_GRACE_PERIOD_MS, HOOK_NAME } from "./constants"
 import type { SessionStateStore } from "./session-state"
 
+function getInfoSessionID(info: Record<string, unknown> | undefined): string | undefined {
+  if (!info) return undefined
+  const direct = info.sessionID
+  if (typeof direct === "string" && direct.length > 0) return direct
+  const camel = info.sessionId
+  if (typeof camel === "string" && camel.length > 0) return camel
+  const id = info.id
+  if (typeof id === "string" && id.length > 0) return id
+  return undefined
+}
+
+function getPropertiesSessionID(properties: Record<string, unknown> | undefined): string | undefined {
+  if (!properties) return undefined
+  const direct = properties.sessionID
+  if (typeof direct === "string" && direct.length > 0) return direct
+  const camel = properties.sessionId
+  if (typeof camel === "string" && camel.length > 0) return camel
+  return getInfoSessionID(properties.info as Record<string, unknown> | undefined)
+}
+
 export function handleNonIdleEvent(args: {
   directory?: string
   eventType: string
@@ -21,7 +41,7 @@ export function handleNonIdleEvent(args: {
 
   if (eventType === "message.updated") {
     const info = properties?.info as Record<string, unknown> | undefined
-    const sessionID = info?.sessionID as string | undefined
+    const sessionID = getInfoSessionID(info)
     const role = info?.role as string | undefined
     const eventParts = properties?.parts as Array<{ type?: string; text?: string }> | undefined
     const infoParts = info?.parts as Array<{ type?: string; text?: string }> | undefined
@@ -67,7 +87,7 @@ export function handleNonIdleEvent(args: {
 
   if (eventType === "message.part.updated") {
     const info = properties?.info as Record<string, unknown> | undefined
-    const sessionID = info?.sessionID as string | undefined
+    const sessionID = getInfoSessionID(info)
     const role = info?.role as string | undefined
 
     if (sessionID && role === "assistant") {
@@ -82,7 +102,7 @@ export function handleNonIdleEvent(args: {
   }
 
   if (eventType === "tool.execute.before" || eventType === "tool.execute.after") {
-    const sessionID = properties?.sessionID as string | undefined
+    const sessionID = getPropertiesSessionID(properties)
     if (sessionID) {
       const state = sessionStateStore.getExistingState(sessionID)
       if (state) {
