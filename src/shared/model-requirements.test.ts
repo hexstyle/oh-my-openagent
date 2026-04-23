@@ -64,18 +64,18 @@ describe("AGENT_MODEL_REQUIREMENTS", () => {
     expect(last.model).toBe("big-pickle")
   })
 
-  test("librarian has valid fallbackChain with opencode-go/minimax-m2.7 as primary", () => {
+  test("librarian has valid fallbackChain with minimax-m2.7 as primary", () => {
     // given - librarian agent requirement
     const librarian = AGENT_MODEL_REQUIREMENTS["librarian"]
 
     // when - accessing librarian requirement
-    // then - fallbackChain exists with opencode-go/minimax-m2.7 as first entry
+    // then - fallbackChain exists with minimax-m2.7 as first entry
     expect(librarian).toBeDefined()
     expect(librarian.fallbackChain).toBeArray()
-    expect(librarian.fallbackChain.length).toBeGreaterThan(0)
+    expect(librarian.fallbackChain).toHaveLength(4)
 
     const primary = librarian.fallbackChain[0]
-    expect(primary.providers[0]).toBe("opencode-go")
+    expect(primary.providers).toEqual(["opencode-go"])
     expect(primary.model).toBe("minimax-m2.7")
 
     const second = librarian.fallbackChain[1]
@@ -87,6 +87,7 @@ describe("AGENT_MODEL_REQUIREMENTS", () => {
     expect(tertiary.model).toBe("claude-haiku-4-5")
 
     const quaternary = librarian.fallbackChain[3]
+    expect(quaternary.providers).toContain("opencode")
     expect(quaternary.model).toBe("gpt-5-nano")
   })
 
@@ -100,8 +101,7 @@ describe("AGENT_MODEL_REQUIREMENTS", () => {
     expect(explore.fallbackChain).toHaveLength(5)
 
     const primary = explore.fallbackChain[0]
-    expect(primary.providers).toContain("github-copilot")
-    expect(primary.providers).toContain("xai")
+    expect(primary.providers).toEqual(["github-copilot", "xai"])
     expect(primary.model).toBe("grok-code-fast-1")
 
     const secondary = explore.fallbackChain[1]
