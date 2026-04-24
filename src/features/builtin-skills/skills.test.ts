@@ -75,7 +75,7 @@ describe("createBuiltinSkills", () => {
 		}
 	})
 
-	test("returns exactly 4 skills regardless of provider", () => {
+	test("returns exactly 9 skills regardless of provider", () => {
 		// given
 
 		// when
@@ -83,8 +83,8 @@ describe("createBuiltinSkills", () => {
 		const agentBrowserSkills = createBuiltinSkills({ browserProvider: "agent-browser" })
 
 		// then
-		expect(defaultSkills).toHaveLength(4)
-		expect(agentBrowserSkills).toHaveLength(4)
+		expect(defaultSkills).toHaveLength(9)
+		expect(agentBrowserSkills).toHaveLength(9)
 	})
 
 	test("should exclude playwright when it is in disabledSkills", () => {
@@ -99,7 +99,7 @@ describe("createBuiltinSkills", () => {
 		expect(skills.map((s) => s.name)).toContain("frontend-ui-ux")
 		expect(skills.map((s) => s.name)).toContain("git-master")
 		expect(skills.map((s) => s.name)).toContain("dev-browser")
-		expect(skills.length).toBe(3)
+		expect(skills.length).toBe(8)
 	})
 
 	test("should exclude multiple skills when they are in disabledSkills", () => {
@@ -114,13 +114,14 @@ describe("createBuiltinSkills", () => {
 		expect(skills.map((s) => s.name)).not.toContain("git-master")
 		expect(skills.map((s) => s.name)).toContain("frontend-ui-ux")
 		expect(skills.map((s) => s.name)).toContain("dev-browser")
-		expect(skills.length).toBe(2)
+		expect(skills.length).toBe(7)
 	})
 
 	test("should return an empty array when all skills are disabled", () => {
 		// #given
+		const allSkillNames = createBuiltinSkills().map((s) => s.name)
 		const options = {
-			disabledSkills: new Set(["playwright", "frontend-ui-ux", "git-master", "dev-browser"]),
+			disabledSkills: new Set(allSkillNames),
 		}
 
 		// #when
@@ -138,7 +139,17 @@ describe("createBuiltinSkills", () => {
 		const skills = createBuiltinSkills(options)
 
 		// #then
-		expect(skills.length).toBe(4)
+		expect(skills.length).toBe(9)
+	})
+
+	test("includes all CI/CD skills", () => {
+		const skills = createBuiltinSkills()
+		const names = skills.map((s) => s.name)
+		expect(names).toContain("bamboo-ci")
+		expect(names).toContain("dotnet-playwright")
+		expect(names).toContain("ci-green-loop")
+		expect(names).toContain("merge-workflow")
+		expect(names).toContain("sql-dacpac-deploy")
 	})
 
 	test("returns playwright-cli skill when browserProvider is 'playwright-cli'", () => {
