@@ -1309,6 +1309,73 @@ describe("createEventHandler", () => {
     ])
   })
 
+  it("#given a bootstrap-pending scoped fallback child hits UnknownError before any progress #when session.error is handled #then runtime-fallback retries in the original parent session instead of spawning another child", async () => {
+    const sessionID = "session-error-scoped-bootstrap-unknown"
+    const parentSessionID = "session-error-scoped-bootstrap-parent"
+    const deps = createDeps()
+    const abortCalls: string[] = []
+    const clearCalls: string[] = []
+
+    const parentState = createFallbackState("anthropic/claude-sonnet-4-6", [
+      "openai/gpt-5.4",
+    ])
+    parentState.resolvedAgent = "sisyphus-junior"
+    parentState.pendingFallbackModel = "anthropic/claude-sonnet-4-6"
+    deps.sessionStates.set(parentSessionID, parentState)
+    deps.sessionAwaitingFallbackResult.add(parentSessionID)
+
+    const childState = createFallbackState("anthropic/claude-sonnet-4-6", [
+      "openai/gpt-5.4",
+    ])
+    childState.resolvedAgent = "sisyphus-junior"
+    childState.isScopedFallbackChild = true
+    childState.scopedFallbackParentSessionID = parentSessionID
+    childState.scopedFallbackBootstrapPending = true
+    deps.sessionStates.set(sessionID, childState)
+
+    const helpers = createHelpers(deps, abortCalls, clearCalls)
+    helpers.retryCurrentModel = async (retrySessionID, retryResolvedAgent, source, options) => {
+      helpers.__retryCurrentModelCallsForTest.push({
+        sessionID: retrySessionID,
+        resolvedAgent: retryResolvedAgent,
+        source,
+        immediate: options?.immediate,
+        persistent: options?.persistent,
+      })
+      return true
+    }
+    const handler = createEventHandler(deps, helpers)
+
+    await handler({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID,
+          error: {
+            name: "UnknownError",
+            message: "prompt_async failed",
+          },
+        },
+      },
+    })
+
+    expect(clearCalls).toEqual([sessionID, parentSessionID])
+    expect(abortCalls).toEqual([])
+    expect(helpers.__freshRetryCallsForTest).toEqual([])
+    expect(helpers.__retryCurrentModelCallsForTest).toEqual([
+      {
+        sessionID: parentSessionID,
+        resolvedAgent: "sisyphus-junior",
+        source: "session.error.scoped-bootstrap",
+        immediate: true,
+        persistent: false,
+      },
+    ])
+    expect(deps.sessionAwaitingFallbackResult.has(parentSessionID)).toBe(false)
+    expect(deps.sessionStates.get(parentSessionID)?.pendingFallbackModel).toBeUndefined()
+    expect(deps.sessionStates.get(sessionID)?.scopedFallbackBootstrapPending).toBe(false)
+  })
+
   it("#given a paid request-not-allowed 403 before any meaningful progress #when fresh handoff is unavailable #then it retries the same paid model in-place immediately", async () => {
     const sessionID = "session-error-transient-forbidden-inline-prelude"
     const deps = createDeps()

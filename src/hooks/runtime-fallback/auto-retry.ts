@@ -67,7 +67,7 @@ import { markRecentRuntimeFallbackContinuationDispatch } from "../../shared/rece
 import { normalizeSDKResponse } from "../../shared/normalize-sdk-response"
 import { hasVisibleAssistantEventContent } from "./visible-assistant-response"
 import { extractAutoRetrySignal } from "./error-classifier"
-import { getScopedFallbackParentSessionHint } from "./scoped-fallback-hints"
+import { getScopedFallbackParentSessionHint, rememberScopedFallbackSessionHint } from "./scoped-fallback-hints"
 import { markGlobalModelCooldown } from "./global-model-cooldown"
 
 const SESSION_TTL_MS = 30 * 60 * 1000
@@ -106,6 +106,15 @@ type RuntimeFallbackChildSession = {
 }
 
 const NON_TERMINAL_SESSION_FINISH_REASONS = new Set(["tool-calls", "unknown"])
+
+function extractPromptAsyncResponseError(response: unknown): unknown {
+  if (!response || typeof response !== "object" || !("error" in response)) {
+    return undefined
+  }
+
+  const error = (response as { error?: unknown }).error
+  return error === null || error === undefined ? undefined : error
+}
 
 declare function setTimeout(callback: () => void | Promise<void>, delay?: number): RuntimeFallbackTimeout
 declare function clearTimeout(timeout: RuntimeFallbackTimeout): void
@@ -957,12 +966,13 @@ fi
 
     const directory = await resolveFallbackSessionDirectory(args.parentSessionID)
     const modelLabel = args.newModel.split("/").pop() ?? args.newModel
+    const title = `${RUNTIME_FALLBACK_SCOPED_HANDOFF_TITLE_PREFIX}: ${modelLabel}`
 
     try {
       const createResult = await ctx.client.session.create({
         body: {
           parentID: args.parentSessionID,
-          title: `${RUNTIME_FALLBACK_SCOPED_HANDOFF_TITLE_PREFIX}: ${modelLabel}`,
+          title,
         },
         query: { directory },
       })
@@ -975,6 +985,14 @@ fi
         })
         return undefined
       }
+
+      rememberScopedFallbackSessionHint(
+        deps,
+        createResult.data.id,
+        title,
+        args.parentSessionID,
+        true,
+      )
 
       return {
         sessionID: createResult.data.id,
@@ -1401,10 +1419,6 @@ fi
               const blockingProgressQuietWindowMs = resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
               const isPreExecutionRegroupProgress =
                 isPreExecutionRegroupToolProgress(currentAssistantProgress.blockingProgress)
-              const isDelegationToolProgress =
-                currentAssistantProgress.blockingProgress.partType === "tool"
-                && ["task", "call_omo_agent"].includes(currentAssistantProgress.blockingProgress.toolName ?? "")
-                && ["pending", "running"].includes(currentAssistantProgress.blockingProgress.toolStatus ?? "")
               const blockingProgressFreshUntil = isPreExecutionRegroupProgress
                 ? (
                   typeof state.longRunningProgressUntil === "number"
@@ -1420,7 +1434,7 @@ fi
                     : 0,
                 )
 
-              if (isDelegationToolProgress || blockingProgressFreshUntil > Date.now()) {
+              if (blockingProgressFreshUntil > Date.now()) {
                 sessionLastAccess.set(sessionID, Date.now())
                 scheduleSessionFallbackTimeout(sessionID, {
                   resolvedAgent,
@@ -1434,7 +1448,6 @@ fi
                   partType: currentAssistantProgress.blockingProgress.partType,
                   toolName: currentAssistantProgress.blockingProgress.toolName,
                   toolStatus: currentAssistantProgress.blockingProgress.toolStatus,
-                  indefiniteDelegationDefer: isDelegationToolProgress || undefined,
                 })
                 return
               }
@@ -1880,7 +1893,7 @@ fi
             resolvedAgent: retryAgent,
           })
 
-          await ctx.client.session.promptAsync({
+          const promptResponse = await ctx.client.session.promptAsync({
             path: { id: childSession.sessionID },
             body: {
               ...(retryPromptAgent ? { agent: retryPromptAgent } : {}),
@@ -1897,6 +1910,10 @@ fi
             },
             query: { directory: childSession.directory },
           })
+          const promptAsyncError = extractPromptAsyncResponseError(promptResponse)
+          if (promptAsyncError !== undefined) {
+            throw new Error(`promptAsync failed: ${String(promptAsyncError)}`)
+          }
 
           markRecentRuntimeFallbackContinuationDispatch(sessionID)
           markRecentRuntimeFallbackContinuationDispatch(childSession.sessionID)
@@ -1933,7 +1950,7 @@ fi
 
       markRecentRuntimeFallbackContinuationDispatch(sessionID)
 
-      await ctx.client.session.promptAsync({
+      const promptResponse = await ctx.client.session.promptAsync({
         path: { id: sessionID },
         body: {
           ...(retryPromptAgent ? { agent: retryPromptAgent } : {}),
@@ -1946,6 +1963,10 @@ fi
         },
         query: { directory: ctx.directory },
       })
+      const promptAsyncError = extractPromptAsyncResponseError(promptResponse)
+      if (promptAsyncError !== undefined) {
+        throw new Error(`promptAsync failed: ${String(promptAsyncError)}`)
+      }
       retryDispatched = true
     } catch (retryError) {
       log(`[${HOOK_NAME}] Auto-retry failed (${source})`, { sessionID, error: String(retryError) })
@@ -2158,7 +2179,7 @@ fi
         return false
       }
 
-      await ctx.client.session.promptAsync({
+      const promptResponse = await ctx.client.session.promptAsync({
         path: { id: childSession.sessionID },
         body: {
           ...(retryPromptAgent ? { agent: retryPromptAgent } : {}),
@@ -2175,6 +2196,10 @@ fi
         },
         query: { directory: childSession.directory },
       })
+      const promptAsyncError = extractPromptAsyncResponseError(promptResponse)
+      if (promptAsyncError !== undefined) {
+        throw new Error(`promptAsync failed: ${String(promptAsyncError)}`)
+      }
 
       const parentState = sessionStates.get(retryParentSessionID)
       if (!parentState) {

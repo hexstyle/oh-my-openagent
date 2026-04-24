@@ -86,6 +86,7 @@ export interface FallbackState {
   canonicalRetryParts?: RuntimeFallbackTextPart[]
   isScopedFallbackChild?: boolean
   scopedFallbackParentSessionID?: string
+  scopedFallbackBootstrapPending?: boolean
   freshSameModelRetryModelIdentity?: string
   freshSameModelRetryStartedAt?: number
   freshSameModelRetryCount?: number
@@ -192,6 +193,7 @@ export interface RuntimeFallbackHook {
 export interface ScopedFallbackSessionHint {
   isScopedFallbackChild: boolean
   parentSessionID?: string
+  bootstrapPending?: boolean
 }
 
 export interface HookDeps {

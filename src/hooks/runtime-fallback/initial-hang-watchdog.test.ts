@@ -2273,7 +2273,7 @@ describe("runtime-fallback initial hang watchdog", () => {
   })
 
   ;(["task", "call_omo_agent"] as const).forEach((toolName) => {
-    test(`does not abort Flare delegation while ${toolName} is still pending in the latest assistant transcript`, async () => {
+    test(`grants a short grace window while ${toolName} is still pending in the latest assistant transcript`, async () => {
       const retriedModels: string[] = []
       const abortCalls: string[] = []
       const sessionID = `ses-flare-${toolName}-pending`
@@ -2365,7 +2365,7 @@ describe("runtime-fallback initial hang watchdog", () => {
       expect(abortCalls).toHaveLength(0)
       expect(retriedModels).toHaveLength(0)
 
-      jest.advanceTimersByTime(160)
+      jest.advanceTimersByTime(40)
       await Promise.resolve()
       await Promise.resolve()
 
@@ -2373,22 +2373,22 @@ describe("runtime-fallback initial hang watchdog", () => {
       expect(retriedModels).toHaveLength(0)
       expect(
         logCalls.some((call) =>
-          call.msg.includes("Deferred session fallback timeout while latest assistant tool progress is still active")
-          && (call.data as { toolName?: string; toolStatus?: string } | undefined)?.toolName === toolName
-          && (call.data as { toolName?: string; toolStatus?: string } | undefined)?.toolStatus === "pending",
-        ),
-      ).toBe(true)
-      expect(
-        logCalls.some((call) =>
           call.msg.includes("Refreshed fallback timeout after assistant progress")
           && (call.data as { toolName?: string; timeoutMsOverride?: number } | undefined)?.toolName === toolName
           && (call.data as { toolName?: string; timeoutMsOverride?: number } | undefined)?.timeoutMsOverride === 80,
         ),
       ).toBe(true)
+
+      jest.advanceTimersByTime(70)
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(abortCalls).toContain(sessionID)
+      expect(retriedModels).toContain("openai/gpt-5.4")
     })
   })
 
-  test("does not abort a pending task when newer background-status reminder turns are appended above it", async () => {
+  test("does not wait forever on a pending task when only reminder turns remain above it", async () => {
     const retriedModels: string[] = []
     const abortCalls: string[] = []
     const sessionID = "ses-background-reminder-over-pending-task"
@@ -2480,19 +2480,18 @@ describe("runtime-fallback initial hang watchdog", () => {
       },
     })
 
-    jest.advanceTimersByTime(160)
+    jest.advanceTimersByTime(40)
     await Promise.resolve()
     await Promise.resolve()
 
     expect(abortCalls).toHaveLength(0)
     expect(retriedModels).toHaveLength(0)
-    expect(
-      logCalls.some((call) =>
-        call.msg.includes("Deferred session fallback timeout while latest assistant tool progress is still active")
-        && (call.data as { toolName?: string; toolStatus?: string } | undefined)?.toolName === "task"
-        && (call.data as { toolName?: string; toolStatus?: string } | undefined)?.toolStatus === "pending",
-      ),
-    ).toBe(true)
+    jest.advanceTimersByTime(90)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toContain(sessionID)
+    expect(retriedModels).toContain("openai/gpt-5.4")
   })
 
   test("aborts the stalled parent once the latest assistant transcript no longer shows a pending task tool", async () => {

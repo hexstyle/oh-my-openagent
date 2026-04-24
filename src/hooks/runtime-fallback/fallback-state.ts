@@ -41,6 +41,7 @@ export function createFallbackState(originalModel: string, fallbackModels: strin
     currentModel: originalModel,
     isScopedFallbackChild: false,
     scopedFallbackParentSessionID: undefined,
+    scopedFallbackBootstrapPending: false,
     freshSameModelRetryModelIdentity: undefined,
     freshSameModelRetryStartedAt: undefined,
     freshSameModelRetryCount: undefined,
@@ -150,6 +151,7 @@ export function markFallbackResponseSuccess(state: FallbackState): void {
   state.pendingFallbackModel = undefined
   state.attemptCount = 0
   state.fullChainCyclesCompleted = 0
+  state.scopedFallbackBootstrapPending = false
   clearLimitError(state)
   clearLocalToolAbort(state)
   state.lastErrorAt = undefined
@@ -249,6 +251,7 @@ export function recordFreshSameModelRetry(
 
 export function markMeaningfulProgress(state: FallbackState, now = Date.now()): void {
   state.lastMeaningfulProgressAt = now
+  state.scopedFallbackBootstrapPending = false
   clearLimitError(state)
   clearLocalToolAbort(state)
   state.lastErrorAt = undefined

@@ -524,6 +524,32 @@ describe("runtime fallback scoped handoff", () => {
     expect(wasRecentRuntimeFallbackContinuationDispatched(sessionID)).toBe(true)
   })
 
+  it("marks fresh same-model retry children as bootstrap-pending scoped fallback sessions", async () => {
+    const createCalls: Array<unknown> = []
+    const promptCalls: Array<unknown> = []
+    const deps = createDeps({ createCalls, promptCalls })
+    const sessionID = "ses_paid_fresh_retry_bootstrap_hint"
+    const state = createFallbackState("anthropic/claude-sonnet-4-6", [
+      "openai/gpt-5.4",
+    ])
+
+    deps.sessionStates.set(sessionID, state)
+
+    const helpers = createAutoRetryHelpers(deps)
+    const dispatched = await helpers.retryCurrentModelInFreshSession(
+      sessionID,
+      "Sisyphus Junior (Focused Executor)",
+      "session.error",
+    )
+
+    expect(dispatched).toBe(true)
+    expect(deps.sessionScopedFallbackHints?.get("ses_scoped_child")).toEqual({
+      isScopedFallbackChild: true,
+      parentSessionID: sessionID,
+      bootstrapPending: true,
+    })
+  })
+
   it("reattaches a scoped paid fresh retry handoff to the original parent session instead of nesting under the stalled child", async () => {
     const createCalls: Array<unknown> = []
     const promptCalls: Array<unknown> = []

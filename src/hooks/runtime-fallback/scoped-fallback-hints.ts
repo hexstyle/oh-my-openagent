@@ -23,6 +23,7 @@ export function rememberScopedFallbackSessionHint(
   sessionID: string,
   title: string | undefined,
   parentSessionID?: string,
+  bootstrapPending = false,
 ): boolean {
   const hintMap = getScopedFallbackHintMap(deps)
   const isScopedFallbackChild = isRuntimeFallbackScopedHandoffTitle(title)
@@ -33,6 +34,7 @@ export function rememberScopedFallbackSessionHint(
     hintMap.set(sessionID, {
       isScopedFallbackChild: true,
       parentSessionID: normalizedParentSessionID ?? previousHint?.parentSessionID,
+      bootstrapPending: bootstrapPending || previousHint?.bootstrapPending === true,
     })
     return true
   }
@@ -49,6 +51,7 @@ export function applyScopedFallbackSessionHint(
   const hint = getScopedFallbackHintMap(deps).get(sessionID)
   if (hint?.isScopedFallbackChild) {
     state.isScopedFallbackChild = true
+    state.scopedFallbackBootstrapPending = hint.bootstrapPending === true
     if (hint.parentSessionID) {
       state.scopedFallbackParentSessionID = hint.parentSessionID
     }

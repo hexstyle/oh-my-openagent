@@ -32,6 +32,7 @@ import { getRuntimeFallbackSessionID } from "./session-id"
 import {
   applyScopedFallbackSessionHint,
   clearScopedFallbackSessionHint,
+  getScopedFallbackParentSessionHint,
   rememberScopedFallbackSessionHint,
 } from "./scoped-fallback-hints"
 import { getAwaitingScopedFallbackParentSessionID } from "./scoped-fallback-parent-watch"
@@ -752,6 +753,48 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
 
     if (action === "limit_fallback") {
       markLimitError(state)
+    }
+
+    const isScopedBootstrapUnknownError =
+      state.isScopedFallbackChild
+      && state.scopedFallbackBootstrapPending === true
+      && state.lastMeaningfulProgressAt === undefined
+      && rawErrorName === "unknownerror"
+    if (isScopedBootstrapUnknownError) {
+      state.scopedFallbackBootstrapPending = false
+      const retryParentSessionID = (
+        typeof state.scopedFallbackParentSessionID === "string"
+          ? state.scopedFallbackParentSessionID
+          : getScopedFallbackParentSessionHint(deps, sessionID)
+      )?.trim()
+
+      if (typeof retryParentSessionID === "string" && retryParentSessionID.length > 0 && retryParentSessionID !== sessionID) {
+        sessionAwaitingFallbackResult.delete(retryParentSessionID)
+        helpers.clearSessionFallbackTimeout(retryParentSessionID)
+
+        const parentState = sessionStates.get(retryParentSessionID)
+        if (parentState) {
+          parentState.pendingFallbackModel = undefined
+          resetTransientRetryState(parentState)
+          if (resolvedAgent) {
+            parentState.resolvedAgent = resolvedAgent
+          }
+        }
+
+        const retried = await helpers.retryCurrentModel(
+          retryParentSessionID,
+          resolvedAgent,
+          "session.error.scoped-bootstrap",
+          {
+            immediate: true,
+            persistent: false,
+            maxAttempts: 1,
+          },
+        )
+        if (retried) {
+          return
+        }
+      }
     }
 
     const preferFreshTrackedProvider403Handoff =
