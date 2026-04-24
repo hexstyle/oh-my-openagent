@@ -12,6 +12,7 @@ import {
   dotnetPlaywrightSkill,
   ciGreenLoopSkill,
   mergeWorkflowSkill,
+  sqlDacpacDeploySkill,
 } from "./skills/index"
 
 export interface CreateBuiltinSkillsOptions {
@@ -40,6 +41,7 @@ export function createBuiltinSkills(options: CreateBuiltinSkillsOptions = {}): B
     dotnetPlaywrightSkill,
     ciGreenLoopSkill,
     mergeWorkflowSkill,
+    sqlDacpacDeploySkill,
   ]
 
   if (!disabledSkills) {

@@ -164,6 +164,7 @@ Skills are domain-specific knowledge packs that agents load on demand via `load_
 | `dotnet-playwright` | dotnet, MSBuild, csproj, TRX, E2E | .NET build + Playwright E2E testing expertise |
 | `ci-green-loop` | CI green, make build green, fix CI | Iterative push-build-analyze-fix protocol |
 | `merge-workflow` | merge develop, merge conflict, hotfix | Git merge workflow with two-phase pattern |
+| `sql-dacpac-deploy` | sqlproj, DACPAC, SQL72014, SQL migration | SQL Server DACPAC deployment and SSDT expertise |
 
 ### CI/CD Skills (new)
 
@@ -176,6 +177,8 @@ Four skills added for enterprise .NET CI/CD workflows:
 **ci-green-loop** — The iterative red-to-green protocol: monitor → classify → prioritize (build-error > crash > assertion > timeout) → fix → local proof → push → repeat. Includes checkpoint format for session handoff and forbidden actions list.
 
 **merge-workflow** — Two-phase merge for hotfix branches (pre-fix merge + post-green merge), conflict resolution strategy by file type, post-merge validation. Key: application source prefers develop, test files prefer hotfix.
+
+**sql-dacpac-deploy** ��� SQL Server DACPAC/SSDT project expertise: SQL72014 invalid column errors, EXISTS guard + `sp_executesql` deferred validation patterns, merge conflict resolution in migration scripts. Key: post-deploy scripts referencing columns added by schema diff need `sp_executesql` to defer validation.
 
 ### Using Skills in Plans
 
