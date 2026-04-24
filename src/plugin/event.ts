@@ -32,6 +32,7 @@ import {
   clearBackgroundOutputConsumptionsForTaskSession,
   restoreBackgroundOutputConsumption,
 } from "../shared/background-output-consumption";
+import { setContinuationMarkerSource } from "../features/run-continuation-state";
 import { createInternalAgentTextPart, normalizeSDKResponse, resetMessageCursor } from "../shared";
 import { getAgentConfigKey } from "../shared/agent-display-names";
 import { readConnectedProvidersCache } from "../shared/connected-providers-cache";
@@ -1954,6 +1955,7 @@ export function createEventHandler(args: {
   const lastKnownModelBySession = new Map<string, { providerID: string; modelID: string }>();
   const clearEmptyAssistantRecoveryTimer = (sessionID: string): void => {
     clearSharedEmptyAssistantRecoveryTimer(sessionID);
+    setContinuationMarkerSource(args.ctx.directory, sessionID, "recovery", "idle");
   };
 
   const clearAbortedToolRecoveryTimer = (sessionID: string): void => {
@@ -1999,6 +2001,13 @@ export function createEventHandler(args: {
     const previousMeta = emptyAssistantRecoveryTimerMetaBySession.get(sessionID);
     clearEmptyAssistantRecoveryTimer(sessionID);
     const delayMs = getEmptyAssistantRecoveryDelayMs(sessionID, messageID);
+    setContinuationMarkerSource(
+      args.ctx.directory,
+      sessionID,
+      "recovery",
+      "active",
+      "empty assistant recovery is pending",
+    );
     const timer = setTimeout(() => {
       void (async () => {
         try {
@@ -2066,6 +2075,10 @@ export function createEventHandler(args: {
           );
         } catch (error) {
           log("[event] delayed empty assistant recovery failed", { sessionID, messageID, error });
+        } finally {
+          if (!emptyAssistantRecoveryTimers.has(sessionID)) {
+            setContinuationMarkerSource(args.ctx.directory, sessionID, "recovery", "idle");
+          }
         }
       })();
     }, delayMs);

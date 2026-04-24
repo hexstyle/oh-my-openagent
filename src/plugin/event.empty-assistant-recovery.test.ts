@@ -1,5 +1,8 @@
 declare const require: (name: string) => any
 const { afterEach, beforeEach, describe, expect, jest, mock, spyOn, test } = require("bun:test")
+import { mkdtempSync, rmSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
 
 const fixEmptyMessagesWithSDKMock = mock(async () => ({
   fixed: true,
@@ -9,16 +12,24 @@ const fixEmptyMessagesWithSDKMock = mock(async () => ({
 
 import { _resetEventRecoveryStateForTesting, createEventHandler } from "./event"
 import { _resetForTesting } from "../features/claude-code-session-state"
+import { readContinuationMarker } from "../features/run-continuation-state"
 import * as connectedProvidersCache from "../shared/connected-providers-cache"
 import * as emptyContentRecoverySdk from "../hooks/anthropic-context-window-limit-recovery/empty-content-recovery-sdk"
 import * as loggerModule from "../shared/logger"
 
 const promptAsyncMock = mock(async () => ({}))
+const tempDirs: string[] = []
 
-function createHandler(messages: Array<Record<string, unknown>>) {
+function createTempDir(): string {
+  const directory = mkdtempSync(join(tmpdir(), "omo-event-empty-recovery-"))
+  tempDirs.push(directory)
+  return directory
+}
+
+function createHandler(messages: Array<Record<string, unknown>>, directory = "/tmp") {
   return createEventHandler({
     ctx: {
-      directory: "/tmp",
+      directory,
       client: {
         session: {
           messages: async () => ({ data: messages }),
@@ -68,6 +79,12 @@ describe("createEventHandler idle empty assistant recovery", () => {
     _resetForTesting()
     fixEmptyMessagesWithSDKMock.mockClear()
     promptAsyncMock.mockClear()
+    while (tempDirs.length > 0) {
+      const directory = tempDirs.pop()
+      if (directory) {
+        rmSync(directory, { recursive: true, force: true })
+      }
+    }
     try {
       jest.clearAllTimers()
       jest.useRealTimers()
@@ -177,6 +194,7 @@ describe("createEventHandler idle empty assistant recovery", () => {
 
   test("dedupes delayed empty assistant recovery across multiple handler instances for the same message", async () => {
     jest.useFakeTimers()
+    const directory = createTempDir()
 
     const messages = [
       {
@@ -201,8 +219,8 @@ describe("createEventHandler idle empty assistant recovery", () => {
       },
     ]
 
-    const handlerA = createHandler(messages)
-    const handlerB = createHandler(messages)
+    const handlerA = createHandler(messages, directory)
+    const handlerB = createHandler(messages, directory)
     const event = {
       event: {
         type: "message.updated",
@@ -220,6 +238,8 @@ describe("createEventHandler idle empty assistant recovery", () => {
     await handlerA(event)
     await handlerB(event)
 
+    expect(readContinuationMarker(directory, "ses_empty_shared_delay")?.sources.recovery?.state).toBe("active")
+
     if (typeof jest.advanceTimersByTimeAsync === "function") {
       await jest.advanceTimersByTimeAsync(5001)
     } else {
@@ -231,6 +251,7 @@ describe("createEventHandler idle empty assistant recovery", () => {
 
     expect(fixEmptyMessagesWithSDKMock).toHaveBeenCalledTimes(1)
     expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(readContinuationMarker(directory, "ses_empty_shared_delay")).toBeNull()
   })
 
   test("does not recover when an assistant turn starts with internal parts but later streams visible object deltas", async () => {

@@ -37,6 +37,20 @@ describe("getContinuationState marker integration", () => {
     expect(state.activeHookMarkerReason).toContain("todos")
   })
 
+  it("reports recovery markers as active continuation work", () => {
+    // given
+    const directory = createTempDir()
+    const sessionID = "ses_marker_recovery"
+    setContinuationMarkerSource(directory, sessionID, "recovery", "active", "empty assistant recovery is pending")
+
+    // when
+    const state = getContinuationState(directory, sessionID)
+
+    // then
+    expect(state.hasActiveHookMarker).toBe(true)
+    expect(state.activeHookMarkerReason).toContain("empty assistant recovery")
+  })
+
   it("does not report active marker when all sources are idle/stopped", () => {
     // given
     const directory = createTempDir()

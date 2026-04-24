@@ -106,6 +106,27 @@ describe("checkCompletionConditions", () => {
     expect(result).toBe(false)
   })
 
+  it("returns false when a recovery continuation marker is active even if transcript looks settled", async () => {
+    // given
+    spyOn(console, "log").mockImplementation(() => {})
+    const directory = createTempDir()
+    setContinuationMarkerSource(
+      directory,
+      "test-session",
+      "recovery",
+      "active",
+      "empty assistant recovery is pending",
+    )
+    const ctx = createMockContext({ directory })
+    const { checkCompletionConditions } = await import("./completion")
+
+    // when
+    const result = await checkCompletionConditions(ctx)
+
+    // then
+    expect(result).toBe(false)
+  })
+
   it("returns false when an idle todo marker exists but todos are still incomplete", async () => {
     // given
     spyOn(console, "log").mockImplementation(() => {})
