@@ -84,9 +84,6 @@ export function createConnectedProvidersCacheStore(
 			}
 		}
 
-		log("[connected-providers-cache] Cache file not found", {
-			cacheFiles: getReadableCacheFilePaths(CONNECTED_PROVIDERS_CACHE_FILE),
-		})
 		memConnected = null
 		return null
 	}
@@ -135,9 +132,6 @@ export function createConnectedProvidersCacheStore(
 			}
 		}
 
-		log("[connected-providers-cache] Provider-models cache file not found", {
-			cacheFiles: getReadableCacheFilePaths(PROVIDER_MODELS_CACHE_FILE),
-		})
 		memProviderModels = null
 		return null
 	}

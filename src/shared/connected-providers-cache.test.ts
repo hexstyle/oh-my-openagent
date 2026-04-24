@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { beforeEach, afterEach, describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -9,6 +9,7 @@ import {
 	createConnectedProvidersCacheStore,
 	findProviderModelMetadata,
 } from "./connected-providers-cache"
+import * as logger from "./logger"
 
 let fakeUserCacheRoot = ""
 let testCacheDir = ""
@@ -140,6 +141,58 @@ describe("updateConnectedProvidersCache", () => {
 		//#then
 		const cache = testCacheStore.readProviderModelsCache()
 		expect(cache).toBeNull()
+	})
+
+	test("does not log when connected-providers cache file is simply missing", () => {
+		const logSpy = spyOn(logger, "log").mockImplementation(() => {})
+
+		expect(testCacheStore.readConnectedProvidersCache()).toBeNull()
+		expect(logSpy).not.toHaveBeenCalled()
+
+		logSpy.mockRestore()
+	})
+
+	test("does not log when provider-models cache file is simply missing", () => {
+		const logSpy = spyOn(logger, "log").mockImplementation(() => {})
+
+		expect(testCacheStore.readProviderModelsCache()).toBeNull()
+		expect(logSpy).not.toHaveBeenCalled()
+
+		logSpy.mockRestore()
+	})
+
+	test("still logs when connected-providers cache exists but cannot be parsed", () => {
+		const logSpy = spyOn(logger, "log").mockImplementation(() => {})
+		mkdirSync(testCacheDir, { recursive: true })
+		writeFileSync(join(testCacheDir, "connected-providers.json"), "{not-json")
+
+		expect(testCacheStore.readConnectedProvidersCache()).toBeNull()
+		expect(logSpy).toHaveBeenCalledWith(
+			"[connected-providers-cache] Error reading cache",
+			expect.objectContaining({
+				cacheFile: join(testCacheDir, "connected-providers.json"),
+				error: expect.any(String),
+			}),
+		)
+
+		logSpy.mockRestore()
+	})
+
+	test("still logs when provider-models cache exists but cannot be parsed", () => {
+		const logSpy = spyOn(logger, "log").mockImplementation(() => {})
+		mkdirSync(testCacheDir, { recursive: true })
+		writeFileSync(join(testCacheDir, "provider-models.json"), "{not-json")
+
+		expect(testCacheStore.readProviderModelsCache()).toBeNull()
+		expect(logSpy).toHaveBeenCalledWith(
+			"[connected-providers-cache] Error reading provider-models cache",
+			expect.objectContaining({
+				cacheFile: join(testCacheDir, "provider-models.json"),
+				error: expect.any(String),
+			}),
+		)
+
+		logSpy.mockRestore()
 	})
 
 	test("does not remove unrelated files in the cache directory", async () => {
