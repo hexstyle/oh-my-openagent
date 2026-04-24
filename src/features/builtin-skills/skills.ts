@@ -13,6 +13,8 @@ import {
   ciGreenLoopSkill,
   mergeWorkflowSkill,
   sqlDacpacDeploySkill,
+  reviewWorkSkill,
+  aiSlopRemoverSkill,
 } from "./skills/index"
 
 export interface CreateBuiltinSkillsOptions {
@@ -42,6 +44,8 @@ export function createBuiltinSkills(options: CreateBuiltinSkillsOptions = {}): B
     ciGreenLoopSkill,
     mergeWorkflowSkill,
     sqlDacpacDeploySkill,
+    reviewWorkSkill,
+    aiSlopRemoverSkill,
   ]
 
   if (!disabledSkills) {

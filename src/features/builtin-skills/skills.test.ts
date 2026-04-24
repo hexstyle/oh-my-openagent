@@ -83,8 +83,8 @@ describe("createBuiltinSkills", () => {
 		const agentBrowserSkills = createBuiltinSkills({ browserProvider: "agent-browser" })
 
 		// then
-		expect(defaultSkills).toHaveLength(9)
-		expect(agentBrowserSkills).toHaveLength(9)
+		expect(defaultSkills).toHaveLength(11)
+		expect(agentBrowserSkills).toHaveLength(11)
 	})
 
 	test("should exclude playwright when it is in disabledSkills", () => {
@@ -99,7 +99,7 @@ describe("createBuiltinSkills", () => {
 		expect(skills.map((s) => s.name)).toContain("frontend-ui-ux")
 		expect(skills.map((s) => s.name)).toContain("git-master")
 		expect(skills.map((s) => s.name)).toContain("dev-browser")
-		expect(skills.length).toBe(8)
+		expect(skills.length).toBe(10)
 	})
 
 	test("should exclude multiple skills when they are in disabledSkills", () => {
@@ -114,7 +114,7 @@ describe("createBuiltinSkills", () => {
 		expect(skills.map((s) => s.name)).not.toContain("git-master")
 		expect(skills.map((s) => s.name)).toContain("frontend-ui-ux")
 		expect(skills.map((s) => s.name)).toContain("dev-browser")
-		expect(skills.length).toBe(7)
+		expect(skills.length).toBe(9)
 	})
 
 	test("should return an empty array when all skills are disabled", () => {
@@ -139,7 +139,7 @@ describe("createBuiltinSkills", () => {
 		const skills = createBuiltinSkills(options)
 
 		// #then
-		expect(skills.length).toBe(9)
+		expect(skills.length).toBe(11)
 	})
 
 	test("includes all CI/CD skills", () => {
@@ -150,6 +150,13 @@ describe("createBuiltinSkills", () => {
 		expect(names).toContain("ci-green-loop")
 		expect(names).toContain("merge-workflow")
 		expect(names).toContain("sql-dacpac-deploy")
+	})
+
+	test("includes review and quality skills", () => {
+		const skills = createBuiltinSkills()
+		const names = skills.map((s) => s.name)
+		expect(names).toContain("review-work")
+		expect(names).toContain("ai-slop-remover")
 	})
 
 	test("returns playwright-cli skill when browserProvider is 'playwright-cli'", () => {
