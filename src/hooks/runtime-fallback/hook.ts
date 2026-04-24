@@ -7,6 +7,8 @@ import { createEventHandler } from "./event-handler"
 import { createMessageUpdateHandler } from "./message-update-handler"
 import { createChatMessageHandler } from "./chat-message-handler"
 import { createLoopDetector } from "./internal-continuation-loop-detector"
+import { SessionExecutionCoordinator } from "../../session-coordinator"
+import { getFallbackModelsForSession } from "./fallback-models"
 
 declare function setInterval(callback: () => void, delay?: number): RuntimeFallbackInterval
 declare function clearInterval(interval: RuntimeFallbackInterval): void
@@ -54,12 +56,18 @@ export function createRuntimeFallbackHook(
     }
   }
 
+  const coordinator = new SessionExecutionCoordinator((sessionID) => ({
+    baseTimeoutMs: config.timeout_seconds * 1000,
+    hasFallbackModels: getFallbackModelsForSession(sessionID, undefined, pluginConfig).length > 0,
+  }))
+
   const deps: HookDeps = {
     ctx,
     config,
     options,
     pluginConfig,
     loopDetector: createLoopDetector(),
+    coordinator,
     sessionStates: new Map(),
     sessionLastAccess: new Map(),
     sessionLastUserMessageIDs: new Map(),
@@ -81,7 +89,10 @@ export function createRuntimeFallbackHook(
   const messageUpdateHandler = createMessageUpdateHandler(deps, helpers)
   const chatMessageHandler = createChatMessageHandler(deps)
 
-  const cleanupInterval = setInterval(helpers.cleanupStaleSessions, 5 * 60 * 1000)
+  const cleanupInterval = setInterval(() => {
+    helpers.cleanupStaleSessions()
+    coordinator.cleanupStale()
+  }, 5 * 60 * 1000)
   cleanupInterval.unref()
   const recoveryInterval = setInterval(() => {
     void helpers.recoverPreferredModels()

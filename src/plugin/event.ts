@@ -1977,13 +1977,20 @@ export function createEventHandler(args: {
             return;
           }
 
-          await maybeRecoverPrometheusAbortedToolWrapper(
+          const coordinator = hooks.runtimeFallback?._deps?.coordinator;
+          coordinator?.observe(sessionID, {
+            kind: "recovery_dispatched",
+            recoveryKind: "aborted_tool",
+          });
+
+          const recovered = await maybeRecoverPrometheusAbortedToolWrapper(
             pluginContext,
             sessionID,
             expectedMessageID,
             source,
             eventError,
           );
+          coordinator?.observe(sessionID, { kind: "recovery_result", success: recovered });
         } catch (error) {
           log("[event] delayed aborted-tool recovery failed", {
             sessionID,
@@ -1991,6 +1998,8 @@ export function createEventHandler(args: {
             source,
             error,
           });
+          const coordinator = hooks.runtimeFallback?._deps?.coordinator;
+          coordinator?.observe(sessionID, { kind: "recovery_result", success: false });
         }
       })();
     }, PROMETHEUS_ABORTED_TOOL_RECOVERY_DELAY_MS);
@@ -2013,6 +2022,25 @@ export function createEventHandler(args: {
         try {
           emptyAssistantRecoveryTimers.delete(sessionID);
           emptyAssistantRecoveryTimerMetaBySession.delete(sessionID);
+
+          // Phase 1: coordinator gates empty recovery decisions
+          const coordinator = hooks.runtimeFallback?._deps?.coordinator;
+          if (coordinator) {
+            const decision = coordinator.observe(sessionID, {
+              kind: "assistant_empty",
+              messageID,
+            });
+            if (decision.action !== "recover_empty_turn" && decision.action !== "none") {
+              log("[event] delayed empty assistant recovery suppressed by coordinator", {
+                sessionID,
+                messageID,
+                coordinatorAction: decision.action,
+                coordinatorReason: "reason" in decision ? decision.reason : undefined,
+              });
+              return;
+            }
+          }
+
           log("[event] running delayed empty assistant recovery", {
             sessionID,
             messageID,
@@ -2047,6 +2075,12 @@ export function createEventHandler(args: {
             return;
           }
 
+          // Notify coordinator that recovery is being dispatched
+          coordinator?.observe(sessionID, {
+            kind: "recovery_dispatched",
+            recoveryKind: "empty_assistant",
+          });
+
           const recoveredPendingTool = await maybeRecoverPrometheusPendingEmptyToolCall(
             pluginContext,
             sessionID,
@@ -2054,6 +2088,7 @@ export function createEventHandler(args: {
             "message.updated.delayed",
           );
           if (recoveredPendingTool) {
+            coordinator?.observe(sessionID, { kind: "recovery_result", success: true });
             return;
           }
 
@@ -2064,15 +2099,17 @@ export function createEventHandler(args: {
             "message.updated.delayed",
           );
           if (recoveredPlannerReasoningOnly) {
+            coordinator?.observe(sessionID, { kind: "recovery_result", success: true });
             return;
           }
 
-          await maybeRecoverIdleEmptyAssistantMessage(
+          const recovered = await maybeRecoverIdleEmptyAssistantMessage(
             pluginContext,
             sessionID,
             messageID,
             "message.updated.delayed",
           );
+          coordinator?.observe(sessionID, { kind: "recovery_result", success: !!recovered });
         } catch (error) {
           log("[event] delayed empty assistant recovery failed", { sessionID, messageID, error });
         } finally {

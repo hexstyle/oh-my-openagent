@@ -334,6 +334,8 @@ export class BackgroundManager {
   private enableParentSessionNotifications: boolean
   readonly taskHistory = new TaskHistory()
   private cachedCircuitBreakerSettings?: CircuitBreakerSettings
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private sessionCoordinator?: { observe(sessionID: string, obs: any): unknown }
 
   constructor(
     ctx: PluginInput,
@@ -360,6 +362,11 @@ export class BackgroundManager {
     this.preStartDescendantReservations = new Set()
     this.enableParentSessionNotifications = options?.enableParentSessionNotifications ?? true
     this.registerProcessCleanup()
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  setSessionCoordinator(coordinator: { observe(sessionID: string, obs: any): unknown }): void {
+    this.sessionCoordinator = coordinator
   }
 
   async assertCanSpawn(parentSessionID: string): Promise<SubagentSpawnContext> {
@@ -715,6 +722,12 @@ export class BackgroundManager {
     task.concurrencyGroup = concurrencyKey
 
     this.taskHistory.record(input.parentSessionID, { id: task.id, sessionID, agent: input.agent, description: input.description, status: "running", category: input.category, startedAt: task.startedAt })
+
+    this.sessionCoordinator?.observe(input.parentSessionID, {
+      kind: "child_task_started",
+      taskID: task.id,
+    })
+
     this.startPolling()
 
     void this.enqueueNotificationForParent(input.parentSessionID, () =>
@@ -1158,6 +1171,11 @@ export class BackgroundManager {
       this.unregisterRootDescendant(task.rootSessionID)
     }
     this.taskHistory.record(task.parentSessionID, { id: task.id, sessionID: task.sessionID, agent: task.agent, description: task.description, status: "error", category: task.category, startedAt: task.startedAt, completedAt: task.completedAt })
+
+    this.sessionCoordinator?.observe(task.parentSessionID, {
+      kind: "child_task_failed",
+      taskID: task.id,
+    })
 
     if (task.concurrencyKey) {
       this.concurrencyManager.release(task.concurrencyKey)
@@ -2030,6 +2048,11 @@ export class BackgroundManager {
     task.error = undefined
     task.completedAt = new Date()
     this.taskHistory.record(task.parentSessionID, { id: task.id, sessionID: task.sessionID, agent: task.agent, description: task.description, status: "completed", category: task.category, startedAt: task.startedAt, completedAt: task.completedAt })
+
+    this.sessionCoordinator?.observe(task.parentSessionID, {
+      kind: "child_task_completed",
+      taskID: task.id,
+    })
 
     if (task.rootSessionID) {
       this.unregisterRootDescendant(task.rootSessionID)

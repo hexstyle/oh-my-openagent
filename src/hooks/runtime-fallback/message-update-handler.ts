@@ -245,6 +245,14 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       const hasTerminalFinish = hasTerminalAssistantFinish(info)
 
       if (currentEventHasVisibleResponse) {
+        deps.coordinator?.observe(sessionID, {
+          kind: "assistant_progress",
+          hasVisibleContent: true,
+          partType: undefined,
+          toolName: undefined,
+          toolStatus: undefined,
+          isStreaming: !hasTerminalFinish,
+        })
         sessionLastAccess.set(sessionID, Date.now())
         sessionSilentAssistantUpdateCounts?.delete(sessionID)
         sessionAwaitingFallbackResult.delete(sessionID)
@@ -288,6 +296,11 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
             timeoutMsOverride,
           })
         } else {
+          deps.coordinator?.observe(sessionID, {
+            kind: "assistant_complete",
+            finishReason: typeof info?.finish === "string" ? info.finish : "unknown",
+            hasVisibleContent: true,
+          })
           sessionRecentActiveStatusUntil?.delete(sessionID)
           helpers.clearSessionFallbackTimeout(sessionID)
           log(`[${HOOK_NAME}] Assistant response observed directly in message.updated; cleared fallback timeout`, {

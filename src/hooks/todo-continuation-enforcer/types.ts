@@ -5,6 +5,7 @@ export interface TodoContinuationEnforcerOptions {
   backgroundManager?: BackgroundManager
   skipAgents?: string[]
   isContinuationStopped?: (sessionID: string) => boolean
+  hasActiveWork?: (sessionID: string) => boolean
 }
 
 export interface TodoContinuationEnforcer {
@@ -12,6 +13,7 @@ export interface TodoContinuationEnforcer {
   markRecovering: (sessionID: string) => void
   markRecoveryComplete: (sessionID: string) => void
   cancelAllCountdowns: () => void
+  setHasActiveWork?: (fn: (sessionID: string) => boolean) => void
   dispose: () => void
 }
 

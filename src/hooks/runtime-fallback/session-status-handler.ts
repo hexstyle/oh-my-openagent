@@ -60,6 +60,8 @@ export function createSessionStatusHandler(
     if (!sessionID) return
 
     if (timeoutEnabled && status?.type && ACTIVE_SESSION_STATUS_TYPES.has(status.type)) {
+      deps.coordinator?.observe(sessionID, { kind: "session_status_active" })
+
       if (await shouldSuppressRecentCompletionReplay({
         ctx,
         sessionID,
@@ -254,6 +256,11 @@ export function createSessionStatusHandler(
     const statusFallbackModels = isQuota
       ? selectFallbackModelsForAction({ currentModel: state.currentModel, fallbackModels, action: "limit_fallback" })
       : fallbackModels
+
+    deps.coordinator?.observe(sessionID, {
+      kind: "session_status_retry",
+      isQuota,
+    })
 
     log(`[${HOOK_NAME}] Detected provider auto-retry signal in session.status`, {
       sessionID,

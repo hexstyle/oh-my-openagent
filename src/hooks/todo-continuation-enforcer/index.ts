@@ -19,6 +19,8 @@ export function createTodoContinuationEnforcer(
     isContinuationStopped,
   } = options
 
+  let hasActiveWork: ((sessionID: string) => boolean) | undefined = options.hasActiveWork
+
   const sessionStateStore = createSessionStateStore()
 
   const markRecovering = (sessionID: string): void => {
@@ -36,12 +38,14 @@ export function createTodoContinuationEnforcer(
     }
   }
 
+  const activeWorkRef = { current: hasActiveWork }
   const handler = createTodoContinuationHandler({
     ctx,
     sessionStateStore,
     backgroundManager,
     skipAgents,
     isContinuationStopped,
+    hasActiveWork: (sessionID: string) => activeWorkRef.current?.(sessionID) ?? false,
   })
 
   const cancelAllCountdowns = (): void => {
@@ -54,6 +58,7 @@ export function createTodoContinuationEnforcer(
     markRecovering,
     markRecoveryComplete,
     cancelAllCountdowns,
+    setHasActiveWork: (fn: (sessionID: string) => boolean) => { activeWorkRef.current = fn },
     dispose: () => sessionStateStore.shutdown(),
   }
 }

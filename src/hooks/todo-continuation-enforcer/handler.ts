@@ -54,6 +54,7 @@ export function createTodoContinuationHandler(args: {
   backgroundManager?: BackgroundManager
   skipAgents?: string[]
   isContinuationStopped?: (sessionID: string) => boolean
+  hasActiveWork?: (sessionID: string) => boolean
 }): (input: { event: { type: string; properties?: unknown } }) => Promise<void> {
   const {
     ctx,
@@ -61,6 +62,7 @@ export function createTodoContinuationHandler(args: {
     backgroundManager,
     skipAgents = DEFAULT_SKIP_AGENTS,
     isContinuationStopped,
+    hasActiveWork,
   } = args
 
   return async ({ event }: { event: { type: string; properties?: unknown } }): Promise<void> => {
@@ -108,6 +110,7 @@ export function createTodoContinuationHandler(args: {
           backgroundManager,
           skipAgents,
           isContinuationStopped,
+          hasActiveWork,
         })
       } catch (error) {
         log(`[${HOOK_NAME}] session.idle handling failed`, {

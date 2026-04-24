@@ -172,6 +172,16 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       return
     }
 
+    // Coordinator: track visible assistant progress for cross-module decisions
+    deps.coordinator?.observe(sessionID, {
+      kind: "assistant_progress",
+      hasVisibleContent: hasVisibleTextDelta || (partType === "text" && partText.length > 0),
+      partType,
+      toolName,
+      toolStatus,
+      isStreaming: isStreamingTextDeltaProgress || hasReasoningStreamProgress,
+    })
+
     sessionLastAccess.set(sessionID, Date.now())
 
     const longRunningTimeoutMs = resolveLongRunningProgressTimeoutMs(baseTimeoutMs)
@@ -456,6 +466,8 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     const sessionID = getRuntimeFallbackSessionID(props)
     if (!sessionID) return
 
+    deps.coordinator?.observe(sessionID, { kind: "session_stopped" })
+
     clearRecentCompletionState(sessionID, sessionRecentCompletionUntil)
     sessionRecentActiveStatusUntil?.delete(sessionID)
     sessionSilentAssistantUpdateCounts?.delete(sessionID)
@@ -483,6 +495,8 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
   const handleSessionIdle = async (props: Record<string, unknown> | undefined) => {
     const sessionID = getRuntimeFallbackSessionID(props)
     if (!sessionID) return
+
+    deps.coordinator?.observe(sessionID, { kind: "session_status_idle" })
 
     if (sessionAwaitingFallbackResult.has(sessionID)) {
       if (!sessionFallbackTimeouts.has(sessionID)) {
@@ -639,7 +653,18 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       errorType: classifyErrorType(effectiveError),
     })
 
-    if (!isRetryableError(effectiveError, config.retry_on_errors)) {
+    const isLocalToolAbortError = extractErrorName(effectiveError)?.toLowerCase() === "localtoolabortwrappederror"
+    const errorRetryable = isRetryableError(effectiveError, config.retry_on_errors)
+    const isQuotaError = classifyErrorType(effectiveError) === "quota_exceeded"
+      || extractStatusCode(effectiveError, config.retry_on_errors) === 429
+    deps.coordinator?.observe(sessionID, {
+      kind: "session_error",
+      isRetryable: errorRetryable,
+      isQuota: isQuotaError,
+      isLocalToolAbort: isLocalToolAbortError,
+    })
+
+    if (!errorRetryable) {
       log(`[${HOOK_NAME}] Error not retryable, skipping fallback`, {
         sessionID,
         retryable: false,

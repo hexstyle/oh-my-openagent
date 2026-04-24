@@ -1,6 +1,7 @@
 import type { RuntimeFallbackConfig, OhMyOpenCodeConfig } from "../../config"
 import type { BackgroundTask } from "../../features/background-agent/types"
 import type { LoopDetector } from "./internal-continuation-loop-detector"
+import type { SessionExecutionCoordinator } from "../../session-coordinator"
 
 export interface RuntimeFallbackBackgroundManager {
   getTasksByParentSession: (sessionID: string) => BackgroundTask[]
@@ -216,4 +217,5 @@ export interface HookDeps {
   sessionFallbackTimeouts: Map<string, RuntimeFallbackTimeout>
   sessionTransientRetryTimeouts: Map<string, RuntimeFallbackTimeout>
   sessionStatusRetryKeys: Map<string, string>
+  coordinator?: SessionExecutionCoordinator
 }

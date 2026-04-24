@@ -1336,6 +1336,27 @@ fi
           return
         }
 
+        // Phase 1: coordinator gates timeout decisions — only suppress when
+        // coordinator explicitly says "wait" (e.g. recovery/fallback in flight,
+        // or active child tasks).  All other decisions (fallback_next_model,
+        // abort_session, retry_same_model) fall through to the existing nuanced
+        // timeout handler which has the full model-chain context.
+        if (deps.coordinator) {
+          const decision = deps.coordinator.observe(sessionID, { kind: "timeout_fired" })
+          if (decision.action === "wait") {
+            log(`[${HOOK_NAME}] Timeout deferred by coordinator`, {
+              sessionID,
+              source,
+              reason: "reason" in decision ? decision.reason : undefined,
+            })
+            scheduleSessionFallbackTimeout(sessionID, {
+              resolvedAgent: args?.resolvedAgent,
+              source: `${source}.coord-deferred`,
+            })
+            return
+          }
+        }
+
         sessionFallbackTimeouts.delete(sessionID)
 
         const state = sessionStates.get(sessionID)
@@ -1915,6 +1936,11 @@ fi
             throw new Error(`promptAsync failed: ${String(promptAsyncError)}`)
           }
 
+          deps.coordinator?.observe(sessionID, {
+            kind: "fallback_dispatched",
+            targetModel: newModel,
+            isScopedHandoff: true,
+          })
           markRecentRuntimeFallbackContinuationDispatch(sessionID)
           markRecentRuntimeFallbackContinuationDispatch(childSession.sessionID)
           if (state?.pendingFallbackModel) {
@@ -1934,6 +1960,12 @@ fi
           resolvedAgent: retryAgent,
         })
       }
+
+      deps.coordinator?.observe(sessionID, {
+        kind: "fallback_dispatched",
+        targetModel: newModel,
+        isScopedHandoff: false,
+      })
 
       sessionAwaitingFallbackResult.add(sessionID)
       const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000

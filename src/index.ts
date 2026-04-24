@@ -96,6 +96,15 @@ const OhMyOpenCodePlugin: Plugin = async (ctx) => {
     availableSkills: toolsResult.availableSkills,
   })
 
+  // Wire coordinator into cross-module consumers
+  const coordinator = hooks.runtimeFallback?._deps?.coordinator
+  if (coordinator) {
+    managers.backgroundManager.setSessionCoordinator(coordinator)
+    hooks.todoContinuationEnforcer?.setHasActiveWork?.((sessionID) =>
+      coordinator.hasActiveWork(sessionID) || coordinator.isRecoveryOrFallbackInFlight(sessionID),
+    )
+  }
+
   const dispose = createPluginDispose({
     backgroundManager: managers.backgroundManager,
     skillMcpManager: managers.skillMcpManager,

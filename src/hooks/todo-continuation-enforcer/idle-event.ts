@@ -26,6 +26,7 @@ export async function handleSessionIdle(args: {
   backgroundManager?: BackgroundManager
   skipAgents?: string[]
   isContinuationStopped?: (sessionID: string) => boolean
+  hasActiveWork?: (sessionID: string) => boolean
 }): Promise<void> {
   const {
     ctx,
@@ -34,6 +35,7 @@ export async function handleSessionIdle(args: {
     backgroundManager,
     skipAgents = DEFAULT_SKIP_AGENTS,
     isContinuationStopped,
+    hasActiveWork,
   } = args
 
   log(`[${HOOK_NAME}] session.idle`, { sessionID })
@@ -72,6 +74,12 @@ export async function handleSessionIdle(args: {
     log(`[${HOOK_NAME}] Skipped: recent runtime fallback continuation dispatch still settling`, {
       sessionID,
     })
+    return
+  }
+
+  // Check for active work: prefer coordinator, fall back to direct background task inspection
+  if (hasActiveWork?.(sessionID)) {
+    log(`[${HOOK_NAME}] Skipped: coordinator reports active work`, { sessionID })
     return
   }
 
