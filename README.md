@@ -149,6 +149,74 @@ bun run script/verify-local-opencode-install.ts
 
 Then restart `opencode` so the running process picks up the new config.
 
+## Built-in Skills
+
+Skills are domain-specific knowledge packs that agents load on demand via `load_skills=[...]` in task delegation. Built-in skills ship with the plugin and are available in every project.
+
+| Skill | Trigger | Purpose |
+|-------|---------|---------|
+| `playwright` | browser automation, Playwright | Browser automation via Playwright |
+| `playwright-cli` | playwright CLI | Playwright CLI variant |
+| `frontend-ui-ux` | UI, UX, design, spacing | Designer-turned-developer visual quality |
+| `git-master` | git, branching, atomic commits | Git workflow and commit conventions |
+| `dev-browser` | navigate website, screenshot, scrape | Persistent browser automation with AI snapshots |
+| `bamboo-ci` | bamboo, build plan, CI build, build green | Bamboo CI monitoring, build analysis, iteration loops |
+| `dotnet-playwright` | dotnet, MSBuild, csproj, TRX, E2E | .NET build + Playwright E2E testing expertise |
+| `ci-green-loop` | CI green, make build green, fix CI | Iterative push-build-analyze-fix protocol |
+| `merge-workflow` | merge develop, merge conflict, hotfix | Git merge workflow with two-phase pattern |
+
+### CI/CD Skills (new)
+
+Four skills added for enterprise .NET CI/CD workflows:
+
+**bamboo-ci** — Bamboo REST API patterns (anonymous-first), build result classification, stale revision detection, checkpoint protocol. Key: always verifies build revision matches branch HEAD before analyzing results.
+
+**dotnet-playwright** — MSBuild error patterns, `dotnet test` filtering, Playwright failure taxonomy (TargetClosedException, selector timeout, visibility), evidence pipeline (screenshots + TRX), shard balancing rules. Key: `WaitForTimeoutAsync` is never the fix — find the right selector.
+
+**ci-green-loop** — The iterative red-to-green protocol: monitor → classify → prioritize (build-error > crash > assertion > timeout) → fix → local proof → push → repeat. Includes checkpoint format for session handoff and forbidden actions list.
+
+**merge-workflow** — Two-phase merge for hotfix branches (pre-fix merge + post-green merge), conflict resolution strategy by file type, post-merge validation. Key: application source prefers develop, test files prefer hotfix.
+
+### Using Skills in Plans
+
+When generating Prometheus plans, reference skills in task definitions:
+
+```markdown
+- [ ] 4.2. **CI Green Loop**
+  **Recommended Agent Profile**:
+  - **Category**: `deep`
+  - **Skills**: `["bamboo-ci", "ci-green-loop", "dotnet-playwright"]`
+```
+
+The atlas orchestrator passes skills to subagents via `load_skills` in task delegation.
+
+### Adding Custom Skills
+
+Create `SKILL.md` files with YAML frontmatter:
+
+```
+.opencode/skills/
+└── my-skill/
+    └── SKILL.md
+```
+
+```yaml
+---
+name: my-skill
+description: "One-line description for agent discovery"
+---
+
+# My Skill
+
+Skill content in markdown...
+```
+
+Skill scopes (highest priority wins):
+- `opencode-project` (`.opencode/skills/` in project root)
+- `project` (`.claude/skills/` or `.agents/skills/`)
+- `user` (`~/.claude/skills/`)
+- `builtin` (this plugin, always available)
+
 ## Notes
 
 - live config is written to `~/.config/opencode`
