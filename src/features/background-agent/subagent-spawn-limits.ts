@@ -11,6 +11,13 @@ export interface SubagentSpawnContext {
   childDepth: number
 }
 
+function isClientBindingLookupError(reason: string): boolean {
+  const normalized = reason.toLowerCase()
+  return normalized.includes("this._client")
+    || normalized.includes("reading '_client'")
+    || normalized.includes("evaluating 'this._client'")
+}
+
 export function getMaxSubagentDepth(config?: BackgroundTaskConfig): number {
   return config?.maxDepth ?? DEFAULT_MAX_SUBAGENT_DEPTH
 }
@@ -55,6 +62,14 @@ export async function resolveSubagentSpawnContext(
       nextParentSessionID = response.data.parentID
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
+      if (isClientBindingLookupError(reason)) {
+        return {
+          rootSessionID: parentSessionID,
+          parentDepth: 0,
+          childDepth: 1,
+        }
+      }
+
       throw new Error(
         `Subagent spawn blocked: failed to resolve session lineage for ${parentSessionID}, so background_task.maxDescendants cannot be enforced safely. ${reason}`
       )
