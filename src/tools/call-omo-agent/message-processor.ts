@@ -4,7 +4,7 @@ import { consumeNewMessages } from "../../shared/session-cursor"
 
 interface SDKMessage {
   info?: { role?: string; time?: { created?: number } }
-  parts?: Array<{ type: string; text?: string; content?: string | Array<{ type: string; text?: string }> }>
+  parts?: Array<{ type: string; text?: string }>
 }
 
 export async function processMessages(
@@ -23,22 +23,22 @@ export async function processMessages(
   const messages = messagesResult.data
   log(`[call_omo_agent] Got ${messages.length} messages`)
 
-  // Include both assistant messages AND tool messages
-  // Tool results (grep, glob, bash output) come from role "tool"
-  const relevantMessages = messages.filter(
-    (m: SDKMessage) => m.info?.role === "assistant" || m.info?.role === "tool"
+  // Only assistant messages contain the subagent's synthesized response.
+  // Tool results (grep, bash, file reads) are intermediate data that pollute
+  // the parent context with service tags, escape chars, and raw output.
+  const assistantMessages = messages.filter(
+    (m: SDKMessage) => m.info?.role === "assistant"
   )
 
-  if (relevantMessages.length === 0) {
-    log(`[call_omo_agent] No assistant or tool messages found`)
-    log(`[call_omo_agent] All messages:`, JSON.stringify(messages, null, 2))
-    throw new Error("No assistant or tool response found")
+  if (assistantMessages.length === 0) {
+    log(`[call_omo_agent] No assistant messages found`)
+    throw new Error("No assistant response found")
   }
 
-  log(`[call_omo_agent] Found ${relevantMessages.length} relevant messages`)
+  log(`[call_omo_agent] Found ${assistantMessages.length} assistant messages`)
 
   // Sort by time ascending (oldest first) to process messages in order
-  const sortedMessages = [...relevantMessages].sort((a: SDKMessage, b: SDKMessage) => {
+  const sortedMessages = [...assistantMessages].sort((a: SDKMessage, b: SDKMessage) => {
     const timeA = a.info?.time?.created ?? 0
     const timeB = b.info?.time?.created ?? 0
     return timeA - timeB
@@ -50,28 +50,14 @@ export async function processMessages(
     return "No new output since last check."
   }
 
-  // Extract content from ALL messages, not just the last one
-  // Tool results may be in earlier messages while the final message is empty
+  // Extract only text/reasoning from assistant messages — the subagent's
+  // final response already contains all relevant information.
   const extractedContent: string[] = []
 
   for (const message of newMessages) {
     for (const part of message.parts ?? []) {
-      // Handle both "text" and "reasoning" parts (thinking models use "reasoning")
       if ((part.type === "text" || part.type === "reasoning") && part.text) {
         extractedContent.push(part.text)
-      } else if ((part.type as string) === "tool_result") {
-        // Tool results contain the actual output from tool calls
-        const toolResult = part as { content?: string | Array<{ type: string; text?: string }> }
-        if (typeof toolResult.content === "string" && toolResult.content) {
-          extractedContent.push(toolResult.content)
-        } else if (Array.isArray(toolResult.content)) {
-          // Handle array of content blocks
-          for (const block of toolResult.content) {
-            if ((block.type === "text" || block.type === "reasoning") && block.text) {
-              extractedContent.push(block.text)
-            }
-          }
-        }
       }
     }
   }
