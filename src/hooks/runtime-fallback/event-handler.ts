@@ -8,7 +8,7 @@ import {
 } from "./constants"
 import { resolveRecentActiveStatusTimeoutOverride } from "./active-status-timeout"
 import { log } from "../../shared/logger"
-import { extractStatusCode, extractErrorName, classifyErrorType, isRetryableError, isAbortWrapperError } from "./error-classifier"
+import { extractStatusCode, extractErrorName, classifyErrorType, getErrorMessage, isRetryableError, isAbortWrapperError } from "./error-classifier"
 import { createFallbackState, hasMeaningfulProgressSinceLastError, hasSameModelIdentity, markFallbackResponseSuccess, markMeaningfulProgress, resetTransientRetryState, markLimitError, markLocalToolAbort, markSessionStopped, isRecentLimitError, isRecentLocalToolAbort, markSessionError, inheritCanonicalRetryParts, inheritFreshSameModelRetryWindow } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
@@ -21,6 +21,7 @@ import {
   getSameModelRetryAttemptLimit,
   getRuntimeFallbackAction,
   getRuntimeFallbackTier,
+  isNetworkError,
   isPersistentSameModelRetryAction,
   isSameModelRetryAction,
   selectFallbackModelsForAction,
@@ -892,6 +893,20 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
           return
         }
       }
+    }
+
+    // Network/infra errors (TLS cert, DNS, ECONNRESET) cannot be fixed by switching
+    // models.  When same-model retry was attempted but failed (already in-flight or
+    // window expired), do NOT escalate to fallback_chain — just log and return.
+    // Only quota/limit errors (429) warrant cross-model fallback.
+    if (isSameModelRetryAction(action) && isNetworkError(effectiveError)) {
+      log(`[${HOOK_NAME}] Network error retry exhausted — NOT escalating to fallback_chain (switching models cannot fix network)`, {
+        sessionID,
+        currentModel: state.currentModel,
+        error: getErrorMessage(effectiveError),
+        action,
+      })
+      return
     }
 
     const effectiveAction =

@@ -215,9 +215,9 @@ describe("start-work hook", () => {
 
       // then - resume prompt should force Atlas back into delegation mode
       const lowerText = output.parts[0].text.toLowerCase()
-      expect(lowerText).toContain("current top-level task")
-      expect(lowerText).toContain("task(")
-      expect(lowerText).toContain("do not spend multiple read/bash")
+      expect(lowerText).toContain("delegate tasks immediately")
+      expect(lowerText).toContain("delegate it as one task to one agent")
+      expect(lowerText).toContain("do not investigate implementation details")
     })
 
     test("should clear stale boulder state when existing active plan is already complete", async () => {

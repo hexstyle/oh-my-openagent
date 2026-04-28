@@ -84,12 +84,13 @@ function createDelegationKickoffBlock(): string {
   return `
 ## Delegation Kickoff
 
-After you refresh the plan, boulder state, and relevant notepad context, your next substantive action MUST be \`task(...)\` for the current top-level task.
+After refreshing plan, boulder state, and notepad context, delegate tasks immediately.
 
-- Focus on the current top-level task first
-- Keep your own direct orchestration work minimal: plan/notepad/boulder refresh, verification, delegation
-- Do not spend multiple Read/Bash research loops investigating implementation details yourself before delegation
-- Use \`task(subagent_type="explore", run_in_background=true, ...)\` for codebase search and the appropriate execution subagent for implementation`
+- When unblocked tasks are independent AND touch different files, delegate IN PARALLEL
+- **CI green plans**: The plan has exactly 2 tasks (Diagnosis + Fix ALL). Delegate Task 2 ONLY after Task 1 completes — Task 2 needs the diagnosis evidence. Task 2 is ONE comprehensive session that fixes EVERYTHING. Do NOT split it further.
+- Keep your own work minimal: refresh state → delegate → monitor → verify
+- Do not investigate implementation details yourself before delegating — that's the subagent's job
+- If a task touches many files, delegate it as ONE task to ONE agent — do NOT split by file or group`
 }
 
 function createEvidenceGateBlock(): string {
@@ -100,6 +101,7 @@ function createEvidenceGateBlock(): string {
 - A checked task with required evidence paths is still INCOMPLETE until those files/directories actually exist
 - If a QA/Evidence line references \`.sisyphus/evidence/...\` and that artifact is missing or empty, keep treating the task as remaining work
 - Checked boxes without required evidence remain incomplete
+- **Conversely**: unchecked boxes whose evidence artifacts ALREADY EXIST (non-empty files at the referenced paths) should be treated as COMPLETE — skip to the next task. A previous session may have produced the evidence without checking the boxes.
 - Do not announce "all complete" from raw \`- [x]\` counts alone`
 }
 

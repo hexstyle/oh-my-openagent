@@ -17,6 +17,7 @@ import {
   getSameModelRetryAttemptLimit,
   getRuntimeFallbackAction,
   getRuntimeFallbackTier,
+  isNetworkError,
   isPersistentSameModelRetryAction,
   isSameModelRetryAction,
   selectFallbackModelsForAction,
@@ -337,6 +338,16 @@ export function createSessionStatusHandler(
           return
         }
       }
+    }
+
+    // Network/infra errors (TLS, DNS, ECONNRESET) cannot be fixed by switching models.
+    if (isSameModelRetryAction(retryAction) && isNetworkError({ message: retryMessage })) {
+      log(`[${HOOK_NAME}] Network error retry exhausted — NOT escalating to fallback_chain`, {
+        sessionID,
+        currentModel: state.currentModel,
+        retryMessage,
+      })
+      return
     }
 
     await helpers.abortSessionRequest(sessionID, "session.status.retry-signal")
