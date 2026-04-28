@@ -46,3 +46,15 @@ export function resolveRetryBriefParts(
   const canonicalRetryParts = state?.canonicalRetryParts ?? []
   return canonicalRetryParts.map((part) => ({ type: "text" as const, text: part.text }))
 }
+
+export function hasCanonicalRetryParts(
+  state?: Pick<FallbackState, "canonicalRetryParts"> | null,
+): boolean {
+  return Array.isArray(state?.canonicalRetryParts) && state.canonicalRetryParts.length > 0
+}
+
+export function resolveCanonicalRetryBriefParts(
+  state: Pick<FallbackState, "canonicalRetryParts">,
+): RuntimeFallbackTextPart[] {
+  return (state.canonicalRetryParts ?? []).map((part) => ({ type: "text" as const, text: part.text }))
+}

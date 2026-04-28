@@ -58,11 +58,12 @@
       ]
     },
     "explore": {
-      "model": "openai/gpt-5.3-codex-spark",
+      "model": "anthropic/claude-sonnet-4-6",
+      "variant": "low",
       "textVerbosity": "low",
       "fallback_models": [
-        "anthropic/claude-sonnet-4-6",
         "openai/gpt-5.4",
+        "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
         "opencode/big-pickle"
@@ -188,6 +189,7 @@
       "fallback_models": [
         "anthropic/claude-opus-4-7",
         "openai/gpt-5.4",
+        "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
         "opencode/big-pickle"

@@ -63,8 +63,11 @@ export const RETRYABLE_ERROR_PATTERNS = [
  * Hook name for identification and logging
  */
 export const HOOK_NAME = "runtime-fallback"
-export const WATCHDOG_CONTINUATION_PROMPT = "Continue the current task from where you left off. The previous request appears stalled. Resume from the existing context, do not redo completed work, and continue."
-export const FALLBACK_CONTINUATION_PROMPT = "[runtime-fallback] Continue the current task from the existing session context on the new model. Do not restate the user request or redo completed work."
+export const CONTINUATION_PROMPT = "Continue the current task from the existing context. Do not redo completed work."
+/** @deprecated Use CONTINUATION_PROMPT instead */
+export const WATCHDOG_CONTINUATION_PROMPT = CONTINUATION_PROMPT
+/** @deprecated Use CONTINUATION_PROMPT instead */
+export const FALLBACK_CONTINUATION_PROMPT = CONTINUATION_PROMPT
 export const LONG_RUNNING_PROGRESS_TIMEOUT_MULTIPLIER = 4
 export const ACTIVE_STATUS_MESSAGE_UPDATE_GRACE_MS = 5_000
 const LONG_RUNNING_PENDING_TOOL_NAMES = new Set(["task", "call_omo_agent"])

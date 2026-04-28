@@ -322,4 +322,29 @@ describe("runtime fallback policy", () => {
     expect(getRuntimeFallbackTier("opencode/big-pickle")).toBe("free")
     expect(getRuntimeFallbackTier("openai/gpt-5.4")).toBe("paid")
   })
+
+  it("routes plain MessageAbortedError to retry_same_model_delayed, not fallback_chain", () => {
+    expect(
+      getRuntimeFallbackAction(
+        { name: "MessageAbortedError", message: "Aborted" },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("retry_same_model_delayed")
+
+    expect(
+      getRuntimeFallbackAction(
+        { name: "MessageAbortedError", message: "MessageAbortedError" },
+        [402, 429, 500, 502, 503, 504],
+      ),
+    ).toBe("retry_same_model_delayed")
+  })
+
+  it("caps MessageAbortedError same-model retries at 2 attempts", () => {
+    expect(
+      getSameModelRetryAttemptLimit(
+        { name: "MessageAbortedError", message: "Aborted" },
+        "retry_same_model_delayed",
+      ),
+    ).toBe(2)
+  })
 })

@@ -1,6 +1,6 @@
 import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
 import { createSystemDirective, SystemDirectiveTypes } from "../../shared/system-directive"
-import { WATCHDOG_CONTINUATION_PROMPT } from "./constants"
+import { CONTINUATION_PROMPT } from "./constants"
 
 export type LoopDetectionResult = {
   isTerminal: boolean
@@ -47,8 +47,14 @@ function normalizeInternalPromptText(text: string): string {
   return normalized.replace(/\s+/g, " ").trim()
 }
 
-const NORMALIZED_WATCHDOG_CONTINUATION_PROMPT = normalizeInternalPromptText(
-  WATCHDOG_CONTINUATION_PROMPT,
+const NORMALIZED_CONTINUATION_PROMPT = normalizeInternalPromptText(
+  CONTINUATION_PROMPT,
+)
+const NORMALIZED_LEGACY_WATCHDOG_CONTINUATION_PROMPT = normalizeInternalPromptText(
+  "Continue the current task from where you left off. The previous request appears stalled. Resume from the existing context, do not redo completed work, and continue.",
+)
+const NORMALIZED_LEGACY_FALLBACK_CONTINUATION_PROMPT = normalizeInternalPromptText(
+  "[runtime-fallback] Continue the current task from the existing session context on the new model. Do not restate the user request or redo completed work.",
 )
 const NORMALIZED_GENERIC_CONTINUATION_PROMPT = normalizeInternalPromptText(
   "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed.",
@@ -69,9 +75,12 @@ export function isInternalInitiatorMessage(
         return false
       }
 
+      const normalized = normalizeInternalPromptText(part.text)
       return part.text.includes(OMO_INTERNAL_INITIATOR_MARKER)
-        || normalizeInternalPromptText(part.text) === NORMALIZED_WATCHDOG_CONTINUATION_PROMPT
-        || normalizeInternalPromptText(part.text) === NORMALIZED_GENERIC_CONTINUATION_PROMPT
+        || normalized === NORMALIZED_CONTINUATION_PROMPT
+        || normalized === NORMALIZED_LEGACY_WATCHDOG_CONTINUATION_PROMPT
+        || normalized === NORMALIZED_LEGACY_FALLBACK_CONTINUATION_PROMPT
+        || normalized === NORMALIZED_GENERIC_CONTINUATION_PROMPT
     },
   )
 }
@@ -89,7 +98,9 @@ export function isInternalContinuationMessage(
       const normalizedText = normalizeInternalPromptText(textWithoutMarker)
       const isSystemReminder = textWithoutMarker.trimStart().startsWith("<system-reminder>")
 
-      return normalizedText === NORMALIZED_WATCHDOG_CONTINUATION_PROMPT
+      return normalizedText === NORMALIZED_CONTINUATION_PROMPT
+        || normalizedText === NORMALIZED_LEGACY_WATCHDOG_CONTINUATION_PROMPT
+        || normalizedText === NORMALIZED_LEGACY_FALLBACK_CONTINUATION_PROMPT
         || normalizedText === NORMALIZED_GENERIC_CONTINUATION_PROMPT
         || (part.text.includes(OMO_INTERNAL_INITIATOR_MARKER) && !isSystemReminder)
         || textWithoutMarker.includes(BOULDER_CONTINUATION_DIRECTIVE)

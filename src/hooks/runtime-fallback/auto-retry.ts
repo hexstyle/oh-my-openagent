@@ -5,12 +5,11 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { FallbackState, HookDeps, RuntimeFallbackTimeout } from "./types"
 import {
-  FALLBACK_CONTINUATION_PROMPT,
+  CONTINUATION_PROMPT,
   HOOK_NAME,
   MODEL_RECOVERY_PROBE_MIN_INTERVAL_MS,
   MODEL_RECOVERY_PROBE_TIMEOUT_MS,
   STALLED_SESSION_NUDGE_MS,
-  WATCHDOG_CONTINUATION_PROMPT,
   isLongRunningAssistantProgress,
   isPreExecutionRegroupToolProgress,
   resolveLongRunningProgressTimeoutMs,
@@ -40,7 +39,7 @@ import {
 } from "./fallback-state"
 import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { buildRetryModelPayload } from "./retry-model-payload"
-import { resolveRetryBriefParts } from "./last-user-retry-parts"
+import { hasCanonicalRetryParts, resolveCanonicalRetryBriefParts, resolveRetryBriefParts } from "./last-user-retry-parts"
 import { extractSessionMessages } from "./session-messages"
 import { appendDiagnosticSourceSegment, compactDiagnosticSource } from "./diagnostic-source"
 import { createInternalAgentTextPart } from "../../shared/internal-initiator-marker"
@@ -159,14 +158,24 @@ function formatScopedFallbackBrief(
     .join("\n\n")
 
   if (!text) {
-    return "No reusable user brief was available from the parent session. Continue from the parent session lineage only."
+    return "No reusable brief from parent session."
   }
 
   if (text.length <= SCOPED_FALLBACK_HANDOFF_MAX_BRIEF_CHARS) {
     return text
   }
 
-  return `${text.slice(0, SCOPED_FALLBACK_HANDOFF_MAX_BRIEF_CHARS).trim()}\n\n[Brief truncated for scoped fallback handoff]`
+  const cutRegion = text.slice(0, SCOPED_FALLBACK_HANDOFF_MAX_BRIEF_CHARS)
+  const lastSentenceEnd = Math.max(
+    cutRegion.lastIndexOf(". "),
+    cutRegion.lastIndexOf(".\n"),
+    cutRegion.lastIndexOf("?\n"),
+    cutRegion.lastIndexOf("!\n"),
+  )
+  const cutPoint = lastSentenceEnd > SCOPED_FALLBACK_HANDOFF_MAX_BRIEF_CHARS * 0.5
+    ? lastSentenceEnd + 1
+    : SCOPED_FALLBACK_HANDOFF_MAX_BRIEF_CHARS
+  return `${text.slice(0, cutPoint).trim()}\n\n[truncated]`
 }
 
 function hasTerminalAssistantCompletion(messagesResponse: unknown): boolean {
@@ -317,17 +326,7 @@ function buildScopedFallbackHandoffPrompt(args: {
   lastUserRetryParts: Array<{ type?: string; text?: string }>
 }): string {
   const brief = formatScopedFallbackBrief(args.lastUserRetryParts)
-  return [
-    "Scoped fallback handoff.",
-    `Parent session: ${args.parentSessionID}`,
-    `Fallback model: ${args.newModel}`,
-    "Continue the existing task from the current project state.",
-    "Do not restate the full user request or redo completed work.",
-    "Focus only on the next unresolved step and keep the result compact.",
-    "",
-    "Task brief:",
-    brief,
-  ].join("\n")
+  return `Scoped fallback handoff (parent: ${args.parentSessionID}, model: ${args.newModel}).\nContinue from existing project state. Do not redo completed work. Focus on next unresolved step.\n\nTask brief:\n${brief}`
 }
 
 function buildFreshPaidRetryHandoffPrompt(args: {
@@ -336,18 +335,7 @@ function buildFreshPaidRetryHandoffPrompt(args: {
   lastUserRetryParts: Array<{ type?: string; text?: string }>
 }): string {
   const brief = formatScopedFallbackBrief(args.lastUserRetryParts)
-  return [
-    "Fresh paid retry handoff.",
-    `Parent session: ${args.parentSessionID}`,
-    `Retry model: ${args.currentModel}`,
-    "Retry on the same paid model in a fresh session.",
-    "Preserve the parent context and continue the current task without restarting from scratch.",
-    "Do not restate the full request or redo completed work.",
-    "Focus only on the next unresolved step.",
-    "",
-    "Task brief:",
-    brief,
-  ].join("\n")
+  return `Fresh paid retry (parent: ${args.parentSessionID}, model: ${args.currentModel}).\nContinue from parent context. Do not redo completed work. Focus on next unresolved step.\n\nTask brief:\n${brief}`
 }
 
 type PrometheusPlanPromotionContext = {
@@ -436,17 +424,7 @@ function extractPrometheusPlanPromotionContext(
 }
 
 function buildPrometheusPlanPromotionRetryPrompt(args: PrometheusPlanPromotionContext): string {
-  return [
-    "Prometheus final-plan promotion retry.",
-    "The previous attempt stalled on an empty write tool placeholder while promoting the final plan.",
-    "Do NOT open another large write tool call for the final artifact.",
-    `Reuse the existing draft at ${args.draftPath}.`,
-    "Promote it with bash instead:",
-    `mkdir -p "$(dirname '${args.finalPath}')" && cp '${args.draftPath}' '${args.finalPath}'`,
-    `Then read ${args.finalPath} and verify it no longer begins with '# Draft:' and that the ## TODOs section is populated.`,
-    "Only if the draft itself is incomplete should you repair the draft first, then promote it with the bash copy step above.",
-    "Continue in the same session and keep the result compact.",
-  ].join("\n")
+  return `Plan promotion retry — previous write stalled. Do NOT use write tool.\nPromote via bash: mkdir -p "$(dirname '${args.finalPath}')" && cp '${args.draftPath}' '${args.finalPath}'\nVerify ${args.finalPath} has no '# Draft:' header and ## TODOs is populated. Repair draft first only if incomplete.`
 }
 
 function getPrometheusPlanPromotionRetryKey(args: PrometheusPlanPromotionContext): string {
@@ -705,6 +683,7 @@ export function createAutoRetryHelpers(deps: HookDeps) {
       resolvedAgent: args.resolvedAgent,
       currentModel: args.currentModel,
       newModel: nextModel,
+      isScopedFallbackChild: sessionStates.get(args.sessionID)?.isScopedFallbackChild,
     })
     if (transitionMode === "scoped_handoff") {
       log(`[${HOOK_NAME}] Skipping external watchdog because fallback requires scoped handoff`, {
@@ -760,7 +739,7 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     )
       ? ""
       : resolveExternalWatchdogAgent(args.resolvedAgent)
-    const internalWatchdogPrompt = createInternalAgentTextPart(FALLBACK_CONTINUATION_PROMPT).text
+    const internalWatchdogPrompt = createInternalAgentTextPart(CONTINUATION_PROMPT).text
     const serverBaseUrl = getServerBaseUrl(ctx.client)
     const command = serverBaseUrl ? "bun" : "/bin/zsh"
     const commandArgs = serverBaseUrl
@@ -1679,6 +1658,7 @@ fi
             resolvedAgent,
             currentModel: result.previousModel,
             newModel: result.newModel,
+            isScopedFallbackChild: state.isScopedFallbackChild,
           })
           await autoRetryWithFallback(sessionID, result.newModel, resolvedAgent, source, {
             previousModel: result.previousModel,
@@ -1857,8 +1837,12 @@ fi
     let retryDispatched = false
     try {
       const state = sessionStates.get(sessionID)
-      const messagesResp = await fetchSessionMessages(sessionID, `${source}.retry-brief`)
-      const retryBriefParts = resolveRetryBriefParts(messagesResp, state)
+      const retryBriefParts = hasCanonicalRetryParts(state)
+        ? resolveCanonicalRetryBriefParts(state!)
+        : resolveRetryBriefParts(
+            await fetchSessionMessages(sessionID, `${source}.retry-brief`),
+            state,
+          )
       if (retryBriefParts.length === 0) {
         log(`[${HOOK_NAME}] No reusable user message found for auto-retry; continuing with internal fallback prompt (${source})`, {
           sessionID,
@@ -1883,6 +1867,7 @@ fi
         resolvedAgent: retryAgent,
         currentModel: previousModel,
         newModel,
+        isScopedFallbackChild: state?.isScopedFallbackChild,
       })
       const preserveRetryAgent = isBoulderTrackedExecutionSession(sessionID, ctx.directory)
       const retryPromptAgent = (!preserveRetryAgent
@@ -1989,7 +1974,7 @@ fi
           ...retryModelPayload,
           parts: [
             createInternalAgentTextPart(
-              args?.continuationPrompt ?? FALLBACK_CONTINUATION_PROMPT,
+              args?.continuationPrompt ?? CONTINUATION_PROMPT,
             ),
           ],
         },
@@ -2188,15 +2173,17 @@ fi
         inheritFreshSameModelRetryWindow(state, retryWindowState)
       }
 
-      const retryBriefSessionID =
-        state.isScopedFallbackChild && retryParentSessionID !== sessionID
-          ? retryParentSessionID
-          : sessionID
-      const messagesResp = await fetchSessionMessages(
-        retryBriefSessionID,
-        `${source}.fresh-retry-brief`,
-      )
-      const retryBriefParts = resolveRetryBriefParts(messagesResp, state)
+      const retryBriefParts = hasCanonicalRetryParts(state)
+        ? resolveCanonicalRetryBriefParts(state)
+        : resolveRetryBriefParts(
+            await fetchSessionMessages(
+              state.isScopedFallbackChild && retryParentSessionID !== sessionID
+                ? retryParentSessionID
+                : sessionID,
+              `${source}.fresh-retry-brief`,
+            ),
+            state,
+          )
       const preserveRetryAgent = isBoulderTrackedExecutionSession(sessionID, ctx.directory)
       const retryPromptAgent = (!preserveRetryAgent
         && shouldOmitRetryAgent(state.currentModel, state.originalModel ?? state.currentModel, retryAgent))
@@ -2588,7 +2575,7 @@ fi
       state.currentModel,
       resolvedAgent,
       "session.stalled.nudge",
-      { continuationPrompt: WATCHDOG_CONTINUATION_PROMPT },
+      { continuationPrompt: CONTINUATION_PROMPT },
     )
   }
 

@@ -3,6 +3,7 @@ import {
   classifyErrorType,
   extractStatusCode,
   getErrorMessage,
+  isAbortWrapperError,
   isGatewayBlockedForbiddenError,
   isTransientForbiddenError,
 } from "./error-classifier"
@@ -134,6 +135,16 @@ export function getRuntimeFallbackAction(error: unknown, retryOnErrors: number[]
     return "retry_same_model_delayed"
   }
 
+  // MessageAbortedError means the session was killed externally (parent abort,
+  // system cleanup, cascading timeout).  Switching models cannot fix this —
+  // retry the same model after a delay.  The event-handler and
+  // message-update-handler already rewrite abort wrappers when there is a
+  // recent local-tool-abort or limit-error context; this catch-all only fires
+  // for orphan aborts that slipped through those rewrites.
+  if (isAbortWrapperError(error)) {
+    return "retry_same_model_delayed"
+  }
+
   return "fallback_chain"
 }
 
@@ -151,6 +162,12 @@ export function getSameModelRetryAttemptLimit(
 
   if (isPlainLocalToolAbort(error)) {
     return PERSISTENT_TOOL_ABORT_MAX_RETRY_ATTEMPTS
+  }
+
+  // Abort wrapper errors should not loop indefinitely — if the session keeps
+  // getting killed, further retries on the same model are futile.
+  if (isAbortWrapperError(error)) {
+    return 2
   }
 
   return undefined

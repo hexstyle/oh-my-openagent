@@ -137,7 +137,7 @@ describe("runtime-fallback fallback-models", () => {
     ])
   })
 
-  test("managed sisyphus-junior chain keeps sonnet ahead of spark", () => {
+  test("managed sisyphus-junior chain keeps paid models ahead of spark and free", () => {
     const managedConfig = JSON.parse(
       readFileSync(
         join(import.meta.dir, "../../../assets/custom-opencode/oh-my-opencode.json"),
@@ -152,8 +152,8 @@ describe("runtime-fallback fallback-models", () => {
     )
 
     expect(result).toEqual([
-      "openai/gpt-5.4(medium)",
-      "anthropic/claude-sonnet-4-6",
+      "anthropic/claude-opus-4-7",
+      "openai/gpt-5.4",
       "openai/gpt-5.3-codex-spark",
       "opencode/nemotron-3-super-free",
       "opencode/minimax-m2.5-free",
@@ -176,9 +176,8 @@ describe("runtime-fallback fallback-models", () => {
     )
 
     expect(result).toEqual([
-      "openai/gpt-5.3-codex-spark",
       "openai/gpt-5.4",
-      "anthropic/claude-sonnet-4-6",
+      "openai/gpt-5.3-codex-spark",
       "opencode/nemotron-3-super-free",
       "opencode/minimax-m2.5-free",
       "opencode/big-pickle",

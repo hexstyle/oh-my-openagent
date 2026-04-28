@@ -34,4 +34,37 @@ describe("runtime fallback transition policy", () => {
       newModel: "opencode/nemotron-3-super-free",
     })).toBe("same_session")
   })
+
+  it("forces same_session when the current session is already a scoped fallback child", () => {
+    expect(getRuntimeFallbackTransitionMode({
+      resolvedAgent: "Prometheus (Plan Builder)",
+      currentModel: "anthropic/claude-opus-4-6",
+      newModel: "openai/gpt-5.3-codex-spark",
+      isScopedFallbackChild: true,
+    })).toBe("same_session")
+  })
+
+  it("forces same_session for scoped children even when falling back from paid to free", () => {
+    expect(getRuntimeFallbackTransitionMode({
+      resolvedAgent: "Hephaestus (Deep Worker)",
+      currentModel: "openai/gpt-5.4",
+      newModel: "opencode/big-pickle",
+      isScopedFallbackChild: true,
+    })).toBe("same_session")
+  })
+
+  it("allows scoped handoff when isScopedFallbackChild is false or undefined", () => {
+    expect(getRuntimeFallbackTransitionMode({
+      resolvedAgent: "Prometheus (Plan Builder)",
+      currentModel: "anthropic/claude-opus-4-6",
+      newModel: "openai/gpt-5.3-codex-spark",
+      isScopedFallbackChild: false,
+    })).toBe("scoped_handoff")
+
+    expect(getRuntimeFallbackTransitionMode({
+      resolvedAgent: "Prometheus (Plan Builder)",
+      currentModel: "anthropic/claude-opus-4-6",
+      newModel: "openai/gpt-5.3-codex-spark",
+    })).toBe("scoped_handoff")
+  })
 })

@@ -430,10 +430,10 @@ describe("runtime-fallback initial hang watchdog", () => {
     const retryText = ((promptCalls[0] as {
       body?: { parts?: Array<{ text?: string }> }
     }).body?.parts?.[0]?.text) ?? ""
-    expect(retryText).toContain("Prometheus final-plan promotion retry.")
+    expect(retryText).toContain("Plan promotion retry")
     expect(retryText).toContain(draftPath)
     expect(retryText).toContain(finalPath)
-    expect(retryText).toContain("Do NOT open another large write tool call")
+    expect(retryText).toContain("Do NOT use write tool")
     expect(retryText).toContain("cp '")
     expect(
       logCalls.some((call) => call.msg.includes("Retrying stalled Prometheus final-plan promotion in the same session")),
@@ -801,7 +801,7 @@ describe("runtime-fallback initial hang watchdog", () => {
     }).body?.parts?.[0]?.text) ?? ""
     expect(retryText).toContain(draftPath)
     expect(retryText).toContain(finalPath)
-    expect(retryText).toContain("Do NOT open another large write tool call")
+    expect(retryText).toContain("Do NOT use write tool")
   })
 
   test("still opens a fresh same-model handoff when timeout-side session.messages inspection fails", async () => {

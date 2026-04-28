@@ -369,7 +369,7 @@ describe("runtime fallback scoped handoff", () => {
     const retryText = (
       promptCalls[0] as { body?: { parts?: Array<{ text?: string }> } }
     ).body?.parts?.[0]?.text
-    expect(retryText).toContain("No reusable user brief was available from the parent session.")
+    expect(retryText).toContain("No reusable brief from parent session.")
   })
 
   it("uses canonical retry parts from state when transcript no longer has a reusable user brief", async () => {
@@ -414,7 +414,7 @@ describe("runtime fallback scoped handoff", () => {
       promptCalls[0] as { body?: { parts?: Array<{ text?: string }> } }
     ).body?.parts?.[0]?.text
     expect(retryText).toContain("Fix the failing eurochemeopt CI plan end-to-end.")
-    expect(retryText).not.toContain("No reusable user brief was available from the parent session.")
+    expect(retryText).not.toContain("No reusable brief from parent session.")
   })
 
   it("uses canonical retry parts when retry-brief transcript fetch times out", async () => {
@@ -450,7 +450,7 @@ describe("runtime fallback scoped handoff", () => {
       promptCalls[0] as { body?: { parts?: Array<{ text?: string }> } }
     ).body?.parts?.[0]?.text
     expect(retryText).toContain("Keep the original eurochemeopt planning brief intact.")
-    expect(retryText).not.toContain("No reusable user brief was available from the parent session.")
+    expect(retryText).not.toContain("No reusable brief from parent session.")
   })
 
   it("creates a fresh same-model handoff for exhausted paid transient retries", async () => {
@@ -488,8 +488,8 @@ describe("runtime fallback scoped handoff", () => {
     const retryText = (
       promptCalls[0] as { body?: { parts?: Array<{ text?: string }> } }
     ).body?.parts?.[0]?.text
-    expect(retryText).toContain("Fresh paid retry handoff")
-    expect(retryText).toContain("Retry on the same paid model in a fresh session")
+    expect(retryText).toContain("Fresh paid retry")
+    expect(retryText).toContain("Continue from parent context")
   })
 
   it("preserves the session.create binding when opening a fresh same-model handoff", async () => {
@@ -700,7 +700,7 @@ describe("runtime fallback scoped handoff", () => {
       promptCalls[0] as { body?: { parts?: Array<{ text?: string }> } }
     ).body?.parts?.[0]?.text
     expect(retryText).toContain("\"/start-work ci-green-final\"")
-    expect(retryText).not.toContain("No reusable user brief was available from the parent session.")
+    expect(retryText).not.toContain("No reusable brief from parent session.")
   })
 
   it("stops opening fresh same-model retries once the scoped paid retry window is exhausted", async () => {
