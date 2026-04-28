@@ -21,8 +21,8 @@ describeFn("executeBackgroundTask output/session metadata compatibility", () => 
     __resetTimingConfig()
   })
 
-  testFn("does not emit synthetic pending session metadata when session id is unresolved", async () => {
-    //#given - launched task without resolved subagent session id
+  testFn("returns error when session fails to resolve within timeout", async () => {
+    //#given - launched task where session never resolves
     const metadataCalls: any[] = []
     const manager = {
       launch: async () => ({
@@ -56,13 +56,9 @@ describeFn("executeBackgroundTask output/session metadata compatibility", () => 
       undefined,
     )
 
-    //#then - output and metadata should avoid fake session markers
-    expectFn(result).toContain("<task_metadata>")
-    expectFn(result).not.toContain("session_id:")
-    expectFn(result).toContain("task_id: bg_unresolved")
-    expectFn(result).toContain("background_task_id: bg_unresolved")
-    expectFn(metadataCalls).toHaveLength(1)
-    expectFn("sessionId" in metadataCalls[0].metadata).toBe(false)
+    //#then - session not resolved = error, not graceful degradation
+    expectFn(result).toContain("session failed to resolve")
+    expectFn(result).toContain("bg_unresolved")
   })
 
   testFn("emits task metadata session_id when real session id is available", async () => {
@@ -105,7 +101,6 @@ describeFn("executeBackgroundTask output/session metadata compatibility", () => 
     expectFn(result).toContain("session_id: ses_sub_123")
     expectFn(result).toContain("task_id: bg_resolved")
     expectFn(result).toContain("background_task_id: bg_resolved")
-    expectFn(result).toContain("Background Task ID: bg_resolved")
     expectFn(metadataCalls).toHaveLength(1)
     expectFn(metadataCalls[0].metadata.sessionId).toBe("ses_sub_123")
   })

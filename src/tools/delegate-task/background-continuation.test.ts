@@ -41,10 +41,10 @@ describe("executeBackgroundContinuation - subagent metadata", () => {
     const { executeBackgroundContinuation } = require("./background-continuation")
     const result = await executeBackgroundContinuation(args, mockCtx, mockExecutorCtx, parentContext)
 
-    //#then - task_metadata should contain subagent field
+    //#then - task_metadata should contain session linkage
     expect(result).toContain("<task_metadata>")
-    expect(result).toContain("subagent: Oracle (Strategic Advisor)")
     expect(result).toContain("session_id: ses_resumed_123")
+    expect(result).toContain("background_task_id: bg_task_001")
   })
 
   test("omits subagent from task_metadata when task agent is undefined", async () => {

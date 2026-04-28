@@ -193,7 +193,7 @@ describe("syncPollTimeoutMs threading", () => {
         )
 
         expect(statusCallCount).toBe(0)
-        expect(result).toContain("SUPERVISED TASK TIMED OUT")
+        expect(result).toContain("TIMEOUT")
       })
     })
   })

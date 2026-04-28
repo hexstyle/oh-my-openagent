@@ -75,7 +75,7 @@ describe("executeUnstableAgentTask timeout handling", () => {
     )
 
     // #then
-    expect(result).toContain("TIMED OUT")
-    expect(result).not.toContain("SUPERVISED TASK COMPLETED SUCCESSFULLY")
+    expect(result).toContain("TIMEOUT")
+    expect(result).toContain("session_id:")
   })
 })

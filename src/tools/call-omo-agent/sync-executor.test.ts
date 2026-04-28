@@ -152,9 +152,7 @@ describe("executeSync", () => {
 
     //#then
     expect(result).toContain("final answer")
-    expect(result).toContain("<task_metadata>")
     expect(result).toContain("session_id: ses-test-456")
-    expect(result).toContain("</task_metadata>")
     expect(deps.waitForCompletion).toHaveBeenCalledWith(
       "ses-test-456",
       toolContext,

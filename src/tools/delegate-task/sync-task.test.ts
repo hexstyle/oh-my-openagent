@@ -273,7 +273,7 @@ describe("executeSyncTask - cleanup on error paths", () => {
     }, "test-agent", undefined, undefined, undefined, undefined, deps)
 
     //#then - should complete and cleanup resources
-    expect(result).toContain("Task completed")
+    expect(result).toContain("session_id: ses_test_12345678")
     expect(mockExecutorCtx.manager.reserveSubagentSpawn).toHaveBeenCalledWith("parent-session")
     expect(commit).toHaveBeenCalledTimes(1)
     expect(rollback).toHaveBeenCalledTimes(0)
@@ -339,7 +339,7 @@ describe("executeSyncTask - cleanup on error paths", () => {
         sessionID: "parent-session",
       }, "test-agent", undefined, undefined, undefined, undefined, deps)
 
-      expect(result).toContain("Task completed")
+      expect(result).toContain("session_id: ses_test_12345678")
       expect(readBoulderState(testDirectory)?.session_ids).toEqual(["parent-session"])
     } finally {
       rmSync(testDirectory, { recursive: true, force: true })
@@ -415,8 +415,8 @@ describe("executeSyncTask - cleanup on error paths", () => {
       true,
     )
 
-    expect(result).toContain("Task completed")
-    expect(result).toContain("openai/gpt-5.4")
+    expect(result).toContain("Recovered result")
+    expect(result).toContain("session_id: ses_test_12345678")
     expect(promptModels).toEqual([
       { providerID: "anthropic", modelID: "claude-sonnet-4-6" },
       { providerID: "openai", modelID: "gpt-5.4", variant: undefined },

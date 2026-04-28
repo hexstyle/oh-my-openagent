@@ -10,6 +10,7 @@ import { SessionCategoryRegistry } from "../../shared/session-category-registry"
 import { QUESTION_DENIED_SESSION_PERMISSION } from "../../shared/question-denied-session-permission"
 import { setSessionFallbackChain } from "../../hooks/model-fallback/hook"
 import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
+import { formatBackgroundLaunch } from "./result-format-compact"
 
 export async function executeBackgroundTask(
   args: DelegateTaskArgs,
@@ -62,12 +63,17 @@ export async function executeBackgroundTask(
       sessionId = updated?.sessionID
     }
 
-    if (sessionId) {
-      setSessionFallbackChain(sessionId, fallbackChain, {
-        trustUnknownModels: trustFallbackChain,
-      })
+    if (!sessionId) {
+      return formatDetailedError(
+        new Error(`Background task session failed to resolve within timeout. Task ID: ${task.id}`),
+        { operation: "Launch background task", args, agent: agentToUse, category: args.category },
+      )
     }
-    if (args.category && sessionId) {
+
+    setSessionFallbackChain(sessionId, fallbackChain, {
+      trustUnknownModels: trustFallbackChain,
+    })
+    if (args.category) {
       SessionCategoryRegistry.register(sessionId, args.category)
     }
 
@@ -79,7 +85,7 @@ export async function executeBackgroundTask(
       description: args.description,
       run_in_background: args.run_in_background,
       command: args.command,
-      ...(sessionId ? { sessionId } : {}),
+      sessionId,
       ...(categoryModel ? { model: { providerID: categoryModel.providerID, modelID: categoryModel.modelID } } : {}),
     }
 
@@ -92,22 +98,10 @@ export async function executeBackgroundTask(
       storeToolMetadata(ctx.sessionID, ctx.callID, unstableMeta)
     }
 
-    const metadataParts = [
-      sessionId ? `session_id: ${sessionId}` : "",
-      `task_id: ${task.id}`,
-      `background_task_id: ${task.id}`,
-      args.category ? `category: ${args.category}` : "",
-    ].filter(Boolean).join("\n")
-
-    return `Background task launched.
-Background Task ID: ${task.id}
-Agent: ${displayAgent}
-
-Use \`background_output\` with task_id="${task.id}" to check.
-
-<task_metadata>
-${metadataParts}
-</task_metadata>`
+    return formatBackgroundLaunch({
+      taskId: task.id,
+      sessionID: sessionId,
+    })
   } catch (error) {
     return formatDetailedError(error, {
       operation: "Launch background task",

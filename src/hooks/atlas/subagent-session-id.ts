@@ -23,7 +23,7 @@ export function extractSessionIdFromOutput(output: string): string | undefined {
     }
   }
 
-  const explicitSessionMatches = [...output.matchAll(/Session ID:\s*(ses_[a-zA-Z0-9_-]+)/g)]
+  const explicitSessionMatches = [...output.matchAll(/(?:Session ID|session_id):\s*(ses_[a-zA-Z0-9_-]+)/gi)]
   return explicitSessionMatches.at(-1)?.[1]
 }
 

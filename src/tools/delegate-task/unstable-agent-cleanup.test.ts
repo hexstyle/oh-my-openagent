@@ -129,7 +129,7 @@ describe("executeUnstableAgentTask cleanup", () => {
     )
 
     // then
-    expect(result).toContain("SUPERVISED TASK TIMED OUT")
+    expect(result).toContain("TIMEOUT")
     expect(cancelCalls).toHaveLength(1)
     expect(cancelCalls[0]?.taskId).toBe("bg_timeout_cleanup")
   })

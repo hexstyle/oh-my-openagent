@@ -128,7 +128,7 @@ describe("formatTaskResult", () => {
     ]
 
     const result = await formatTaskResult(task, createClient(messages))
-    expect(result).toContain("(No text output)")
+    expect(result).toContain("(No output)")
   })
 
   test("includes task metadata in output header", async () => {
@@ -138,9 +138,9 @@ describe("formatTaskResult", () => {
     ]
 
     const result = await formatTaskResult(task, createClient(messages))
-    expect(result).toContain("task_id=task-42")
     expect(result).toContain("<task_metadata>")
     expect(result).toContain("session_id: ses-meta")
     expect(result).toContain("task_id: task-42")
+    expect(result).toContain("done")
   })
 })

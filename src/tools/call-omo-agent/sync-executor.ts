@@ -100,16 +100,16 @@ export async function executeSync(
       const errorMessage = error instanceof Error ? error.message : String(error)
       log(`[call_omo_agent] Prompt error:`, errorMessage)
       if (errorMessage.includes("agent.name") || errorMessage.includes("undefined")) {
-        return `Error: Agent "${args.subagent_type}" not found. Make sure the agent is registered in your opencode.json or provided by a plugin.\n\n<task_metadata>\nsession_id: ${sessionID}\n</task_metadata>`
+        return `Error: Agent "${args.subagent_type}" not found. Make sure the agent is registered in your opencode.json or provided by a plugin.\nsession_id: ${sessionID}`
       }
-      return `Error: Failed to send prompt: ${errorMessage}\n\n<task_metadata>\nsession_id: ${sessionID}\n</task_metadata>`
+      return `Error: Failed to send prompt: ${errorMessage}\nsession_id: ${sessionID}`
     }
 
     await deps.waitForCompletion(sessionID, toolContext, ctx)
 
     const responseText = await deps.processMessages(sessionID, ctx)
 
-    return responseText + "\n\n" + ["<task_metadata>", `session_id: ${sessionID}`, "</task_metadata>"].join("\n")
+    return `${responseText}\nsession_id: ${sessionID}`
   } catch (error) {
     spawnReservation?.rollback()
     throw error

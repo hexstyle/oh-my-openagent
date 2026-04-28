@@ -10,6 +10,7 @@ import { getSessionTools } from "../../shared/session-tools-store"
 import { normalizeSDKResponse } from "../../shared"
 import { QUESTION_DENIED_SESSION_PERMISSION } from "../../shared/question-denied-session-permission"
 import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
+import { formatSyncResult, formatFailedResult, formatTimeoutResult } from "./result-format-compact"
 
 export async function executeUnstableAgentTask(
   args: DelegateTaskArgs,
@@ -141,27 +142,18 @@ export async function executeUnstableAgentTask(
 
     if (terminalStatus) {
       const duration = formatDuration(startTime)
-      return `SUPERVISED TASK FAILED (${terminalStatus.status})
-Agent: ${displayAgent}
-Duration: ${duration}${terminalStatus.error ? `\nError: ${terminalStatus.error}` : ""}
-
-<task_metadata>
-session_id: ${sessionID}${args.category ? `\ncategory: ${args.category}` : ""}
-model: ${actualModel}
-</task_metadata>`
+      return formatFailedResult({
+        status: terminalStatus.status,
+        sessionID,
+        duration,
+        error: terminalStatus.error,
+      })
     }
 
     if (!completedDuringMonitoring) {
       cleanupReason = "Monitored unstable background task exceeded timeout budget"
       const duration = formatDuration(startTime)
-      return `SUPERVISED TASK TIMED OUT
-Agent: ${displayAgent}
-Duration: ${duration}
-
-<task_metadata>
-session_id: ${sessionID}${args.category ? `\ncategory: ${args.category}` : ""}
-model: ${actualModel}
-</task_metadata>`
+      return formatTimeoutResult({ sessionID, duration })
     }
 
     const messagesResult = await client.session.messages({ path: { id: sessionID } })
@@ -189,15 +181,7 @@ model: ${actualModel}
     }
     const duration = formatDuration(startTime)
 
-    return `Task completed in ${duration}.
-Agent: ${displayAgent}
-
-${textContent || "(No text output)"}
-
-<task_metadata>
-session_id: ${sessionID}${args.category ? `\ncategory: ${args.category}` : ""}
-model: ${actualModel}
-</task_metadata>`
+    return formatSyncResult({ textContent, sessionID, duration })
   } catch (error) {
     if (!cleanupReason) {
       cleanupReason = "exception"

@@ -49,7 +49,7 @@ function extractTaskMetadataContent(text: string): string | undefined {
 }
 
 function extractExplicitSessionId(text: string): string | undefined {
-  const matches = [...text.matchAll(/Session ID:\s*(ses_[a-zA-Z0-9_-]+)/g)]
+  const matches = [...text.matchAll(/(?:Session ID|session_id):\s*(ses_[a-zA-Z0-9_-]+)/gi)]
   return matches.at(-1)?.[1]
 }
 

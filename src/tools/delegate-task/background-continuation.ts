@@ -4,6 +4,7 @@ import { storeToolMetadata } from "../../features/tool-metadata-store"
 import { formatDetailedError } from "./error-formatting"
 import { getSessionTools } from "../../shared/session-tools-store"
 import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
+import { formatBackgroundLaunch } from "./result-format-compact"
 
 export async function executeBackgroundContinuation(
   args: DelegateTaskArgs,
@@ -43,16 +44,10 @@ export async function executeBackgroundContinuation(
       storeToolMetadata(ctx.sessionID, ctx.callID, bgContMeta)
     }
 
-    return `Background task continued.
-Task ID: ${task.id}
-Agent: ${displayAgent}
-
-Use \`background_output\` with task_id="${task.id}" to check.
-
-<task_metadata>
-session_id: ${task.sessionID}
-task_id: ${task.id}${displayAgent ? `\nsubagent: ${displayAgent}` : ""}
-</task_metadata>`
+    return formatBackgroundLaunch({
+      taskId: task.id,
+      sessionID: task.sessionID || args.session_id!,
+    })
   } catch (error) {
     return formatDetailedError(error, {
       operation: "Continue background task",

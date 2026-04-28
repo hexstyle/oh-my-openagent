@@ -59,7 +59,7 @@ describe("task tool metadata awaiting", () => {
     )
 
     // then
-    expect(result).toContain("Background task launched")
+    expect(result).toContain("<task_metadata>")
     expect(metadataResolved).toBe(true)
   })
 })

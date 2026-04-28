@@ -477,8 +477,8 @@ describe("background_output blocking", () => {
     // #then should have waited and returned task result output
     expect(task.status).toBe("completed")
     expect(pollCount).toBeGreaterThanOrEqual(3)
-    expect(output).toContain("Task Result")
     expect(output).toContain("completed result")
+    expect(output).toContain("session_id: ses-blocking-default")
   })
 })
 

@@ -3,6 +3,7 @@ import { consumeNewMessages } from "../../shared/session-cursor"
 import type { BackgroundOutputClient, BackgroundOutputMessagesResult } from "./clients"
 import { extractMessages, getErrorMessage } from "./session-messages"
 import { formatDuration } from "./time-format"
+import { formatBackgroundResult } from "../delegate-task/result-format-compact"
 
 function getTimeString(value: unknown): string {
   return typeof value === "string" ? value : ""
@@ -24,28 +25,24 @@ export async function formatTaskResult(task: BackgroundTask, client: BackgroundO
 
   const messages = extractMessages(messagesResult)
   if (!Array.isArray(messages) || messages.length === 0) {
-    return `Task Result [task_id=${task.id} | ${formatDuration(task.startedAt ?? new Date(), task.completedAt)}]
-
-(No messages found)
-
-<task_metadata>
-session_id: ${task.sessionID}
-task_id: ${task.id}
-</task_metadata>`
+    return formatBackgroundResult({
+      textContent: "(No messages found)",
+      taskId: task.id,
+      sessionID: task.sessionID,
+      duration: formatDuration(task.startedAt ?? new Date(), task.completedAt),
+    })
   }
 
   // Only assistant messages — tool results are intermediate data (raw grep/bash
   // output, service tags, escape chars) that pollute the parent context.
   const assistantMessages = messages.filter((m) => m.info?.role === "assistant")
   if (assistantMessages.length === 0) {
-    return `Task Result [task_id=${task.id} | ${formatDuration(task.startedAt ?? new Date(), task.completedAt)}]
-
-(No assistant response found)
-
-<task_metadata>
-session_id: ${task.sessionID}
-task_id: ${task.id}
-</task_metadata>`
+    return formatBackgroundResult({
+      textContent: "(No assistant response found)",
+      taskId: task.id,
+      sessionID: task.sessionID,
+      duration: formatDuration(task.startedAt ?? new Date(), task.completedAt),
+    })
   }
 
   const sortedMessages = [...assistantMessages].sort((a, b) => {
@@ -56,15 +53,12 @@ task_id: ${task.id}
 
   const newMessages = consumeNewMessages(task.sessionID, sortedMessages)
   if (newMessages.length === 0) {
-    const duration = formatDuration(task.startedAt ?? new Date(), task.completedAt)
-    return `Task Result [task_id=${task.id} | ${duration}]
-
-(No new output since last check)
-
-<task_metadata>
-session_id: ${task.sessionID}
-task_id: ${task.id}
-</task_metadata>`
+    return formatBackgroundResult({
+      textContent: "(No new output since last check)",
+      taskId: task.id,
+      sessionID: task.sessionID,
+      duration: formatDuration(task.startedAt ?? new Date(), task.completedAt),
+    })
   }
 
   const extractedContent: string[] = []
@@ -79,12 +73,10 @@ task_id: ${task.id}
   const textContent = extractedContent.filter((text) => text.length > 0).join("\n\n")
   const duration = formatDuration(task.startedAt ?? new Date(), task.completedAt)
 
-  return `Task Result [task_id=${task.id} | ${duration}]
-
-${textContent || "(No text output)"}
-
-<task_metadata>
-session_id: ${task.sessionID}
-task_id: ${task.id}
-</task_metadata>`
+  return formatBackgroundResult({
+    textContent,
+    taskId: task.id,
+    sessionID: task.sessionID,
+    duration,
+  })
 }

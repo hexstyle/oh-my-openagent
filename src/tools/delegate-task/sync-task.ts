@@ -12,6 +12,7 @@ import { formatDetailedError } from "./error-formatting"
 import { syncTaskDeps, type SyncTaskDeps } from "./sync-task-deps"
 import { setSessionFallbackChain, clearSessionFallbackChain } from "../../hooks/model-fallback/hook"
 import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
+import { formatSyncResult } from "./result-format-compact"
 import { retrySyncPromptWithFallbacks } from "./sync-task-fallback"
 
 export async function executeSyncTask(
@@ -180,18 +181,11 @@ export async function executeSyncTask(
 
       const duration = formatDuration(startTime)
 
-      const actualModelStr = effectiveCategoryModel
-        ? `${effectiveCategoryModel.providerID}/${effectiveCategoryModel.modelID}`
-        : undefined
-
-      return `Task completed in ${duration}.
-Agent: ${displayAgent}
-
-${result.textContent || "(No text output)"}
-
-<task_metadata>
-session_id: ${sessionID}${args.category ? `\ncategory: ${args.category}` : ""}${actualModelStr ? `\nmodel: ${actualModelStr}` : ""}
-</task_metadata>`
+      return formatSyncResult({
+        textContent: result.textContent,
+        sessionID,
+        duration,
+      })
     } finally {
       if (toastManager && taskId !== undefined) {
         toastManager.removeTask(taskId)

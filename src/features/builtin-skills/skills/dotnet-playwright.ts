@@ -3,7 +3,7 @@ import type { BuiltinSkill } from "../types"
 export const dotnetPlaywrightSkill: BuiltinSkill = {
   name: "dotnet-playwright",
   description:
-    "Expert .NET build, MSTest, and Playwright E2E testing skill. Use when working with dotnet build, dotnet test, MSBuild errors, Playwright browser automation in C#, TRX test results, or CI test failures. Trigger: 'dotnet', 'MSBuild', 'Playwright', 'csproj', '.NET', 'NuGet', 'TRX', 'E2E test'.",
+    "Expert .NET build, MSTest, and Playwright E2E testing skill with mandatory diagnostic logging. Use when writing, fixing, or analyzing Playwright tests in C#. Covers dotnet build, dotnet test, MSBuild errors, TRX results, CI test failures, DOM snapshot logging, state context logging, and rich assertion messages. Trigger: 'dotnet', 'MSBuild', 'Playwright', 'csproj', '.NET', 'NuGet', 'TRX', 'E2E test', 'test logging', 'test diagnostics'.",
   template: `# .NET Playwright Testing Skill
 
 Expert knowledge for .NET solutions with Playwright E2E tests in CI/local environments.
@@ -124,6 +124,208 @@ Every test failure should produce:
 3. **Dialog text** — capture before \`CloseKnownErrorDialogsAsync()\`
 4. **Console logs** — attach browser console output
 5. **Network errors** — log failed API responses (don't truncate bodies)
+
+## Diagnostic Logging — MANDATORY FOR ALL TESTS
+
+### Philosophy
+
+A test failure message like \`"Menu editor did not expose either editable items or the root-level add action."\` is USELESS for debugging. It tells you the WHAT but not the WHY. Every test MUST produce enough context in its output to answer: "What did the DOM actually look like? What state was the app in? What sequence of actions led here?"
+
+### Three Pillars of Test Diagnostics
+
+Every Playwright test MUST log:
+1. **Step log** — chronological record of actions taken (navigation, clicks, waits, assertions)
+2. **DOM snapshot** — the relevant DOM subtree at the point of assertion or failure
+3. **State context** — application state, loaded data, API responses that informed the test logic
+
+### Step Logging Pattern (MANDATORY)
+
+Use \`Console.WriteLine\` with a structured prefix for every meaningful action:
+\`\`\`csharp
+[TestMethod]
+public async Task MenuEditor_ShouldExposeEditableItems()
+{
+    Console.WriteLine("[STEP] Navigating to admin menu editor page");
+    await Page.GotoAsync(MenuEditorUrl);
+    await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+
+    Console.WriteLine("[STEP] Waiting for menu tree to render");
+    var menuTree = Page.Locator(".menu-tree-container");
+    await menuTree.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
+
+    Console.WriteLine("[STEP] Querying editable menu items");
+    var editableItems = menuTree.Locator("[data-editable='true']");
+    var itemCount = await editableItems.CountAsync();
+    Console.WriteLine($"[STATE] Found {itemCount} editable items in menu tree");
+
+    if (itemCount == 0)
+    {
+        // Log DOM BEFORE failing so CI output contains the full picture
+        var domSnapshot = await menuTree.InnerHTMLAsync();
+        Console.WriteLine($"[DOM] Menu tree innerHTML:\\n{domSnapshot}");
+
+        var rootActions = Page.Locator(".menu-root-actions button");
+        var rootActionCount = await rootActions.CountAsync();
+        Console.WriteLine($"[STATE] Root-level action buttons: {rootActionCount}");
+
+        if (rootActionCount > 0)
+        {
+            var actionTexts = await rootActions.AllTextContentsAsync();
+            Console.WriteLine($"[STATE] Action button labels: {string.Join(", ", actionTexts)}");
+        }
+
+        Assert.Fail(
+            $"Menu editor did not expose editable items or root-level add action. " +
+            $"Items found: {itemCount}, Root actions: {rootActionCount}. " +
+            $"See [DOM] and [STATE] logs above for full context.");
+    }
+}
+\`\`\`
+
+### DOM Snapshot Rules
+
+1. **ALWAYS log the relevant DOM subtree before any assertion that could fail**:
+\`\`\`csharp
+// WRONG — opaque failure
+await Expect(grid).ToHaveCountAsync(5);
+
+// CORRECT — diagnostic failure
+var rows = grid.Locator("tr");
+var actualCount = await rows.CountAsync();
+if (actualCount != 5)
+{
+    var gridHtml = await grid.InnerHTMLAsync();
+    Console.WriteLine($"[DOM] Grid content (expected 5 rows, got {actualCount}):\\n{gridHtml}");
+}
+await Expect(rows).ToHaveCountAsync(5);
+\`\`\`
+
+2. **Limit DOM dumps to the relevant container** — don't dump \`page.ContentAsync()\` for the whole page unless necessary. Target the specific container you're asserting against.
+
+3. **For large containers, use structured extraction**:
+\`\`\`csharp
+Console.WriteLine("[DOM] Extracting visible items from dropdown:");
+var options = await dropdown.Locator("option").AllTextContentsAsync();
+Console.WriteLine($"[DOM] Options ({options.Count}): {string.Join(" | ", options)}");
+\`\`\`
+
+### State Context Rules
+
+Log any data that was used to make test decisions:
+\`\`\`csharp
+// Log what the API returned (state the test depends on)
+var scenarios = await GetScenariosViaApiAsync();
+Console.WriteLine($"[STATE] API returned {scenarios.Count} scenarios: " +
+    string.Join(", ", scenarios.Select(s => $"{s.Name} (Id={s.Id}, Model={s.ModelId})")));
+
+// Log which scenario was selected and why
+var selected = scenarios.FirstOrDefault(s => s.ModelId != null);
+Console.WriteLine($"[STATE] Selected scenario: {selected?.Name ?? "NONE"} " +
+    $"(criteria: ModelId != null)");
+
+// Log user context
+Console.WriteLine($"[STATE] Test user: {TestUserLogin}, Scenario: {CurrentScenarioName}");
+\`\`\`
+
+### Assertion Message Requirements
+
+**NEVER** use bare Assert.Fail or Assert.IsTrue without context:
+\`\`\`csharp
+// FORBIDDEN — useless in CI logs
+Assert.IsTrue(items.Count > 0);
+Assert.Fail("Test failed");
+
+// REQUIRED — self-diagnosing assertions
+Assert.IsTrue(items.Count > 0,
+    $"Expected at least 1 item but found {items.Count}. " +
+    $"Page URL: {Page.Url}, Visible containers: {containerCount}");
+
+Assert.AreEqual(expected, actual,
+    $"Scenario name mismatch. DB returned: '{actual}', " +
+    $"expected pattern: '{expected}'. User: {TestUserLogin}");
+\`\`\`
+
+### Pre-Action State Dump Helper Pattern
+
+For complex tests, implement a diagnostic helper:
+\`\`\`csharp
+private async Task LogDiagnosticContextAsync(string phase, ILocator targetContainer = null)
+{
+    Console.WriteLine($"[DIAG:{phase}] URL: {Page.Url}");
+    Console.WriteLine($"[DIAG:{phase}] Title: {await Page.TitleAsync()}");
+
+    // Visible dialogs/modals that might be blocking
+    var dialogs = Page.Locator("[role='dialog']:visible, .modal.show, .overlay:visible");
+    var dialogCount = await dialogs.CountAsync();
+    if (dialogCount > 0)
+    {
+        Console.WriteLine($"[DIAG:{phase}] WARNING: {dialogCount} visible dialog(s) detected");
+        for (int i = 0; i < dialogCount; i++)
+        {
+            var text = await dialogs.Nth(i).TextContentAsync();
+            Console.WriteLine($"[DIAG:{phase}]   Dialog {i}: {text?.Substring(0, Math.Min(200, text.Length))}");
+        }
+    }
+
+    // Loading indicators
+    var loaders = Page.Locator(".loading, .spinner, [aria-busy='true']");
+    var loaderCount = await loaders.CountAsync();
+    if (loaderCount > 0)
+        Console.WriteLine($"[DIAG:{phase}] WARNING: {loaderCount} loading indicator(s) still active");
+
+    // Target container DOM if provided
+    if (targetContainer != null)
+    {
+        var html = await targetContainer.InnerHTMLAsync();
+        Console.WriteLine($"[DIAG:{phase}] Target container DOM ({html.Length} chars):\\n{html}");
+    }
+}
+\`\`\`
+
+Usage in test:
+\`\`\`csharp
+await LogDiagnosticContextAsync("before-click", menuTree);
+await editButton.ClickAsync();
+await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+await LogDiagnosticContextAsync("after-click", menuTree);
+\`\`\`
+
+### Network Response Logging (for data-dependent tests)
+
+\`\`\`csharp
+// Capture API responses that feed the UI being tested
+Page.Response += (_, response) =>
+{
+    if (response.Url.Contains("/api/") && response.Status != 200)
+    {
+        Console.WriteLine($"[NET] {response.Status} {response.Request.Method} {response.Url}");
+    }
+};
+
+// For critical API calls, log the body
+var apiResponse = await Page.WaitForResponseAsync(url => url.Contains("/api/menu/items"));
+var body = await apiResponse.TextAsync();
+Console.WriteLine($"[NET] /api/menu/items response ({apiResponse.Status}): {body}");
+\`\`\`
+
+### Log Tag Reference
+| Tag | Purpose | When to use |
+|-----|---------|-------------|
+| \`[STEP]\` | Action being performed | Every navigation, click, fill, wait |
+| \`[STATE]\` | Application/data state | Before assertions, after data loads |
+| \`[DOM]\` | DOM subtree snapshot | Before failing assertions, unexpected state |
+| \`[NET]\` | Network request/response | API calls that feed the test logic |
+| \`[DIAG:phase]\` | Full diagnostic dump | Before/after critical transitions |
+| \`[WARN]\` | Non-fatal anomaly | Unexpected but non-blocking state |
+
+### CI Output Contract
+
+The combination of these logs MUST answer without reproduction:
+1. **What was the test trying to do?** → \`[STEP]\` log sequence
+2. **What did the page look like?** → \`[DOM]\` snapshots
+3. **What data was available?** → \`[STATE]\` and \`[NET]\` logs
+4. **What went wrong?** → Rich assertion message with values
+5. **What might have caused it?** → \`[DIAG]\` (blocking dialogs, spinners, wrong URL)
 
 ### CI Shard Balancing
 

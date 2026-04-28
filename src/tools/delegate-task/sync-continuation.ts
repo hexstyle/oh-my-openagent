@@ -11,8 +11,9 @@ import { formatDuration } from "./time-formatter"
 import { syncContinuationDeps, type SyncContinuationDeps } from "./sync-continuation-deps"
 import { setSessionTools } from "../../shared/session-tools-store"
 import { normalizeSDKResponse } from "../../shared"
-import { normalizeAgentForDisplay, normalizeAgentForSessionPrompt } from "../../shared/agent-display-names"
+import { normalizeAgentForSessionPrompt } from "../../shared/agent-display-names"
 import { buildTaskPrompt } from "./prompt-builder"
+import { formatSyncResult } from "./result-format-compact"
 
 export async function executeSyncContinuation(
   args: DelegateTaskArgs,
@@ -41,7 +42,6 @@ export async function executeSyncContinuation(
   let resumeVariant: string | undefined
   let anchorMessageCount: number | undefined
   let executionAgent: string | undefined
-  let displayAgent: string | undefined
 
   try {
     try {
@@ -69,7 +69,6 @@ export async function executeSyncContinuation(
 
     executionAgent = resumeAgent
     const promptAgent = normalizeAgentForSessionPrompt(executionAgent) ?? executionAgent
-    displayAgent = normalizeAgentForDisplay(executionAgent) ?? executionAgent
 
     syncContMeta = {
       title: `Continue: ${args.description}`,
@@ -137,14 +136,11 @@ export async function executeSyncContinuation(
 
      const duration = formatDuration(startTime)
 
-     return `Task completed in ${duration}.
-Agent: ${displayAgent || "unknown"}
-
-${result.textContent || "(No text output)"}
-
-<task_metadata>
-session_id: ${args.session_id}${displayAgent ? `\nsubagent: ${displayAgent}` : ""}
-</task_metadata>`
+     return formatSyncResult({
+       textContent: result.textContent,
+       sessionID: args.session_id!,
+       duration,
+     })
    } finally {
      if (toastManager) {
        toastManager.removeTask(taskId)

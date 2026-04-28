@@ -227,8 +227,8 @@ describe("executeSyncContinuation - toast cleanup error paths", () => {
     //#then - toast should be removed exactly once
     expect(removeTaskCalls.length).toBe(1)
     expect(removeTaskCalls[0]).toBe("resume_sync_ses_test")
-    expect(result).toContain("Task completed in")
     expect(result).toContain("Result")
+    expect(result).toContain("session_id: ses_test_12345678")
   })
 
   test("removes toast when abort happens", async () => {
@@ -405,9 +405,8 @@ describe("executeSyncContinuation - toast cleanup error paths", () => {
     //#when - executeSyncContinuation completes with agent info in messages
     const result = await executeSyncContinuation(args, mockCtx, mockExecutorCtx, deps)
 
-    //#then - task_metadata should contain subagent field with the agent name
+    //#then - compact format includes session_id in metadata (subagent info goes through storeToolMetadata)
     expect(result).toContain("<task_metadata>")
-    expect(result).toContain("subagent: Oracle (Strategic Advisor)")
     expect(result).toContain("session_id: ses_test_12345678")
   })
 

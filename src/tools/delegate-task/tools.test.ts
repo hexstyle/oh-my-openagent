@@ -700,7 +700,7 @@ describe("sisyphus-task", () => {
       const result = await tool.execute(args, toolContext)
 
       //#then - metadata should include sessionId (camelCase) once it's available
-      expect(String(result)).toContain("Background task launched")
+      expect(String(result)).toContain("<task_metadata>")
       const sessionIdCall = metadataCalls.find((c) => c.metadata?.sessionId === "ses_child")
       expect(sessionIdCall).toBeDefined()
     })
@@ -1465,7 +1465,8 @@ describe("sisyphus-task", () => {
 
       // then
       expect(launchCalled).toBe(true)
-      expect(result).toContain("Background task launched")
+      expect(result).toContain("<task_metadata>")
+      expect(result).toContain("bg_explicit_true")
     }, { timeout: 10000 })
   })
 
@@ -1721,8 +1722,8 @@ describe("sisyphus-task", () => {
        toolContext
      )
     
-    // then - should return background message
-    expect(result).toContain("Background task continued")
+    // then - should return background launch with task metadata
+    expect(result).toContain("<task_metadata>")
     expect(result).toContain("task-456")
   })
 })
@@ -1846,7 +1847,7 @@ describe("sisyphus-task", () => {
       
       // then - should return the task result content
       expect(result).toContain("Sync task completed successfully")
-      expect(result).toContain("Task completed")
+      expect(result).toContain("session_id: ses_sync_success")
     }, { timeout: 20000 })
 
     test("sync mode agent not found returns helpful error", async () => {
@@ -2029,8 +2030,8 @@ describe("sisyphus-task", () => {
       
       // then - should launch as background BUT wait for and return actual result
       expect(launchCalled).toBe(true)
-      expect(result).toContain("Task completed in")
       expect(result).toContain("Gemini task completed successfully")
+      expect(result).toContain("session_id: ses_unstable_gemini")
     }, { timeout: 20000 })
 
     test("gemini model with run_in_background=true should not show unstable message (normal background)", async () => {
@@ -2160,8 +2161,8 @@ describe("sisyphus-task", () => {
 
       // then - should launch as background BUT wait for and return actual result
       expect(launchCalled).toBe(true)
-      expect(result).toContain("Task completed in")
       expect(result).toContain("Minimax task completed successfully")
+      expect(result).toContain("session_id: ses_unstable_minimax")
     }, { timeout: 20000 })
 
     test("non-gemini model with run_in_background=false should run sync (not forced to background)", async () => {
@@ -2292,8 +2293,8 @@ describe("sisyphus-task", () => {
       
       // then - should launch as background BUT wait for and return actual result
       expect(launchCalled).toBe(true)
-      expect(result).toContain("Task completed in")
       expect(result).toContain("Artistry result here")
+      expect(result).toContain("session_id: ses_artistry_gemini")
     }, { timeout: 20000 })
 
     test("writing category (kimi) with run_in_background=false should force background but wait for result", async () => {
@@ -2360,8 +2361,8 @@ describe("sisyphus-task", () => {
       
       // then - should launch as background BUT wait for and return actual result
       expect(launchCalled).toBe(true)
-      expect(result).toContain("Task completed in")
       expect(result).toContain("Writing result here")
+      expect(result).toContain("session_id: ses_writing_gemini")
     }, { timeout: 20000 })
 
     test("is_unstable_agent=true should force background but wait for result", async () => {
@@ -2433,8 +2434,8 @@ describe("sisyphus-task", () => {
       
       // then - should launch as background BUT wait for and return actual result
       expect(launchCalled).toBe(true)
-      expect(result).toContain("Task completed in")
       expect(result).toContain("Custom unstable result")
+      expect(result).toContain("session_id: ses_custom_unstable")
     }, { timeout: 20000 })
   })
 
