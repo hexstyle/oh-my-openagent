@@ -509,29 +509,47 @@ git log -1 --oneline
 
 ### 5.4 Commit Message Generation
 
+**STEP 0 — Jira/Ticket Prefix (check ONCE, apply to ALL commits):**
+\`\`\`
+branch = git branch --show-current
+# Extract ticket: "bugfix/CMS-1765-playwright" -> "CMS-1765"
+#                 "feature/PROJ-42-auth"       -> "PROJ-42"
+ticket = regex match [A-Z]+-\\d+ from branch name
+IF ticket found:
+  -> Prefix EVERY commit: "{ticket} {message}"
+  -> Example: "CMS-1765 fix(playwright): stabilize grid filter"
+# Why: Bitbucket/Jira pre-receive hooks REJECT pushes without ticket prefix.
+# One bad commit blocks the ENTIRE push and wastes a full CI iteration.
+\`\`\`
+
 **Based on COMMIT_CONFIG from Phase 1:**
 
 \`\`\`
 IF style == SEMANTIC AND language == KOREAN:
   -> "feat: 로그인 기능 추가"
-  
+
 IF style == SEMANTIC AND language == ENGLISH:
   -> "feat: add login feature"
-  
+
 IF style == PLAIN AND language == KOREAN:
   -> "로그인 기능 추가"
-  
+
 IF style == PLAIN AND language == ENGLISH:
   -> "Add login feature"
-  
+
 IF style == SHORT:
   -> "format" / "type fix" / "lint"
+
+# WITH TICKET PREFIX (all styles):
+  -> "{TICKET} feat: add login feature"
+  -> "{TICKET} 로그인 기능 추가"
 \`\`\`
 
 **VALIDATION before each commit:**
-1. Does message match detected style?
-2. Does language match detected language?
-3. Is it similar to examples from git log?
+1. Does message start with Jira ticket (if branch has one)?
+2. Does message match detected style?
+3. Does language match detected language?
+4. Is it similar to examples from git log?
 
 If ANY check fails -> REWRITE message.
 \`\`\`

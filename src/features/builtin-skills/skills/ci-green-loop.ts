@@ -84,6 +84,9 @@ Before adding \`[TestInitialize]\` to fix "missing data": READ the base class. M
 ### Execution Time
 Target: ≤15 min. Hard limit: 20 min. Eliminate idle waits, parallelize shards, tight timeouts (10s UI, 30s API, 60s page). No single shard >5 min.
 
+### Commit Message — Jira Prefix Required
+Before your first commit, extract the Jira ticket from the branch name (\`git branch --show-current\`, e.g. \`bugfix/CMS-1765-playwright\` → \`CMS-1765\`). EVERY commit message MUST start with that ticket ID. Format: \`{TICKET} {type}({scope}): {description}\`. Example: \`CMS-1765 fix(playwright): stabilize grid filter\`. Bitbucket pre-receive hooks REJECT pushes containing commits without the Jira prefix — one bad commit blocks the entire push and wastes a CI iteration.
+
 ### Batch Strategy
 **Diagnose ALL → Fix ALL → Verify local → Push ONCE.** One session, one commit, one push. Single-fix pushes only when: root cause unknown and CI validation needed, or deployment change can't be tested locally.
 
@@ -145,6 +148,7 @@ If >50% failures share one root cause, that IS the fix.
 - Pushing during build-time research (research only, no file edits)
 - Looping on DNS/network checks — 2 failures = BLOCKED, commit locally and EXIT
 - Leaving uncommitted changes when exiting (always git commit before stopping)
+- Committing without Jira ticket prefix (extract from branch name — Bitbucket rejects pushes without it)
 - Using \`git add -A\` or \`git add .\` — ALWAYS stage specific files: \`git add <file1> <file2>\`. Blanket staging pulls in .sisyphus/, test artifacts, and other untracked files that should NOT be committed. Run \`git diff --staged --stat\` before committing to verify only intended files are staged.
 - Using \`IF NOT EXISTS INSERT\` without a follow-up UPDATE for SQL seed data (stale rows with wrong values persist across CI builds)
 - Adding \`[TestInitialize]\` to derived classes without reading the base class first (MSTest V2 runs both — you may be duplicating existing setup)
