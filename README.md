@@ -22,24 +22,49 @@ Upstream reference at the last synced README:
 
 Primary model picture in this fork:
 
-- planning/review/controller roles prefer `anthropic/claude-opus-4-6`
-- deep execution roles prefer `openai/gpt-5.4`
+- planning/review/controller roles prefer `anthropic/claude-opus-4-7` (Prometheus, Metis, Momus)
+- execution/orchestration roles prefer `anthropic/claude-sonnet-4-6` (Sisyphus, Oracle, Atlas, Hephaestus, Librarian, Sisyphus Junior)
+- `deep` category uses `anthropic/claude-sonnet-4-6` with `anthropic/claude-opus-4-7` as first fallback
 - `Explore (Code Search)` is the spark-first speed lane on `openai/gpt-5.3-codex-spark`
-- `Sisyphus Junior (Focused Executor)` is the fast coding lane on `openai/gpt-5.4`, with `anthropic/claude-sonnet-4-6` before `spark`
+- `Sisyphus Junior (Focused Executor)` is the fast coding lane on `anthropic/claude-sonnet-4-6`
+- **every agent and category chain includes both Claude (Anthropic) and Codex/OpenAI paid models** — see cross-provider constraint below
 - free models stay behind every remaining paid OpenAI/Codex and Claude fallback
 - the managed free chain is `opencode/nemotron-3-super-free` -> `opencode/minimax-m2.5-free` -> `opencode/big-pickle`
 - managed host context caps stay conservative:
-  - `openai/gpt-5.4`, `anthropic/claude-opus-4-6`, `anthropic/claude-sonnet-4-6` stay pinned at `200000`
+  - `openai/gpt-5.4`, `anthropic/claude-opus-4-7`, `anthropic/claude-opus-4-6`, `anthropic/claude-sonnet-4-6` stay pinned at `200000`
   - `openai/gpt-5.3-codex-spark` is pinned at `128000`, because the refreshed runtime catalog currently caps it there
 
 Primary agents and their visible fallback shape:
 
-- `Prometheus`, `Sisyphus`, `Oracle`, `Metis`, `Momus`: `anthropic/claude-opus-4-6` -> `openai/gpt-5.4` -> `anthropic/claude-sonnet-4-6` -> `openai/gpt-5.3-codex-spark` -> free models
-- `Hephaestus`, `Atlas`, `Librarian`, `Multimodal Looker`: `openai/gpt-5.4` -> paid alternates -> `openai/gpt-5.3-codex-spark` -> free models
-- `Explore`: `openai/gpt-5.3-codex-spark` -> `openai/gpt-5.4` -> `anthropic/claude-sonnet-4-6` -> free models
-- `Sisyphus Junior`: `openai/gpt-5.4` -> `anthropic/claude-sonnet-4-6` -> `openai/gpt-5.3-codex-spark` -> free models
+- `Prometheus`, `Metis`, `Momus` (planning/review): `anthropic/claude-opus-4-7` -> `anthropic/claude-sonnet-4-6` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
+- `Sisyphus`, `Oracle`, `Librarian` (execution): `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
+- `Atlas` (orchestration): `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
+- `Hephaestus` (deep executor): `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-6` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
+- `Multimodal Looker`: `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-6` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
+- `Explore`: `openai/gpt-5.3-codex-spark` -> `anthropic/claude-sonnet-4-6` -> `openai/gpt-5.4` -> free models
+- `Sisyphus Junior` (fast executor): `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
 
 Managed source of truth for this table: `assets/custom-opencode/oh-my-opencode.json`.
+
+## Cross-provider fallback constraint (IMMUTABLE)
+
+**Every agent and category fallback chain MUST include BOTH Anthropic (Claude) AND OpenAI (Codex/GPT) paid models.** This is a hard architectural constraint enforced by code and tests. It cannot be overridden.
+
+What CAN be changed:
+- model order within the chain (which provider comes first)
+- quality settings (`variant`, `reasoningEffort`, `textVerbosity`)
+- fallback timing (`cooldown_seconds`, `timeout_seconds`, transient retry windows)
+
+What CANNOT be changed:
+- presence of both providers in every chain — removing all Claude or all OpenAI models from any chain is forbidden
+- paid models must appear before free models in every chain
+
+If one provider is temporarily broken (rate limits, Forbidden, TLS errors), reorder the chain so the working provider comes first. **Never remove the broken provider entirely** — it may recover, and provider-level redundancy is the safety net.
+
+This constraint is enforced by:
+- `collectFallbackPolicyViolations()` in `src/custom-opencode/model-config-validation.ts` — validates at build time
+- the cross-provider invariant test in `src/cli/doctor/checks/custom-opencode-config.test.ts` — fails CI if any agent chain is missing a provider
+- `bun run script/validate-effective-model-config.ts` — validates at install time
 
 ## Fallback behavior
 
@@ -50,7 +75,7 @@ Managed source of truth for this table: `assets/custom-opencode/oh-my-opencode.j
 - the retry interval grows over time and caps at 5 minutes between attempts
 - quota/cooldown/payment/usage-limit failures exhaust the remaining paid OpenAI/Codex and Claude chain before any free model
 - for `Explore`, `spark` is still the primary model, but quota fallback must continue through paid `gpt-5.4` and `claude-sonnet-4-6` before free models
-- for `Sisyphus Junior`, `gpt-5.4` stays ahead of `claude-sonnet-4-6`, and `claude-sonnet-4-6` stays ahead of `spark`
+- for `Sisyphus Junior`, `claude-sonnet-4-6` is primary, with `gpt-5.4` as first fallback ahead of `spark`
 - when a session is pushed down to `spark` or free models, background recovery probes can move it back up to stronger models when they recover
 - the fork only treats free models as valid when they resolve in the local runtime baseline; deprecated cache-only entries are ignored
 
@@ -165,20 +190,28 @@ Skills are domain-specific knowledge packs that agents load on demand via `load_
 | `ci-green-loop` | CI green, make build green, fix CI | Iterative push-build-analyze-fix protocol |
 | `merge-workflow` | merge develop, merge conflict, hotfix | Git merge workflow with two-phase pattern |
 | `sql-dacpac-deploy` | sqlproj, DACPAC, SQL72014, SQL migration | SQL Server DACPAC deployment and SSDT expertise |
+| `review-work` | review work, QA, verify implementation | 5-agent parallel post-implementation review orchestrator |
+| `ai-slop-remover` | clean up AI code, remove slop | Removes AI-generated code smells per file |
 
-### CI/CD Skills (new)
+### CI/CD Skills
 
-Four skills added for enterprise .NET CI/CD workflows:
+Five skills for enterprise .NET CI/CD workflows:
 
 **bamboo-ci** — Bamboo REST API patterns (anonymous-first), build result classification, stale revision detection, checkpoint protocol. Key: always verifies build revision matches branch HEAD before analyzing results.
 
 **dotnet-playwright** — MSBuild error patterns, `dotnet test` filtering, Playwright failure taxonomy (TargetClosedException, selector timeout, visibility), evidence pipeline (screenshots + TRX), shard balancing rules. Key: `WaitForTimeoutAsync` is never the fix — find the right selector.
 
-**ci-green-loop** — The iterative red-to-green protocol: monitor → classify → prioritize (build-error > crash > assertion > timeout) → fix → local proof → push → repeat. Includes checkpoint format for session handoff and forbidden actions list.
+**ci-green-loop** — The iterative red-to-green protocol: monitor → classify → prioritize (build-error > crash > assertion > timeout) → fix → local proof → push → repeat. Includes checkpoint format for session handoff and forbidden actions list. **Planning Mode**: when loaded by Prometheus during plan creation, enforces 100% failure coverage — every CI fix plan must start with a comprehensive diagnosis task and create per-root-cause fix tasks covering all known failures.
 
 **merge-workflow** — Two-phase merge for hotfix branches (pre-fix merge + post-green merge), conflict resolution strategy by file type, post-merge validation. Key: application source prefers develop, test files prefer hotfix.
 
 **sql-dacpac-deploy** ��� SQL Server DACPAC/SSDT project expertise: SQL72014 invalid column errors, EXISTS guard + `sp_executesql` deferred validation patterns, merge conflict resolution in migration scripts. Key: post-deploy scripts referencing columns added by schema diff need `sp_executesql` to defer validation.
+
+### Review & Quality Skills
+
+**review-work** — Post-implementation review orchestrator. Launches 5 parallel sub-agents: Goal Verifier (did we build what was asked?), QA Executor (hands-on testing), Code Reviewer (is code well-written?), Security Auditor (is it secure?), Context Miner (did we miss any context from GitHub/git/docs?). All 5 must pass for review to pass. Key: the reviewer must catch what the implementer missed, and re-evaluate approach if needed.
+
+**ai-slop-remover** — Removes AI-generated code smells from a single file while preserving functionality. For multiple files, call in parallel per file.
 
 ### Using Skills in Plans
 

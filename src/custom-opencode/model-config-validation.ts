@@ -77,6 +77,17 @@ function isPaidAnthropicModel(model: string): boolean {
   return normalizeConfiguredModel(model).toLowerCase().startsWith("anthropic/")
 }
 
+/**
+ * HARD CONSTRAINT: Every fallback chain must include BOTH Claude (Anthropic)
+ * and Codex/OpenAI paid models. This ensures cross-provider redundancy.
+ *
+ * What CAN be changed: model order, quality settings, fallback timing.
+ * What CANNOT be changed: presence of both providers in every chain.
+ *
+ * If one provider is temporarily broken (rate limits, Forbidden, TLS errors),
+ * reorder the chain so the working provider comes first — never remove the
+ * broken provider entirely, as it may recover.
+ */
 export function collectFallbackPolicyViolations(
   pluginConfig: OhMyOpenCodeConfig | null | undefined,
 ): FallbackPolicyViolation[] {

@@ -17,4 +17,20 @@ export const SUPPLEMENTAL_MODEL_CAPABILITIES: Record<string, ModelCapabilitiesSn
 			output: 128000,
 		},
 	},
+	"anthropic/claude-opus-4-7": {
+		id: "anthropic/claude-opus-4-7",
+		family: "claude-opus",
+		reasoning: true,
+		temperature: true,
+		toolCall: true,
+		modalities: {
+			input: ["text", "image", "pdf"],
+			output: ["text"],
+		},
+		limit: {
+			context: 1000000,
+			input: 1000000,
+			output: 128000,
+		},
+	},
 }
