@@ -4,139 +4,159 @@ export const ciGreenLoopSkill: BuiltinSkill = {
   name: "ci-green-loop",
   description:
     "Iterative CI green loop: push → build → analyze → fix → repeat until green. Use when driving a branch to green CI, iterating on build failures, or running push-monitor-fix cycles. Trigger: 'CI green', 'make build green', 'iterate until green', 'fix CI', 'green loop', 'build red'.",
-  template: `# CI Green Loop Skill
+  template: `# CI Green Loop
 
-Systematic protocol for driving a branch to green CI through iterative fix cycles.
+## Planning Mode (Prometheus)
 
-## Core Philosophy
+Plans MUST cover 100% of known failures. A plan addressing a subset is REJECTED.
 
-- **Root cause over band-aid** — find WHY it fails, don't just retry
-- **One fix per cause** — group related failures, fix the root once
-- **Local proof before push** — verify fix locally before burning a CI cycle
-- **Checkpoint early** — save progress before running out of context
-- **Never weaken to pass** — no assertion removal, no test skipping, no fake waits
+**Required plan structure — EXACTLY 2 TASKS:**
+1. **Task 1: Diagnosis** — fetch COMPLETE build results, verify deployment succeeded, classify EVERY failing test. Save to \`.sisyphus/evidence/\`. Skills: \`["bamboo-ci", "ci-green-loop"]\`. Category: \`deep\`.
+2. **Task 2: Fix ALL failures** — ONE comprehensive fix task covering ALL root cause groups, ALL files, ALL tests. The executor reads Task 1 evidence and fixes everything in a single session. Include \`"dotnet-playwright"\` skill. Category: \`deep\`. Ends with: dotnet build verification → \`git add <specific-files>\` (NEVER \`git add -A\`) → git commit → git push → verify CI picks up revision.
+
+**Why exactly 2 tasks:** Each task = ~2 min dispatch overhead + risk of parallel sessions editing the same file (duplicate ClassInitialize bug). One executor sees ALL changes holistically, avoids conflicts, pushes once.
+
+**Coverage map** — table showing root cause group → failure count → confidence. Total must equal 100% of failures.
+
+**NEVER split fixes into separate tasks by group.** If prior evidence/diagnosis exists from a previous iteration, embed it directly in Task 2's instructions — don't create a new Task 1.
+
+Pre-digested fix instructions = ONE hypothesis for ONE group. Plan MUST still include full diagnosis to find ALL groups.
+
+---
+
+## Rules
+
+### Baseline Comparison — MANDATORY FIRST STEP
+Before diagnosing, fetch results from 3+ PREVIOUS builds (before your branch changes) via Bamboo API. Failures present across all those builds = **pre-existing baseline**. Your diagnosis MUST split failures into:
+- **REGRESSIONS** (pass→fail): caused by YOUR changes. Fix these FIRST — they block merge.
+- **PRE-EXISTING** (fail→fail): broken before your branch. Fix if possible, but don't create new regressions chasing them.
+
+Report format: "14 failures: 1 regression + 13 pre-existing (baseline build #NNN)."
+
+**Why this matters**: Without baseline comparison, you waste iterations (v12→v13→v14) fixing things that were never yours to break, while accidentally regressing tests that WERE passing.
+
+### Diagnosis Before Fix
+Produce a complete diagnosis table BEFORE any code change. Non-negotiable even when the fix seems obvious. A systemic root cause may mask independent bugs.
+
+The table MUST include for EVERY failing test:
+- **Baseline status**: was this passing in the last 3 builds before your changes?
+- Use-case (from READING test source code, not guessing from name)
+- Bug classification: test bug / logic bug / infra bug
+- Root cause group assignment
+- Predicted outcome after fix
+
+**Diagnosis brevity**: The evidence file should be COMPACT — one summary table + one paragraph per test (~500 bytes each). Do NOT dump full error stacks or multi-paragraph narratives per test. The diagnosis is a reference for fix tasks, not an essay. Target: ~1KB per failing test, not 3KB.
+
+### Side-Effect Verification
+Before pushing a fix, verify it doesn't CREATE new regressions:
+1. List ALL tests that interact with modified code (grep for function/table/column names)
+2. For SQL seed changes: check ALL queries that reference the same table — will your change affect ranking, filtering, or visibility in other contexts?
+3. For naming changes: grep the ENTIRE test project for the old name
+4. For flag changes (Protected, Blocked, etc.): check ALL SQL queries that filter on that flag — not just the one you're targeting
+
+### Error Message Depth
+Read EVERY word. Extract ALL identifiers (DB names, paths, versions, IDs). Cross-reference each against build config. A mismatched identifier IS the diagnosis.
+
+### Causation Tracing
+For deployment/infra failures, trace the FULL chain: error → code path → data source → population step → root cause. Save chain to evidence BEFORE writing any fix.
+
+### Zero Failures — No Escalation
+\`failed == 0\` is the only acceptable result. NEVER classify failures as "data-dependent", "infrastructure", "unfixable at test layer", or "outside scope".
+
+| "Unfixable" Claim | Fix |
+|---|---|
+| Needs seed data | Create in \`[TestInitialize]\`/\`[ClassInitialize]\` via SQL/API |
+| Shard timeout | Rebalance shards, split class, reduce overhead |
+| Needs idle scenarios | Create in \`[TestInitialize]\` |
+| build.ps1 change needed | CI pipeline IS in scope — adjust it |
+
+### SQL Seed Data in CI — UPSERT Required
+CI databases persist across builds. \`IF NOT EXISTS INSERT\` is WRONG — it skips rows that exist with bad values. Every SQL seed MUST use INSERT + unconditional UPDATE:
+\`\`\`sql
+IF NOT EXISTS (SELECT 1 FROM [T] WHERE [Name] = @n) INSERT INTO [T] (...) VALUES (...);
+UPDATE [T] SET [Col] = @val WHERE [Name] = @n AND [Col] <> @val;
+\`\`\`
+Also check child rows (e.g. task group lines) — parent may exist but with missing/wrong children.
+
+### TestInitialize Inheritance — Check Base Class FIRST
+Before adding \`[TestInitialize]\` to fix "missing data": READ the base class. MSTest V2 runs BOTH base AND derived TestInitialize. If the base already does setup (scenario assignment, browser recovery), adding it in derived is redundant. The real bug is usually: (a) the base setup swallows errors silently, or (b) SQL seed data has wrong values (see UPSERT rule above).
+
+### Execution Time
+Target: ≤15 min. Hard limit: 20 min. Eliminate idle waits, parallelize shards, tight timeouts (10s UI, 30s API, 60s page). No single shard >5 min.
+
+### Batch Strategy
+**Diagnose ALL → Fix ALL → Verify local → Push ONCE.** One session, one commit, one push. Single-fix pushes only when: root cause unknown and CI validation needed, or deployment change can't be tested locally.
+
+### Comprehensive Fix Mandate
+Every fix session MUST attempt to resolve ALL known failures, not just the assigned subset. If you see a failing test whose fix is obvious from the evidence, fix it — even if it wasn't "your" task. The goal is zero failures per build, not zero failures per group.
+
+### Deployment Phase First
+BEFORE analyzing test failures, verify deployment/setup succeeded. Search build log for \`error :\` before test phase. If deployment failed, ALL test failures are symptoms — fix deployment first.
+
+### Test Visibility
+Always ensure: total = passed + failed + skipped. TRX artifacts mandatory. Build with 0 tests is NOT green.
+
+---
 
 ## The Loop
 
 \`\`\`
-PRE-LOOP:
-  - Verify branch is pushed and CI is building correct revision
-  - If CI is building stale revision, push empty commit to trigger
+PRE-LOOP: Verify branch pushed, CI building correct revision.
 
-LOOP (repeat until green):
-  STEP 1: MONITOR
-    - Poll CI for build completion
-    - Verify build revision matches branch HEAD
-    - If revision mismatch → push and wait for new build
+LOOP:
+  STEP 1: PUSH + MONITOR
+    Push fixes, verify CI picks up revision. Don't idle-wait — research next failure group while building.
+    NETWORK FAIL: If push fails (DNS NXDOMAIN, network unreachable, SSH timeout):
+      1. git commit all changes locally (work is NOT lost)
+      2. Save checkpoint: "NETWORK BLOCKED — N local commits ready to push"
+      3. EXIT immediately. Do NOT retry DNS — 2 consecutive failures = confirmed blocked.
 
-  STEP 2: ANALYZE (if red)
-    - Fetch full build results (JSON + logs)
-    - List every failing test with error message
-    - Classify each failure:
-      * build-error: compilation/MSBuild failure
-      * test-crash: process died during test (TargetClosedException)
-      * test-timeout: element/response wait exceeded
-      * test-assertion: assert failed (test logic vs app behavior)
-      * infra-error: CI agent issue, checkout failure
-    - Group by root cause (multiple tests → one cause)
-    - Prioritize: build-error > crash > assertion > timeout > infra
+  STEP 2: ANALYZE (build done)
+    a) Fetch results. Check deployment phase FIRST.
+    b) List EVERY failing test with COMPLETE error message. Classify: build-error|test-crash|test-timeout|test-assertion|setup-error|infra-error. Group by root cause.
+    c) For each test: READ source code, write use-case, classify bug type. Save to .sisyphus/evidence/.
+    d) Compare against predictions from previous iteration.
 
   STEP 3: FIX
-    - Fix highest-priority root cause first
-    - Apply fix and verify locally:
-      * dotnet build (if build error)
-      * dotnet test --filter "affected tests" (if test failure)
-    - Commit with descriptive message
-    - Repeat for each root cause group
+    a) Fix highest-leverage root cause first. NEVER fix tests individually when they share a root cause.
+    b) Verify locally: dotnet build, run affected tests if possible.
+    c) Write predictions: hypothesis, expected test impact, residual failures. Save to evidence.
 
-  STEP 4: PUSH
-    - Push all fixes
-    - Verify CI picks up new revision
-    - GOTO STEP 1
+  STEP 4: PUSH → GOTO STEP 1
 
-EXIT CONDITIONS:
-  - GREEN: All tests pass, 0 failures → DONE
-  - BLOCKED: CI infrastructure down after 5 retries → checkpoint and escalate
-  - TOKEN LIMIT: Approaching context limit → checkpoint and handoff
-
-FORBIDDEN:
-  - Stopping because "it's taking too long"
-  - Weakening assertions to make tests pass
-  - Skipping or muting tests
-  - Adding WaitForTimeoutAsync as primary fix
-  - Claiming green based on local run while CI is red
-  - Marking done with known regressions
+EXIT: GREEN (0 failures) | NETWORK BLOCKED (2 push fails → commit + checkpoint + stop) | BLOCKED (infra down, 3 retries) | TOKEN LIMIT (checkpoint first)
 \`\`\`
 
-## Fix Priority Matrix
+## Fix Priority
+P0 build error > P0.5 setup/DB error > P1 test crash > P2 assertion > P3 timeout > P4 infra/flaky.
+If >50% failures share one root cause, that IS the fix.
 
-| Priority | Failure Type | Action |
-|----------|-------------|--------|
-| P0 | Build error (compilation) | Fix immediately — nothing else can run |
-| P1 | Test crash (process exit) | Fix browser/process lifecycle — blocks entire class |
-| P2 | Assertion failure | Fix test logic or investigate app change |
-| P3 | Timeout | Fix selector/wait condition (NOT timeout value) |
-| P4 | Infra/flaky | Investigate; only mark external if truly uncontrollable |
+## Forbidden
+- Fixing code before diagnosis table is complete
+- Fixing tests one-by-one without analyzing ALL failures first
+- Weakening assertions, skipping/muting/removing tests
+- Idle-waiting for builds (research while CI runs)
+- Truncating error messages
+- Shotgun fixes (2+ commits same root cause without verification)
+- Escalating as "unfixable" or "data-dependent"
+- Accepting any non-zero failure count as done
+- \`Assert.Inconclusive\` as permanent state
+- Pushing during build-time research (research only, no file edits)
+- Looping on DNS/network checks — 2 failures = BLOCKED, commit locally and EXIT
+- Leaving uncommitted changes when exiting (always git commit before stopping)
+- Using \`git add -A\` or \`git add .\` — ALWAYS stage specific files: \`git add <file1> <file2>\`. Blanket staging pulls in .sisyphus/, test artifacts, and other untracked files that should NOT be committed. Run \`git diff --staged --stat\` before committing to verify only intended files are staged.
+- Using \`IF NOT EXISTS INSERT\` without a follow-up UPDATE for SQL seed data (stale rows with wrong values persist across CI builds)
+- Adding \`[TestInitialize]\` to derived classes without reading the base class first (MSTest V2 runs both — you may be duplicating existing setup)
+- Removing base class \`[TestInitialize]\` calls to "move" them to derived (breaks ALL other classes sharing that base)
 
-## Checkpoint Format
+## Post-Green
+1. Verify green build ran YOUR branch HEAD
+2. Verify all shards completed, test count matches expected (no silent drops)
+3. Verify TRX artifacts exist
+4. Save evidence to \`.sisyphus/evidence/\`
 
-Write to \`.sisyphus/evidence/ci-loop-checkpoint.md\`:
-\`\`\`markdown
-# CI Loop Checkpoint — {date}
-
-## Branch State
-- Local HEAD: {SHA}
-- Remote HEAD: {SHA}
-- Branch: {branch name}
-
-## Latest Build
-- Build #: {N}
-- State: {state}
-- Duration: {N}s
-- Tests: {pass} pass / {fail} fail
-- Revision: {SHA} (matches HEAD: yes/no)
-
-## Iteration History
-| # | Build | Fails | Fixes Applied | Result |
-|---|-------|-------|---------------|--------|
-| 1 | #250 | 8 | crash cluster fix | 4 remaining |
-| 2 | #251 | 4 | selector updates | 1 remaining |
-
-## Current Failures
-| Test | Type | Root Cause | Status |
-|------|------|-----------|--------|
-| TestX | timeout | stale selector | fixing |
-
-## Next Steps
-1. Fix remaining selector in TestX
-2. Push and verify build #252
-\`\`\`
-
-## Multi-Iteration Commit Strategy
-
-- Each iteration gets its own commit(s)
-- Message format: \`fix(ci): iteration N — {what was fixed} [{TASK_KEY}]\`
-- Don't squash iterations — keep history for debugging
-- If multiple root causes fixed in one iteration, one commit per cause
-
-## Post-Green Verification
-
-After achieving green:
-1. Verify the green build ran YOUR branch head (check revision)
-2. Verify all shards completed (no skipped shards)
-3. Verify test count matches expected (no silent test drops)
-4. Record the green build evidence:
-   - Build number, duration, test counts
-   - Branch HEAD SHA
-   - Full test pass list if available
-5. Save to \`.sisyphus/evidence/task-N-bamboo-green.md\`
-
-## Token Budget Awareness
-
-- Each CI iteration costs tokens: fetch → analyze → fix → commit → push → wait
-- Estimate ~2000-5000 tokens per iteration
-- If > 5 iterations without progress, stop and reassess strategy
-- If approaching token limit, ALWAYS checkpoint before running out
-- Prefer committing partial progress over losing it to compaction
+## Checkpoint
+Write to \`.sisyphus/evidence/ci-loop-checkpoint.md\`: branch state, latest build (number/state/duration/pass/fail), iteration history table, current failures, next steps.
+**OVERWRITE, don't append.** Checkpoint is a snapshot, not a log. Max 50 lines. Stale checkpoint entries waste context for the next session.
 `,
 }

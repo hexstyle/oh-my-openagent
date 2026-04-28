@@ -141,6 +141,152 @@ $shards = @(
 - Balance by execution time, not test count
 - After adding new tests, verify shards still cover everything
 
+## Per-Test Time Targets
+| Test Type | Target | Max |
+|-----------|--------|-----|
+| Simple UI assertion | < 10s | 30s |
+| Form interaction (fill + submit) | < 20s | 45s |
+| Full workflow (multi-page) | < 45s | 90s |
+| Data-heavy operation (export/import) | < 30s | 60s |
+
+Tests exceeding "Max" are candidates for optimization, not timeout increases.
+
+## MSTest V2 Lifecycle — CRITICAL
+
+### TestInitialize inheritance (MANDATORY KNOWLEDGE)
+In MSTest V2, BOTH base and derived \`[TestInitialize]\` methods run — base FIRST, then derived.
+\`\`\`
+Base.TestInitialize()    ← runs FIRST (e.g. browser recovery, scenario assignment)
+Derived.TestInitialize() ← runs SECOND (your per-class setup)
+Base.TestCleanup()       ← runs AFTER derived cleanup
+\`\`\`
+**BEFORE adding \`[TestInitialize]\` to a derived class**: READ the base class. If the base already does scenario assignment / data seeding, adding it again is redundant — and removing the base call to "move it" to derived will break OTHER classes.
+
+### TryEnsure wrapper pattern (silent failure trap)
+Many base classes wrap setup methods in try/catch that silently swallows exceptions:
+\`\`\`csharp
+private static async Task TryEnsureStableLocalTestUserScenarioAssignedAsync()
+{
+    try { await EnsureLocalTestUserScenarioAssignedAsync(); }
+    catch (Exception ex) { Console.WriteLine($"TESTWARN: ...{ex.Message}"); }
+}
+\`\`\`
+If this pattern exists, the REAL failure is hidden in build log as TESTWARN. Search build logs for \`TESTWARN\` before assuming TestInitialize works.
+
+## SQL Seed Data — UPSERT Traps
+
+### WRONG: IF NOT EXISTS only inserts, never updates existing rows
+\`\`\`sql
+-- BROKEN: If row exists with wrong values, INSERT never fires, bad data persists
+IF NOT EXISTS (SELECT 1 FROM [Table] WHERE [Name] = @name)
+INSERT INTO [Table] ([Name], [Flag]) VALUES (@name, 1)
+\`\`\`
+
+### CORRECT: INSERT + unconditional UPDATE
+\`\`\`sql
+-- Insert if missing
+IF NOT EXISTS (SELECT 1 FROM [Table] WHERE [Name] = @name)
+INSERT INTO [Table] ([Name], [Flag]) VALUES (@name, 1);
+-- Always fix values on existing rows
+UPDATE [Table] SET [Flag] = 1 WHERE [Name] = @name AND [Flag] <> 1;
+\`\`\`
+
+### CORRECT: MERGE pattern (alternative)
+\`\`\`sql
+MERGE [Table] AS target
+USING (SELECT @name AS [Name]) AS source ON target.[Name] = source.[Name]
+WHEN MATCHED THEN UPDATE SET [Flag] = 1
+WHEN NOT MATCHED THEN INSERT ([Name], [Flag]) VALUES (@name, 1);
+\`\`\`
+
+**Why this matters in CI**: Bamboo reuses DB between builds. Previous builds may have inserted rows with wrong column values (e.g. \`IsModelCalc=0\`). IF NOT EXISTS sees the row exists and skips — the bad value persists across ALL subsequent builds.
+
+### Child row pattern (task group lines, related records)
+When seeding a parent + child rows, check BOTH:
+\`\`\`sql
+-- Parent exists? Good. But does it have ALL required child rows?
+IF NOT EXISTS (SELECT 1 FROM [ChildTable] WHERE [ParentId] = @id AND [Name] = 'Required_Line')
+INSERT INTO [ChildTable] ([ParentId], [Name], ...) VALUES (@id, 'Required_Line', ...)
+\`\`\`
+
+## Data Setup Patterns
+
+### Pattern: TestInitialize Data Setup
+\`\`\`csharp
+[TestInitialize]
+public async Task EnsureTestData()
+{
+    // Check if required data exists
+    var scenarios = await GetScenariosViaApiAsync();
+    if (scenarios.Count == 0)
+    {
+        // CREATE the data the test needs — don't skip
+        await CreateTestScenarioViaApiAsync("AutoTest_Scenario_1");
+        await CreateTestScenarioViaApiAsync("AutoTest_Scenario_2");
+    }
+}
+\`\`\`
+
+### Cleanup Pattern
+\`\`\`csharp
+[TestCleanup]
+public async Task CleanupTestData()
+{
+    // Remove data created during test to avoid polluting other tests
+    foreach (var id in _createdEntityIds)
+    {
+        await HttpClient.DeleteAsync($"/api/Entity/{id}");
+    }
+}
+\`\`\`
+
+## Seed Scenario Default Selection — CRITICAL RANKING KNOWLEDGE
+
+### The Selection Query (ResolveStableScenarioNamesCoreAsync)
+The app picks a "default" user scenario via this SQL ranking:
+\`\`\`sql
+SELECT TOP 1 s.[Name]
+FROM [Scenario] s
+WHERE s.[UserId] = @userId
+  AND ISNULL(s.[Blocked], 0) = 0
+  AND s.[DeletionDate] IS NULL
+  AND s.[Name] NOT LIKE 'pw%'
+  AND s.[Name] NOT LIKE 'Deleted[_]%'
+ORDER BY
+  CASE WHEN s.[ModelId] IS NOT NULL THEN 0 ELSE 1 END,
+  CASE WHEN s.[Protected] = 1 THEN 1 ELSE 0 END,
+  s.[Id] DESC
+\`\`\`
+
+**Ranking priority**: ModelId NOT NULL (best) → Protected=0 (preferred) → highest Id (newest).
+
+### pw- Prefix Convention
+Test seed scenarios MUST use the \`pw-\` prefix (e.g. \`pw-ci-copy-src-3p\`) so the \`NOT LIKE 'pw%'\` filter excludes them from default selection. This prevents seed data from hijacking the user's default scenario assignment.
+
+**NEVER** use the \`Protected=1\` flag to exclude seed scenarios from default selection — Protected=1 also hides the scenario from the web app's copy dialog "Source scenario" dropdown, which breaks copy tests.
+
+### Side-Effect Awareness for SQL Changes
+Before changing ANY column on a seed scenario, check ALL queries that reference that column:
+| Column | Side effect if changed |
+|--------|----------------------|
+| \`Protected=1\` | Hidden from copy dialog dropdown (breaks CopySubmit tests) |
+| \`Blocked=1\` | Filtered out of ALL scenario queries (breaks everything) |
+| \`DeletionDate IS NOT NULL\` | Soft-deleted, invisible everywhere |
+| \`ModelId IS NULL\` | Drops in ranking (may lose default selection) |
+| \`Name LIKE 'pw%'\` | Excluded from default selection (desired for seeds) |
+| \`Name LIKE 'Deleted[_]%'\` | Excluded from default selection |
+
+**Before pushing a SQL change**: grep the ENTIRE test project for the column/flag name and verify no other test depends on the current value.
+
+## Git Commit Safety
+
+**NEVER use \`git add -A\` or \`git add .\`** in CI fix workflows. Stage only the files you changed:
+\`\`\`bash
+git add Optimizer.PlaywrightTests/SqlTestHelper.cs Optimizer.PlaywrightTests/SomeOtherFile.cs
+git diff --staged --stat   # VERIFY: only your files, no .sisyphus/ or test artifacts
+git commit -m "fix(playwright): description [TICKET-ID]"
+\`\`\`
+
 ## Merge Conflict Patterns in .NET
 
 After merging develop:

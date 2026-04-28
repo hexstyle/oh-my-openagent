@@ -18,6 +18,7 @@ export const START_WORK_TEMPLATE = `You are starting a Sisyphus work session.
 3. **Decision logic**:
    - If \`.sisyphus/boulder.json\` exists AND plan is NOT complete:
      - **APPEND** current session to session_ids
+     - **Validate evidence freshness**: Check timestamps of \`.sisyphus/evidence/\` files. If checkpoint/evidence files are >24h old, treat their claims (blockers, network status, build state) as STALE — verify current state before trusting them. Overwrite stale checkpoints rather than appending.
      - Continue work on existing plan
    - If no active plan OR plan is complete:
      - List available plan files
@@ -95,9 +96,20 @@ Reading plan and beginning execution...
 - Read the FULL plan file before delegating any tasks
 - Follow atlas delegation protocols (7-section format)
 
+## GIT STAGING HYGIENE
+
+**NEVER use \`git add -A\` or \`git add .\`** — these stage everything including .sisyphus/, test artifacts, cache directories, and other files that must NOT be committed.
+
+Always:
+1. Stage specific files: \`git add <file1> <file2> ...\`
+2. Verify before committing: \`git diff --staged --stat\` — check that ONLY intended source files are staged
+3. If a plan's commit instructions say \`git add -A\`, override with explicit file staging
+
+This applies to ALL executors and sub-tasks. A commit that includes .sisyphus/ or test cache files is a broken commit.
+
 ## TASK BREAKDOWN (MANDATORY)
 
-After reading the plan file, you MUST decompose every plan task into granular, implementation-level sub-steps and register ALL of them as task/todo items BEFORE starting any work.
+After reading the plan file, decompose plan tasks into implementation-level sub-steps as task/todo items BEFORE starting work. **Exception**: If the plan already contains detailed per-item diagnosis and fix plans (e.g., CI green plans with per-test root cause analysis), skip re-decomposition — delegate tasks directly using the plan's existing sub-steps.
 
 **How to break down**:
 - Each plan checkbox item (e.g., \`- [ ] Add user authentication\`) must be split into concrete, actionable sub-tasks

@@ -55,21 +55,6 @@ If anonymous POST returns 401, do NOT ask for credentials immediately. Instead:
 2. Add an empty commit if no code changes: \`git commit --allow-empty -m "ci: trigger build"\`
 3. Only escalate auth if webhook trigger also fails
 
-## Build Result Analysis Protocol
-
-When a build fails:
-1. **Fetch JSON** — get structured test counts and metadata
-2. **Fetch log** — get full build output for error context
-3. **Correlate revision** — verify the build ran YOUR branch head, not a stale SHA
-4. **Classify failures**:
-   - \`build-error\`: MSBuild/compilation error (fix code first)
-   - \`test-crash\`: TargetClosedException, process exited (browser lifecycle)
-   - \`test-timeout\`: Operation timed out (selector/API mismatch)
-   - \`test-assertion\`: Assert failed (logic bug in test or app)
-   - \`infra-error\`: Checkout failed, agent offline (external blocker)
-5. **Group by root cause** — same root cause gets one fix, not per-test patches
-6. **Track build history** — record each iteration: build#, SHA, fail count, fix applied
-
 ## Stale Build Detection
 
 **Critical**: Always verify the build ran your latest commit:
@@ -81,40 +66,6 @@ if [ "$LOCAL_SHA" != "$BAMBOO_SHA" ]; then
 fi
 \`\`\`
 If stale: push a new commit or empty commit to force a new build.
-
-## CI Green Loop Protocol
-
-\`\`\`
-LOOP:
-  1. Push branch head to remote
-  2. Wait for build to appear (poll latest.json every 30s, max 10min)
-  3. Wait for build to complete (lifeCycleState = Finished)
-  4. If state = Successful AND failedTestCount = 0 → EXIT LOOP (green!)
-  5. If state = Failed:
-     a. Fetch build log
-     b. Classify all failures
-     c. Fix each failure by root cause
-     d. Commit fixes
-     e. GOTO 1
-  6. If build never appears after 10min:
-     a. Try empty commit push
-     b. If still no build → escalate (auth or webhook issue)
-ABORT: Only if remote is unreachable after 5 retries with backoff
-\`\`\`
-
-## Checkpoint Protocol
-
-When approaching token/context limits during a CI loop:
-1. Commit all pending fixes
-2. Push to remote
-3. Write checkpoint to \`.sisyphus/evidence/ci-loop-checkpoint.md\`:
-   - Local HEAD SHA
-   - Remote HEAD SHA
-   - Latest Bamboo build # and result
-   - Current failure classification
-   - What was fixed in this iteration
-   - What remains to fix
-4. Continue in next session from checkpoint
 
 ## Evidence Format
 
