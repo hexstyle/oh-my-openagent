@@ -53,46 +53,13 @@ export function createDelegateTask(options: DelegateTaskToolOptions): ToolDefini
     return desc ? `  - ${name}: ${desc}` : `  - ${name}`
   }).join("\n")
 
-  const description = `Spawn agent task with category-based or direct agent selection.
-  
-  ⚠️  CRITICAL: You MUST provide EITHER category OR subagent_type. Omitting BOTH will FAIL.
-  
-  **COMMON MISTAKE (DO NOT DO THIS):**
-  \`\`\`
-  task(description="...", prompt="...", run_in_background=false)  // ❌ FAILS - missing category AND subagent_type
-  \`\`\`
-  
-  **CORRECT - Using category:**
-  \`\`\`
+  const description = `Spawn agent task. Provide EITHER category OR subagent_type (not both, not neither).
+
   task(category="quick", load_skills=[], description="Fix type error", prompt="...", run_in_background=false)
-  \`\`\`
-  
-  **CORRECT - Using subagent_type:**
-  \`\`\`
   task(subagent_type="explore", load_skills=[], description="Find patterns", prompt="...", run_in_background=true)
-  \`\`\`
-  
-  REQUIRED: Provide ONE of:
-  - category: For task delegation (uses Sisyphus-Junior with category-optimized model)
-  - subagent_type: For direct agent invocation (explore, librarian, oracle, etc.)
-  
-  **DO NOT provide both.** category and subagent_type are mutually exclusive.
-  
-  - load_skills: ALWAYS REQUIRED. Pass [] if no skills needed, or ["skill-1", "skill-2"] for category tasks.
-  - category: Use predefined category → Spawns Sisyphus-Junior with category config
-    Available categories:
-  ${categoryList}
-  - subagent_type: Use a specific callable non-primary agent directly (for example: explore, librarian, oracle, metis, momus)
-  - run_in_background: REQUIRED. true=async (returns task_id), false=sync (waits). Use background=true ONLY for parallel exploration with 5+ independent queries.
-  - session_id: Existing Task session to continue (from previous task output). Continues agent with FULL CONTEXT PRESERVED - saves tokens, maintains continuity.
-  - command: The command that triggered this task (optional, for slash command tracking).
-  
-  **WHEN TO USE session_id:**
-  - Task failed/incomplete → session_id with "fix: [specific issue]"
-  - Need follow-up on previous result → session_id with additional question
-  - Multi-turn conversation with same agent → always session_id instead of new task
-  
-  Prompts MUST be in English.`
+
+  Categories: ${categoryList}
+  session_id: continue existing task session (preserves full context). Prompts MUST be in English.`
 
   return tool({
     description,

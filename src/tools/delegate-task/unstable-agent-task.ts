@@ -142,38 +142,25 @@ export async function executeUnstableAgentTask(
     if (terminalStatus) {
       const duration = formatDuration(startTime)
       return `SUPERVISED TASK FAILED (${terminalStatus.status})
-
-Task was interrupted/failed while running in monitored background mode.
-${terminalStatus.error ? `Error: ${terminalStatus.error}` : ""}
-
-Duration: ${duration}
-Agent: ${displayAgent}${args.category ? ` (category: ${args.category})` : ""}
-Model: ${actualModel}
-
-The task session may contain partial results.
+Agent: ${displayAgent}
+Duration: ${duration}${terminalStatus.error ? `\nError: ${terminalStatus.error}` : ""}
 
 <task_metadata>
-session_id: ${sessionID}
+session_id: ${sessionID}${args.category ? `\ncategory: ${args.category}` : ""}
+model: ${actualModel}
 </task_metadata>`
     }
 
     if (!completedDuringMonitoring) {
       cleanupReason = "Monitored unstable background task exceeded timeout budget"
       const duration = formatDuration(startTime)
-      const timeoutBudgetMs = syncPollTimeoutMs ?? DEFAULT_SYNC_POLL_TIMEOUT_MS
       return `SUPERVISED TASK TIMED OUT
-
-Task did not reach a stable completion signal within the monitored timeout budget.
-Timeout budget: ${timeoutBudgetMs}ms
-
+Agent: ${displayAgent}
 Duration: ${duration}
-Agent: ${displayAgent}${args.category ? ` (category: ${args.category})` : ""}
-Model: ${actualModel}
-
-The task session may still contain partial results.
 
 <task_metadata>
-session_id: ${sessionID}
+session_id: ${sessionID}${args.category ? `\ncategory: ${args.category}` : ""}
+model: ${actualModel}
 </task_metadata>`
     }
 
@@ -202,28 +189,14 @@ session_id: ${sessionID}
     }
     const duration = formatDuration(startTime)
 
-    return `SUPERVISED TASK COMPLETED SUCCESSFULLY
-
-IMPORTANT: This model (${actualModel}) is marked as unstable/experimental.
-Your run_in_background=false was automatically converted to background mode for reliability monitoring.
-
-Duration: ${duration}
-Agent: ${displayAgent}${args.category ? ` (category: ${args.category})` : ""}
-
-MONITORING INSTRUCTIONS:
-- The task was monitored and completed successfully
-- If you observe this agent behaving erratically in future calls, actively monitor its progress
-- Use background_cancel(task_id="...") to abort if the agent seems stuck or producing garbage output
-- Do NOT retry automatically if you see this message - the task already succeeded
-
----
-
-RESULT:
+    return `Task completed in ${duration}.
+Agent: ${displayAgent}
 
 ${textContent || "(No text output)"}
 
 <task_metadata>
-session_id: ${sessionID}
+session_id: ${sessionID}${args.category ? `\ncategory: ${args.category}` : ""}
+model: ${actualModel}
 </task_metadata>`
   } catch (error) {
     if (!cleanupReason) {

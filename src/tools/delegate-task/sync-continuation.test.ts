@@ -227,7 +227,7 @@ describe("executeSyncContinuation - toast cleanup error paths", () => {
     //#then - toast should be removed exactly once
     expect(removeTaskCalls.length).toBe(1)
     expect(removeTaskCalls[0]).toBe("resume_sync_ses_test")
-    expect(result).toContain("Task continued and completed")
+    expect(result).toContain("Task completed in")
     expect(result).toContain("Result")
   })
 

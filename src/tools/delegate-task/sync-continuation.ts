@@ -137,15 +137,14 @@ export async function executeSyncContinuation(
 
      const duration = formatDuration(startTime)
 
-     return `Task continued and completed in ${duration}.
-
----
+     return `Task completed in ${duration}.
+Agent: ${displayAgent || "unknown"}
 
 ${result.textContent || "(No text output)"}
 
 <task_metadata>
-session_id: ${args.session_id}
-${displayAgent ? `subagent: ${displayAgent}\n` : ""}</task_metadata>`
+session_id: ${args.session_id}${displayAgent ? `\nsubagent: ${displayAgent}` : ""}
+</task_metadata>`
    } finally {
      if (toastManager) {
        toastManager.removeTask(taskId)

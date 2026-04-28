@@ -44,18 +44,15 @@ export async function executeBackgroundContinuation(
     }
 
     return `Background task continued.
-
 Task ID: ${task.id}
-Description: ${task.description}
 Agent: ${displayAgent}
-Status: ${task.status}
 
-Agent continues with full previous context preserved.
-Use \`background_output\` with task_id="${task.id}" to check progress.
+Use \`background_output\` with task_id="${task.id}" to check.
 
 <task_metadata>
 session_id: ${task.sessionID}
-${displayAgent ? `subagent: ${displayAgent}\n` : ""}</task_metadata>`
+task_id: ${task.id}${displayAgent ? `\nsubagent: ${displayAgent}` : ""}
+</task_metadata>`
   } catch (error) {
     return formatDetailedError(error, {
       operation: "Continue background task",

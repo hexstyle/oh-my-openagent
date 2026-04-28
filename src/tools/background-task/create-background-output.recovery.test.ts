@@ -78,7 +78,7 @@ subagent: Prometheus (Plan Builder)
 
     //#then
     expect(result).toContain("Recovered child output")
-    expect(result).toContain("Session ID: ses_child_1")
+    expect(result).toContain("session_id: ses_child_1")
     expect(result).not.toContain("Task not found")
   })
 })

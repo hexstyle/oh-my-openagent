@@ -2029,7 +2029,7 @@ describe("sisyphus-task", () => {
       
       // then - should launch as background BUT wait for and return actual result
       expect(launchCalled).toBe(true)
-      expect(result).toContain("SUPERVISED TASK COMPLETED")
+      expect(result).toContain("Task completed in")
       expect(result).toContain("Gemini task completed successfully")
     }, { timeout: 20000 })
 
@@ -2160,7 +2160,7 @@ describe("sisyphus-task", () => {
 
       // then - should launch as background BUT wait for and return actual result
       expect(launchCalled).toBe(true)
-      expect(result).toContain("SUPERVISED TASK COMPLETED")
+      expect(result).toContain("Task completed in")
       expect(result).toContain("Minimax task completed successfully")
     }, { timeout: 20000 })
 
@@ -2292,7 +2292,7 @@ describe("sisyphus-task", () => {
       
       // then - should launch as background BUT wait for and return actual result
       expect(launchCalled).toBe(true)
-      expect(result).toContain("SUPERVISED TASK COMPLETED")
+      expect(result).toContain("Task completed in")
       expect(result).toContain("Artistry result here")
     }, { timeout: 20000 })
 
@@ -2360,7 +2360,7 @@ describe("sisyphus-task", () => {
       
       // then - should launch as background BUT wait for and return actual result
       expect(launchCalled).toBe(true)
-      expect(result).toContain("SUPERVISED TASK COMPLETED")
+      expect(result).toContain("Task completed in")
       expect(result).toContain("Writing result here")
     }, { timeout: 20000 })
 
@@ -2433,7 +2433,7 @@ describe("sisyphus-task", () => {
       
       // then - should launch as background BUT wait for and return actual result
       expect(launchCalled).toBe(true)
-      expect(result).toContain("SUPERVISED TASK COMPLETED")
+      expect(result).toContain("Task completed in")
       expect(result).toContain("Custom unstable result")
     }, { timeout: 20000 })
   })
@@ -3015,7 +3015,7 @@ describe("sisyphus-task", () => {
 
       // then
       expect(result).toContain("<system>")
-      expect(result).toContain("MANDATORY CONTEXT GATHERING PROTOCOL")
+      expect(result).toContain("CONTEXT GATHERING:")
       expect(result).toContain("### AVAILABLE CATEGORIES")
       expect(result).toContain("`deep`")
       expect(result).not.toContain("prompt-engineer")
@@ -3035,7 +3035,7 @@ describe("sisyphus-task", () => {
 
       //#then - prometheus should NOT get plan agent system prepend
       expect(result).toBe(skillContent)
-      expect(result).not.toContain("MANDATORY CONTEXT GATHERING PROTOCOL")
+      expect(result).not.toContain("CONTEXT GATHERING:")
     })
 
     test("does not prepend plan agent prompt for Prometheus (case insensitive)", () => {
@@ -3051,7 +3051,7 @@ describe("sisyphus-task", () => {
 
       //#then
       expect(result).toBe(skillContent)
-      expect(result).not.toContain("MANDATORY CONTEXT GATHERING PROTOCOL")
+      expect(result).not.toContain("CONTEXT GATHERING:")
     })
 
     test("combines plan agent prepend with skill content", () => {

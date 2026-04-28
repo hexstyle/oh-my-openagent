@@ -92,18 +92,22 @@ export async function executeBackgroundTask(
       storeToolMetadata(ctx.sessionID, ctx.callID, unstableMeta)
     }
 
-    const taskMetadataBlock = sessionId
-      ? `\n\n<task_metadata>\nsession_id: ${sessionId}\ntask_id: ${task.id}\nbackground_task_id: ${task.id}\n</task_metadata>`
-      : ""
+    const metadataParts = [
+      sessionId ? `session_id: ${sessionId}` : "",
+      `task_id: ${task.id}`,
+      `background_task_id: ${task.id}`,
+      args.category ? `category: ${args.category}` : "",
+    ].filter(Boolean).join("\n")
 
     return `Background task launched.
-
 Background Task ID: ${task.id}
-Description: ${task.description}
-Agent: ${displayAgent}${args.category ? ` (category: ${args.category})` : ""}
-Status: ${task.status}
+Agent: ${displayAgent}
 
-System notifies on completion. Use \`background_output\` with task_id="${task.id}" to check.${taskMetadataBlock}`
+Use \`background_output\` with task_id="${task.id}" to check.
+
+<task_metadata>
+${metadataParts}
+</task_metadata>`
   } catch (error) {
     return formatDetailedError(error, {
       operation: "Launch background task",

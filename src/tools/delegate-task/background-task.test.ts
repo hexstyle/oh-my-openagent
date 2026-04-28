@@ -57,9 +57,10 @@ describeFn("executeBackgroundTask output/session metadata compatibility", () => 
     )
 
     //#then - output and metadata should avoid fake session markers
-    expectFn(result).not.toContain("<task_metadata>")
-    expectFn(result).not.toContain("session_id: undefined")
-    expectFn(result).not.toContain("session_id: pending")
+    expectFn(result).toContain("<task_metadata>")
+    expectFn(result).not.toContain("session_id:")
+    expectFn(result).toContain("task_id: bg_unresolved")
+    expectFn(result).toContain("background_task_id: bg_unresolved")
     expectFn(metadataCalls).toHaveLength(1)
     expectFn("sessionId" in metadataCalls[0].metadata).toBe(false)
   })

@@ -180,30 +180,17 @@ export async function executeSyncTask(
 
       const duration = formatDuration(startTime)
 
-      // 检测模型路由是否与父 session 不同，给用户可见的提示
       const actualModelStr = effectiveCategoryModel
         ? `${effectiveCategoryModel.providerID}/${effectiveCategoryModel.modelID}`
         : undefined
-      const parentModelStr = parentContext.model
-        ? `${parentContext.model.providerID}/${parentContext.model.modelID}`
-        : undefined
-      const modelRoutingNote =
-        actualModelStr && parentModelStr && actualModelStr !== parentModelStr
-          ? `\n⚠️  Model routing: parent used ${parentModelStr}, this subagent used ${actualModelStr} (via category: ${args.category ?? "unknown"})`
-          : actualModelStr
-            ? `\nModel: ${actualModelStr}${args.category ? ` (category: ${args.category})` : ""}`
-            : ""
 
       return `Task completed in ${duration}.
-
-Agent: ${displayAgent}${args.category ? ` (category: ${args.category})` : ""}${modelRoutingNote}
-
----
+Agent: ${displayAgent}
 
 ${result.textContent || "(No text output)"}
 
 <task_metadata>
-session_id: ${sessionID}
+session_id: ${sessionID}${args.category ? `\ncategory: ${args.category}` : ""}${actualModelStr ? `\nmodel: ${actualModelStr}` : ""}
 </task_metadata>`
     } finally {
       if (toastManager && taskId !== undefined) {

@@ -138,8 +138,9 @@ describe("formatTaskResult", () => {
     ]
 
     const result = await formatTaskResult(task, createClient(messages))
-    expect(result).toContain("Task ID: task-42")
-    expect(result).toContain("Description: my task")
-    expect(result).toContain("Session ID: ses-meta")
+    expect(result).toContain("task_id=task-42")
+    expect(result).toContain("<task_metadata>")
+    expect(result).toContain("session_id: ses-meta")
+    expect(result).toContain("task_id: task-42")
   })
 })

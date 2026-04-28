@@ -24,32 +24,28 @@ export async function formatTaskResult(task: BackgroundTask, client: BackgroundO
 
   const messages = extractMessages(messagesResult)
   if (!Array.isArray(messages) || messages.length === 0) {
-    return `Task Result
+    return `Task Result [task_id=${task.id} | ${formatDuration(task.startedAt ?? new Date(), task.completedAt)}]
 
-Task ID: ${task.id}
-Description: ${task.description}
-Duration: ${formatDuration(task.startedAt ?? new Date(), task.completedAt)}
-Session ID: ${task.sessionID}
+(No messages found)
 
----
-
-(No messages found)`
+<task_metadata>
+session_id: ${task.sessionID}
+task_id: ${task.id}
+</task_metadata>`
   }
 
   // Only assistant messages — tool results are intermediate data (raw grep/bash
   // output, service tags, escape chars) that pollute the parent context.
   const assistantMessages = messages.filter((m) => m.info?.role === "assistant")
   if (assistantMessages.length === 0) {
-    return `Task Result
+    return `Task Result [task_id=${task.id} | ${formatDuration(task.startedAt ?? new Date(), task.completedAt)}]
 
-Task ID: ${task.id}
-Description: ${task.description}
-Duration: ${formatDuration(task.startedAt ?? new Date(), task.completedAt)}
-Session ID: ${task.sessionID}
+(No assistant response found)
 
----
-
-(No assistant response found)`
+<task_metadata>
+session_id: ${task.sessionID}
+task_id: ${task.id}
+</task_metadata>`
   }
 
   const sortedMessages = [...assistantMessages].sort((a, b) => {
@@ -61,16 +57,14 @@ Session ID: ${task.sessionID}
   const newMessages = consumeNewMessages(task.sessionID, sortedMessages)
   if (newMessages.length === 0) {
     const duration = formatDuration(task.startedAt ?? new Date(), task.completedAt)
-    return `Task Result
+    return `Task Result [task_id=${task.id} | ${duration}]
 
-Task ID: ${task.id}
-Description: ${task.description}
-Duration: ${duration}
-Session ID: ${task.sessionID}
+(No new output since last check)
 
----
-
-(No new output since last check)`
+<task_metadata>
+session_id: ${task.sessionID}
+task_id: ${task.id}
+</task_metadata>`
   }
 
   const extractedContent: string[] = []
@@ -85,14 +79,12 @@ Session ID: ${task.sessionID}
   const textContent = extractedContent.filter((text) => text.length > 0).join("\n\n")
   const duration = formatDuration(task.startedAt ?? new Date(), task.completedAt)
 
-  return `Task Result
+  return `Task Result [task_id=${task.id} | ${duration}]
 
-Task ID: ${task.id}
-Description: ${task.description}
-Duration: ${duration}
-Session ID: ${task.sessionID}
+${textContent || "(No text output)"}
 
----
-
-${textContent || "(No text output)"}`
+<task_metadata>
+session_id: ${task.sessionID}
+task_id: ${task.id}
+</task_metadata>`
 }
