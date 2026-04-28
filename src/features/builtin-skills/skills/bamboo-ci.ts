@@ -15,9 +15,11 @@ Expert knowledge for interacting with Atlassian Bamboo CI from an agent context.
 3. **Structured analysis** — classify failures, don't just dump logs
 4. **Iterative loop** — push → monitor → analyze → fix → repeat
 
-## API Patterns
+## API Patterns — TOKEN BUDGET RULES
 
-### Fetch Latest Build Result
+**CRITICAL: Bamboo API responses are HUGE. ALWAYS pipe through jq/python to extract ONLY what you need. NEVER dump raw JSON into context.**
+
+### Fetch Latest Build Result (summary only — ~200 bytes)
 \`\`\`bash
 curl -s "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}/latest.json" | python3 -c "
 import sys, json
@@ -31,19 +33,45 @@ print(f'Reason: {d.get(\"buildReason\", \"unknown\")}')
 "
 \`\`\`
 
-### Fetch Build by Number
+### Fetch Failing Test NAMES Only (Step 1 — always do this first)
 \`\`\`bash
-curl -s "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-{N}.json?expand=testResults.failedTests.testResult"
+curl -s "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-{N}.json?expand=testResults.failedTests.testResult" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+tests = d.get('testResults',{}).get('failedTests',{}).get('testResult',[])
+for t in tests:
+    err = (t.get('errors',{}).get('error',[{}])[0].get('message','') or '')[:150]
+    print(f'{t[\"className\"].split(\".\")[-1]}.{t[\"methodName\"]} | {err}')
+"
+\`\`\`
+**This extracts ~100 bytes per test instead of ~5KB. For 15 failures = 1.5KB vs 75KB.**
+
+### Fetch ONE Test's Full Error (Step 2 — only when diagnosing a specific test)
+\`\`\`bash
+curl -s "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-{N}.json?expand=testResults.failedTests.testResult" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for t in d.get('testResults',{}).get('failedTests',{}).get('testResult',[]):
+    if '{TEST_METHOD}' in t.get('methodName',''):
+        for e in t.get('errors',{}).get('error',[]):
+            print(e.get('message','')[:500])
+        break
+"
 \`\`\`
 
-### Fetch Build Log
+### Fetch Build Log — NEVER FULL LOG
 \`\`\`bash
-curl -s "https://{BAMBOO_HOST}/download/{PLAN_KEY}-JOB1/build_logs/{PLAN_KEY}-JOB1-{N}.log"
+# Only deployment errors (before test phase):
+curl -s "https://{BAMBOO_HOST}/download/{PLAN_KEY}-JOB1/build_logs/{PLAN_KEY}-JOB1-{N}.log" | grep -i "error :" | head -20
 \`\`\`
 
-### List Recent Builds
+### List Recent Builds (summary table — ~500 bytes for 5 builds)
 \`\`\`bash
-curl -s "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}.json?max-result=5&expand=results.result"
+curl -s "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}.json?max-result=5&expand=results.result" | python3 -c "
+import sys, json
+for r in json.load(sys.stdin).get('results',{}).get('result',[]):
+    print(f'#{r[\"buildNumber\"]} {r[\"state\"]} {r.get(\"successfulTestCount\",0)}p/{r.get(\"failedTestCount\",0)}f {r.get(\"vcsRevisionKey\",\"\")[:8]}')
+"
 \`\`\`
 
 ### Queue a Build (requires auth)
@@ -67,24 +95,16 @@ fi
 \`\`\`
 If stale: push a new commit or empty commit to force a new build.
 
-## Evidence Format
+## Evidence Format — MAX 3KB per build file
 
 Save build analysis to \`.sisyphus/evidence/build-{N}-analysis.md\`:
 \`\`\`markdown
-# Build #{N} Analysis
-- State: Failed/Successful
-- Duration: {N}s
-- Revision: {SHA}
-- Tests: {pass} pass, {fail} fail
-
-## Failures
-| Test | Error Type | Root Cause | Fix |
-|------|-----------|------------|-----|
-| TestName | timeout | selector mismatch | Update selector |
-
-## Next Steps
-- [ ] Fix X
-- [ ] Fix Y
+# Build #{N} — {State} — {pass}p/{fail}f — rev {SHA[:8]}
+| Test | Error (≤100 chars) | Root Cause Group |
+|------|-------------------|-----------------|
+| TestName | Assert.Fail: expected X | group-selector |
+Next: fix group-selector (affects 8/15 failures)
 \`\`\`
+**No stack traces. No full error messages. No narratives. Table + one "Next" line.**
 `,
 }

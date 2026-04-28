@@ -11,7 +11,7 @@ export const ciGreenLoopSkill: BuiltinSkill = {
 Plans MUST cover 100% of known failures. A plan addressing a subset is REJECTED.
 
 **Required plan structure — EXACTLY 2 TASKS:**
-1. **Task 1: Diagnosis** — fetch COMPLETE build results, verify deployment succeeded, classify EVERY failing test. Save to \`.sisyphus/evidence/\`. Skills: \`["bamboo-ci", "ci-green-loop"]\`. Category: \`deep\`.
+1. **Task 1: Diagnosis** — fetch build SUMMARY (names + short errors only, NOT full test results), verify deployment succeeded, classify every failing test by name+error. Save COMPACT evidence to \`.sisyphus/evidence/\` (MAX 3KB). Skills: \`["bamboo-ci", "ci-green-loop"]\`. Category: \`quick\`.
 2. **Task 2: Fix ALL failures** — ONE comprehensive fix task covering ALL root cause groups, ALL files, ALL tests. The executor reads Task 1 evidence and fixes everything in a single session. Include \`"dotnet-playwright"\` skill. Category: \`deep\`. Ends with: dotnet build verification → \`git add <specific-files>\` (NEVER \`git add -A\`) → git commit → git push → verify CI picks up revision.
 
 **Why exactly 2 tasks:** Each task = ~2 min dispatch overhead + risk of parallel sessions editing the same file (duplicate ClassInitialize bug). One executor sees ALL changes holistically, avoids conflicts, pushes once.
@@ -27,7 +27,7 @@ Pre-digested fix instructions = ONE hypothesis for ONE group. Plan MUST still in
 ## Rules
 
 ### Baseline Comparison — MANDATORY FIRST STEP
-Before diagnosing, fetch results from 3+ PREVIOUS builds (before your branch changes) via Bamboo API. Failures present across all those builds = **pre-existing baseline**. Your diagnosis MUST split failures into:
+Before diagnosing, fetch the SUMMARY (build number, state, pass/fail counts) of 3 previous builds via Bamboo list endpoint. Then fetch FAILING TEST NAMES ONLY from the latest previous build. Do NOT expand full test results for baseline — names are enough to identify pre-existing failures. Your diagnosis MUST split failures into:
 - **REGRESSIONS** (pass→fail): caused by YOUR changes. Fix these FIRST — they block merge.
 - **PRE-EXISTING** (fail→fail): broken before your branch. Fix if possible, but don't create new regressions chasing them.
 
@@ -45,7 +45,7 @@ The table MUST include for EVERY failing test:
 - Root cause group assignment
 - Predicted outcome after fix
 
-**Diagnosis brevity**: The evidence file should be COMPACT — one summary table + one paragraph per test (~500 bytes each). Do NOT dump full error stacks or multi-paragraph narratives per test. The diagnosis is a reference for fix tasks, not an essay. Target: ~1KB per failing test, not 3KB.
+**Diagnosis brevity**: Evidence = ONE table (test name | short error ≤100 chars | root cause group) + ONE "next steps" line. Target: ~200 bytes per failing test, MAX 3KB total evidence file. Do NOT dump full error stacks, stack traces, or multi-paragraph narratives. Fetch test names+short errors only from Bamboo API — expand individual tests ONLY when the short error is insufficient for diagnosis.
 
 ### Side-Effect Verification
 Before pushing a fix, verify it doesn't CREATE new regressions:
@@ -55,7 +55,7 @@ Before pushing a fix, verify it doesn't CREATE new regressions:
 4. For flag changes (Protected, Blocked, etc.): check ALL SQL queries that filter on that flag — not just the one you're targeting
 
 ### Error Message Depth
-Read EVERY word. Extract ALL identifiers (DB names, paths, versions, IDs). Cross-reference each against build config. A mismatched identifier IS the diagnosis.
+From the short error (≤150 chars), extract identifiers (DB names, paths, IDs). If insufficient, fetch THAT ONE test's full error (≤500 chars) — never bulk-expand all tests. A mismatched identifier IS the diagnosis.
 
 ### Causation Tracing
 For deployment/infra failures, trace the FULL chain: error → code path → data source → population step → root cause. Save chain to evidence BEFORE writing any fix.
@@ -112,9 +112,9 @@ LOOP:
       3. EXIT immediately. Do NOT retry DNS — 2 consecutive failures = confirmed blocked.
 
   STEP 2: ANALYZE (build done)
-    a) Fetch results. Check deployment phase FIRST.
-    b) List EVERY failing test with COMPLETE error message. Classify: build-error|test-crash|test-timeout|test-assertion|setup-error|infra-error. Group by root cause.
-    c) For each test: READ source code, write use-case, classify bug type. Save to .sisyphus/evidence/.
+    a) Fetch build SUMMARY. Check deployment phase FIRST (grep "error :" from log, NOT full log).
+    b) Fetch FAILING TEST NAMES + short errors (≤150 chars each) via jq/python filter. Classify: build-error|test-crash|test-timeout|test-assertion|setup-error|infra-error. Group by root cause.
+    c) Only for UNCLEAR failures: fetch ONE test's full error (≤500 chars). READ source code for diagnosis. Save COMPACT evidence to .sisyphus/evidence/ (MAX 3KB total).
     d) Compare against predictions from previous iteration.
 
   STEP 3: FIX
@@ -136,7 +136,8 @@ If >50% failures share one root cause, that IS the fix.
 - Fixing tests one-by-one without analyzing ALL failures first
 - Weakening assertions, skipping/muting/removing tests
 - Idle-waiting for builds (research while CI runs)
-- Truncating error messages
+- Dumping raw Bamboo JSON into context (ALWAYS filter through jq/python)
+- Fetching full build logs (grep for errors only)
 - Shotgun fixes (2+ commits same root cause without verification)
 - Escalating as "unfixable" or "data-dependent"
 - Accepting any non-zero failure count as done
