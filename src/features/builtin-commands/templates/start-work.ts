@@ -18,7 +18,7 @@ export const START_WORK_TEMPLATE = `You are starting a Sisyphus work session.
 3. **Decision logic**:
    - If \`.sisyphus/boulder.json\` exists AND plan is NOT complete:
      - **APPEND** current session to session_ids
-     - **Validate evidence freshness**: Check timestamps of \`.sisyphus/evidence/\` files. If checkpoint/evidence files are >24h old, treat their claims (blockers, network status, build state) as STALE — verify current state before trusting them. Overwrite stale checkpoints rather than appending.
+     - **Validate evidence freshness AND size**: Check timestamps AND sizes of \`.sisyphus/evidence/\` files. If checkpoint/evidence files are >24h old, treat their claims (blockers, network status, build state) as STALE — verify current state before trusting them. Overwrite stale checkpoints rather than appending. If any evidence file >10KB, delete it before proceeding — it is raw data that will bloat agent context.
      - Continue work on existing plan
    - If no active plan OR plan is complete:
      - List available plan files
@@ -95,6 +95,19 @@ Reading plan and beginning execution...
 - If worktree_path is set in boulder.json, all work happens inside that worktree directory
 - Read the FULL plan file before delegating any tasks
 - Follow atlas delegation protocols (7-section format)
+
+## EVIDENCE HYGIENE CHECK (MANDATORY — run before reading the plan)
+
+Run this command FIRST, unconditionally:
+\`\`\`bash
+find .sisyphus/evidence -type f \\( -name "*.json" -o -name "*.log" -o -name "*.trx" -o -name "*.xml" -o -size +10k \\) -delete 2>/dev/null; find .sisyphus/evidence -mindepth 1 -type d -empty -delete 2>/dev/null; du -sh .sisyphus/evidence/ 2>/dev/null
+\`\`\`
+
+Then check the result:
+- **If still > 500KB**: Delete oldest .md files until < 400KB. Keep only: latest \`ci-loop-checkpoint.md\` + latest 2 \`build-*-analysis.md\`.
+- **Report**: "Evidence cleanup: {before}MB → {after}KB, deleted {N} files"
+
+This removes raw API dumps, full build logs, and oversized files that previous sessions left behind. The ci-green-loop skill runs the same eviction at STEP 0 of every iteration.
 
 ## GIT STAGING HYGIENE
 

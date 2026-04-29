@@ -22,6 +22,14 @@ Plans MUST cover 100% of known failures. A plan addressing a subset is REJECTED.
 
 Pre-digested fix instructions = ONE hypothesis for ONE group. Plan MUST still include full diagnosis to find ALL groups.
 
+### Anti-Plan-Churn Guard
+BEFORE generating a new CI fix plan, check \`.sisyphus/plans/\` for existing plans:
+- If a plan exists that was created <24h ago AND covers >=80% of current build's failures with no NEW failure types: **DO NOT regenerate** — instruct the executor to continue the existing plan.
+- If coverage <80% OR new failure types appeared (test name absent from plan, or error category changed): regenerate, but PRESERVE the existing plan's diagnosis for tests it already covers.
+- **3+ plan regenerations without a push between them** = planner is looping. Stop planning, execute the latest plan as-is.
+
+Why: constant re-planning costs ~2 min + tokens per cycle and produces no value when the failure set hasn't changed. Execute first, re-plan only when evidence changes.
+
 ---
 
 ## Rules
@@ -88,7 +96,7 @@ Target: ≤15 min. Hard limit: 20 min. Eliminate idle waits, parallelize shards,
 Before your first commit, extract the Jira ticket from the branch name (\`git branch --show-current\`, e.g. \`bugfix/CMS-1765-playwright\` → \`CMS-1765\`). EVERY commit message MUST start with that ticket ID. Format: \`{TICKET} {type}({scope}): {description}\`. Example: \`CMS-1765 fix(playwright): stabilize grid filter\`. Bitbucket pre-receive hooks REJECT pushes containing commits without the Jira prefix — one bad commit blocks the entire push and wastes a CI iteration.
 
 ### Batch Strategy
-**Diagnose ALL → Fix ALL → Verify local → Push ONCE.** One session, one commit, one push. Single-fix pushes only when: root cause unknown and CI validation needed, or deployment change can't be tested locally.
+**Diagnose ALL → Fix ALL → LOCAL VERIFY ALL → Push ONCE.** One session, one commit, one push. Single-fix pushes only when: root cause unknown and CI validation needed, or deployment change can't be tested locally.
 
 ### Comprehensive Fix Mandate
 Every fix session MUST attempt to resolve ALL known failures, not just the assigned subset. If you see a failing test whose fix is obvious from the evidence, fix it — even if it wasn't "your" task. The goal is zero failures per build, not zero failures per group.
@@ -107,6 +115,18 @@ Always ensure: total = passed + failed + skipped. TRX artifacts mandatory. Build
 PRE-LOOP: Verify branch pushed, CI building correct revision.
 
 LOOP:
+  STEP 0: EVIDENCE EVICTION (MANDATORY — run BEFORE any other step, EVERY iteration)
+    Run this EXACT command. No exceptions. No skipping. If you skip this, evidence bloat
+    will eat your context window and waste tokens on every subsequent API call.
+    ┌──────────────────────────────────────────────────────────────────────┐
+    │ find .sisyphus/evidence -type f \\( -name "*.json" -o -name "*.log" │
+    │   -o -name "*.trx" -o -name "*.xml" -o -size +10k \\) -delete 2>/dev/null; │
+    │ find .sisyphus/evidence -mindepth 1 -type d -empty -delete 2>/dev/null; │
+    │ du -sh .sisyphus/evidence/                                         │
+    └──────────────────────────────────────────────────────────────────────┘
+    After running: \`du -sh\` MUST show < 500KB. If not, delete oldest .md files
+    until < 400KB (keep only: ci-loop-checkpoint.md + latest 2 build-*-analysis.md).
+
   STEP 1: PUSH + MONITOR
     Push fixes, verify CI picks up revision. Don't idle-wait — research next failure group while building.
     NETWORK FAIL: If push fails (DNS NXDOMAIN, network unreachable, SSH timeout):
@@ -119,16 +139,36 @@ LOOP:
     b) Fetch FAILING TEST NAMES + short errors (≤150 chars each) via jq/python filter. Classify: build-error|test-crash|test-timeout|test-assertion|setup-error|infra-error. Group by root cause.
     c) Only for UNCLEAR failures: fetch ONE test's full error (≤500 chars). READ source code for diagnosis. Save COMPACT evidence to .sisyphus/evidence/ (MAX 3KB total).
     d) Compare against predictions from previous iteration.
+    e) After saving ANY file to .sisyphus/evidence/: \`wc -c .sisyphus/evidence/{file}\` — MUST be < 3072. If over, rewrite shorter.
 
   STEP 3: FIX
     a) Fix highest-leverage root cause first. NEVER fix tests individually when they share a root cause.
-    b) Verify locally: dotnet build, run affected tests if possible.
+    b) Run dotnet build to confirm compilation. Full local test verification in STEP 3.5.
     c) Write predictions: hypothesis, expected test impact, residual failures. Save to evidence.
+
+  STEP 3.5: LOCAL VERIFY (MANDATORY GATE — blocks push)
+    a) Run: dotnet build {Solution}.sln --nologo. If build fails, do NOT push — fix build errors first, return to STEP 3.
+    b) Run: dotnet test --filter "{FilterExpr}" --nologo --logger "trx;LogFileName=local-verify.trx"
+       where FilterExpr covers ALL tests in the current failing set (FullyQualifiedName~Test1|FullyQualifiedName~Test2 syntax).
+    c) Parse TRX results. Count pass/fail.
+    d) IF all targeted tests pass locally → proceed to STEP 4.
+    e) IF any test fails locally → diagnose and fix BEFORE pushing. Return to STEP 3. Do NOT push failing code — it wastes a 32-min CI cycle.
+    f) IF local test infra unavailable (no dotnet, no browser, timeout on test host): document in commit message "LOCAL VERIFY SKIPPED: {reason}" and proceed to STEP 4. This is the ONLY acceptable bypass.
+    g) Delete local-verify.trx after parsing — do not commit test artifacts.
 
   STEP 4: PUSH → GOTO STEP 1
 
 EXIT: GREEN (0 failures) | NETWORK BLOCKED (2 push fails → commit + checkpoint + stop) | BLOCKED (infra down, 3 retries) | TOKEN LIMIT (checkpoint first)
 \`\`\`
+
+## Evidence Rules
+
+Only these files MAY exist in \`.sisyphus/evidence/\`:
+- \`ci-loop-checkpoint.md\` — single file, overwritten each iteration, max 50 lines
+- \`build-{N}-analysis.md\` — structured table + next-steps, max 3KB each, keep latest 2
+- Plan reference files — max 1KB each
+
+Everything else is GARBAGE and gets deleted by STEP 0 every iteration. If STEP 0 deletes your file, you saved the wrong format.
 
 ## Fix Priority
 P0 build error > P0.5 setup/DB error > P1 test crash > P2 assertion > P3 timeout > P4 infra/flaky.
@@ -153,6 +193,8 @@ If >50% failures share one root cause, that IS the fix.
 - Using \`IF NOT EXISTS INSERT\` without a follow-up UPDATE for SQL seed data (stale rows with wrong values persist across CI builds)
 - Adding \`[TestInitialize]\` to derived classes without reading the base class first (MSTest V2 runs both — you may be duplicating existing setup)
 - Removing base class \`[TestInitialize]\` calls to "move" them to derived (breaks ALL other classes sharing that base)
+- Pushing code without running local \`dotnet test --filter\` for the failing test set (STEP 3.5 is mandatory)
+- Saving raw Bamboo API JSON, full build logs, or TRX files to \`.sisyphus/evidence/\` (evidence eviction protocol deletes these)
 
 ## Post-Green
 1. Verify green build ran YOUR branch HEAD

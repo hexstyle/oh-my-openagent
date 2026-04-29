@@ -106,5 +106,13 @@ Save build analysis to \`.sisyphus/evidence/build-{N}-analysis.md\`:
 Next: fix group-selector (affects 8/15 failures)
 \`\`\`
 **No stack traces. No full error messages. No narratives. Table + one "Next" line.**
+
+### FORBIDDEN Evidence Actions (violation = wasted CI iteration)
+- Saving raw Bamboo API JSON responses to ANY file in \`.sisyphus/evidence/\`
+- Saving full build log output (even excerpts > 500 bytes) to evidence
+- Creating evidence files > 3KB — if your file exceeds 3KB, you are including raw data. Rewrite as a structured table.
+- Piping \`curl\` output directly to files: \`curl ... > .sisyphus/evidence/file\` is ALWAYS WRONG. Filter first: \`curl ... | python3 -c "..." > file\`
+- After saving any evidence file, verify: \`wc -c .sisyphus/evidence/{file}\`. If > 3072 bytes, rewrite it shorter.
+- Writing \`*.json\`, \`*.log\`, \`*.trx\`, \`*.xml\` to \`.sisyphus/evidence/\` — ci-green-loop STEP 0 auto-deletes these extensions every iteration. Use \`build-{N}-analysis.md\` format ONLY.
 `,
 }
