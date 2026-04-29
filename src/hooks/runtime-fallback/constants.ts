@@ -11,7 +11,7 @@ import type { ResolvedRuntimeFallbackConfig } from "./types"
  */
 export const DEFAULT_CONFIG: ResolvedRuntimeFallbackConfig = {
   enabled: false,
-  retry_on_errors: [402, 429, 500, 502, 503, 504],
+  retry_on_errors: [402, 429, 500, 502, 503, 504, 529],
   max_fallback_attempts: 3,
   max_full_chain_cycles: 5,
   cooldown_seconds: 60,

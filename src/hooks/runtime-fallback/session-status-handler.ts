@@ -270,7 +270,15 @@ export function createSessionStatusHandler(
       isQuota,
     })
 
-    const retryAction = getRuntimeFallbackAction({ message: retryMessage }, deps.config.retry_on_errors)
+    const rawRetryAction = getRuntimeFallbackAction({ message: retryMessage }, deps.config.retry_on_errors)
+    // session.status retry messages are SDK-synthesized ("Retrying in 10s") and
+    // often lack the original error detail (status code, error name).  When the
+    // catch-all "fallback_chain" fires, it means the message was unrecognizable —
+    // NOT that a model switch is warranted.  Override to retry_same_model_delayed:
+    // the SDK is already handling a transient error, switching models cannot help.
+    const retryAction = rawRetryAction === "fallback_chain" && !isQuota
+      ? "retry_same_model_delayed" as const
+      : rawRetryAction
     logTrackedProvider403({
       source: "session.status.retry",
       sessionID,
