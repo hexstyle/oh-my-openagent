@@ -33,11 +33,17 @@ const NETWORK_ERROR_PATTERNS = [
   /internal[_\s-]*server[_\s-]*error/i,
   /bad gateway/i,
   /overloaded/i,
+  // Provider API field-validation errors: opencode sends fields (e.g.
+  // eager_input_streaming) that some provider versions reject with 400.
+  // Switching models cannot fix this — it's a request-format issue.
+  /eager_input_streaming/i,
+  /extra inputs are not permitted/i,
 ]
 
 /** Returns true when the error is a network/infrastructure issue (TLS, DNS,
- *  connection reset, etc.) that switching models cannot fix.  These errors
- *  must be retried on the same model — never escalated to fallback_chain. */
+ *  connection reset, etc.) or a provider API compatibility error that
+ *  switching models cannot fix.  These errors must be retried on the
+ *  same model — never escalated to fallback_chain. */
 export function isNetworkError(error: unknown): boolean {
   const message = getErrorMessage(error)
   return NETWORK_ERROR_PATTERNS.some((pattern) => pattern.test(message))
