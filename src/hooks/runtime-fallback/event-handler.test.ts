@@ -136,6 +136,7 @@ function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[
       })
       return true
     },
+    dispatchExternal403Restart: () => false,
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
     recoverPreferredModels: async () => {},

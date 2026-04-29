@@ -310,6 +310,18 @@ export function createSessionStatusHandler(
       const maxAttempts = getSameModelRetryAttemptLimit({ message: retryMessage }, retryAction)
       if (preferFreshTrackedProvider403Handoff) {
         await helpers.abortSessionRequest(sessionID, "session.status.tracked-provider-403")
+        // 403 "request not allowed" needs a connection reset, not an in-process
+        // child session.  Dispatch via external process with a delay — mirrors
+        // the manual /exit → resume pattern that clears the provider block.
+        const externalRestarted = helpers.dispatchExternal403Restart({
+          sessionID,
+          resolvedAgent,
+          source: "session.status.tracked-provider-403",
+        })
+        if (externalRestarted) {
+          return
+        }
+        // External restart failed — fall back to in-process fresh session
         const freshRetried = await helpers.retryCurrentModelInFreshSession(
           sessionID,
           resolvedAgent,

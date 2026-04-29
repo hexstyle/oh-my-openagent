@@ -66,6 +66,7 @@ function createHelpers(clearCalls: string[]): AutoRetryHelpers {
     autoRetryWithFallback: async () => {},
     retryCurrentModel: async () => false,
     retryCurrentModelInFreshSession: async () => false,
+    dispatchExternal403Restart: () => false,
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
     recoverPreferredModels: async () => {},

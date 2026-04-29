@@ -83,6 +83,11 @@ const RECOVERY_PROBE_PROMPT = "Reply with OK only."
 const RECOVERY_PROBE_RUNTIME_FALLBACK_DISABLE_ENV = "OH_MY_OPENCODE_DISABLE_RUNTIME_FALLBACK"
 const SCOPED_FALLBACK_HANDOFF_MAX_BRIEF_CHARS = 4000
 const FRESH_SAME_MODEL_RETRY_WINDOW_MS = 5 * 60 * 1000
+/** Delay before retrying after 403 "request not allowed" via external process.
+ *  Mirrors the natural delay of `/exit` + `claude --resume` which gives the
+ *  provider API time to clear the transient block and forces fresh connections
+ *  when the retry fires from a separate process. */
+const EXTERNAL_403_RESTART_DELAY_SECONDS = 10
 const RECOVERY_PROBE_FAILURE_PATTERNS = [
   /\[session\.error\]/i,
   /\bsession ended with error\b/i,
@@ -2266,6 +2271,191 @@ fi
     }
   }
 
+  /**
+   * Dispatch a 403 "request not allowed" recovery via an external process.
+   *
+   * Unlike `retryCurrentModelInFreshSession` (which creates a child session
+   * within the same opencode server process, sharing the SDK connection pool),
+   * this spawns a separate detached process that:
+   *   1. Sleeps for EXTERNAL_403_RESTART_DELAY_SECONDS (≈10s)
+   *   2. Sends a continuation prompt to the SAME session with the SAME model
+   *
+   * This mirrors the manual `/exit` → `claude --resume` pattern: the delay
+   * lets the provider API clear the transient 403 block, and the separate
+   * process creates a fresh request context.
+   */
+  const dispatchExternal403Restart = (args: {
+    sessionID: string
+    resolvedAgent?: string
+    source: string
+  }): boolean => {
+    const state = sessionStates.get(args.sessionID)
+    if (!state) {
+      return false
+    }
+
+    const retryModelPayload = buildRetryModelPayload(state.currentModel)
+    if (!retryModelPayload) {
+      log(`[${HOOK_NAME}] Cannot dispatch external 403 restart: invalid model format`, {
+        sessionID: args.sessionID,
+        model: state.currentModel,
+      })
+      return false
+    }
+
+    // Cancel any existing external watchdog — we're taking over
+    invalidateExternalWatchdog(args.sessionID)
+    ensureExternalWatchdogDir()
+
+    const tokenPath = getExternalWatchdogTokenPath(args.sessionID)
+    const token = `${Date.now()}-403-${Math.random().toString(36).slice(2, 10)}`
+
+    try {
+      writeFileSync(tokenPath, token)
+    } catch (error) {
+      log(`[${HOOK_NAME}] Failed to write external 403 restart token`, {
+        sessionID: args.sessionID,
+        error: String(error),
+      })
+      return false
+    }
+
+    const cliModel = splitWatchdogCliModel(state.currentModel)
+    const retryAgent = (() => {
+      const raw = args.resolvedAgent ?? state.resolvedAgent ?? getSessionAgent(args.sessionID)
+      return normalizeAgentForSessionPrompt(raw)
+    })()
+    const internalPrompt = createInternalAgentTextPart(CONTINUATION_PROMPT).text
+    const serverBaseUrl = getServerBaseUrl(ctx.client)
+
+    // Use SDK transport when available (separate bun process), CLI fallback
+    const command = serverBaseUrl ? "bun" : "/bin/zsh"
+    const commandArgs = serverBaseUrl
+      ? [
+          EXTERNAL_WATCHDOG_RUNNER,
+          String(EXTERNAL_403_RESTART_DELAY_SECONDS),
+          tokenPath,
+          token,
+          args.sessionID,
+          ctx.directory,
+          serverBaseUrl,
+          cliModel.model,
+          cliModel.variant ?? "",
+          retryAgent ?? "",
+          internalPrompt,
+          EXTERNAL_WATCHDOG_LOG,
+        ]
+      : undefined
+    const shellScript = `
+sleep "$1"
+TOKEN_FILE="$2"
+EXPECTED_TOKEN="$3"
+SESSION_ID="$4"
+SESSION_DIR="$5"
+NEXT_MODEL="$6"
+MODEL_VARIANT="$7"
+AGENT_NAME="$8"
+WATCHDOG_LOG="$9"
+CURRENT_TOKEN="$(cat "$TOKEN_FILE" 2>/dev/null || true)"
+if [ "$CURRENT_TOKEN" != "$EXPECTED_TOKEN" ]; then
+  exit 0
+fi
+{
+  printf '[%s] [runtime-fallback 403-restart] firing session=%s model=%s\\n' "$(date -Iseconds)" "$SESSION_ID" "$NEXT_MODEL"
+} >> "$WATCHDOG_LOG"
+VARIANT_ARGS=()
+if [ -n "$MODEL_VARIANT" ]; then
+  VARIANT_ARGS=(--variant "$MODEL_VARIANT")
+fi
+PROMPT="$(cat <<'__OMO_WATCHDOG_PROMPT__'
+${internalPrompt}
+__OMO_WATCHDOG_PROMPT__
+)"
+if [ -n "$AGENT_NAME" ]; then
+  exec opencode run -s "$SESSION_ID" --dir "$SESSION_DIR" --model "$NEXT_MODEL" "\${VARIANT_ARGS[@]}" --agent "$AGENT_NAME" "$PROMPT" >> "$WATCHDOG_LOG" 2>&1
+else
+  exec opencode run -s "$SESSION_ID" --dir "$SESSION_DIR" --model "$NEXT_MODEL" "\${VARIANT_ARGS[@]}" "$PROMPT" >> "$WATCHDOG_LOG" 2>&1
+fi
+`
+
+    try {
+      const child = spawn(
+        command,
+        commandArgs ?? [
+          "-lc",
+          shellScript,
+          "runtime-fallback-403-restart",
+          String(EXTERNAL_403_RESTART_DELAY_SECONDS),
+          tokenPath,
+          token,
+          args.sessionID,
+          ctx.directory,
+          cliModel.model,
+          cliModel.variant ?? "",
+          retryAgent ?? "",
+          EXTERNAL_WATCHDOG_LOG,
+        ],
+        {
+          detached: true,
+          stdio: "ignore",
+        },
+      )
+      child.unref()
+
+      if (child.pid) {
+        try {
+          writeFileSync(getExternalWatchdogPidPath(args.sessionID), String(child.pid))
+        } catch {}
+        child.on("exit", () => {
+          const activePid = readExternalWatchdogPid(args.sessionID)
+          if (activePid === child.pid) {
+            clearExternalWatchdogPid(args.sessionID)
+          }
+        })
+        child.on("error", () => {
+          const activePid = readExternalWatchdogPid(args.sessionID)
+          if (activePid === child.pid) {
+            clearExternalWatchdogPid(args.sessionID)
+          }
+        })
+      }
+      externalWatchdogSpawnedAt.set(args.sessionID, Date.now())
+
+      // Mark session as awaiting the external restart result
+      sessionAwaitingFallbackResult.add(args.sessionID)
+      const baseTimeoutMs = options?.session_timeout_ms ?? config.timeout_seconds * 1000
+      scheduleSessionFallbackTimeout(args.sessionID, {
+        resolvedAgent: retryAgent ?? undefined,
+        source: `${args.source}.external-403-restart`,
+        timeoutMsOverride: (EXTERNAL_403_RESTART_DELAY_SECONDS * 1000)
+          + resolveLongRunningProgressTimeoutMs(baseTimeoutMs),
+      })
+      markRecentRuntimeFallbackContinuationDispatch(args.sessionID)
+      state.pendingFallbackModel = undefined
+      state.pendingTransientRetry = false
+      state.persistentTransientRetry = false
+
+      log(`[${HOOK_NAME}] Dispatched external 403 restart (connection reset)`, {
+        sessionID: args.sessionID,
+        model: state.currentModel,
+        source: args.source,
+        delaySeconds: EXTERNAL_403_RESTART_DELAY_SECONDS,
+        resolvedAgent: retryAgent,
+        transport: serverBaseUrl ? "sdk" : "cli",
+      })
+
+      return true
+    } catch (error) {
+      log(`[${HOOK_NAME}] Failed to spawn external 403 restart process`, {
+        sessionID: args.sessionID,
+        source: args.source,
+        model: state.currentModel,
+        error: String(error),
+      })
+      return false
+    }
+  }
+
   const retryCurrentModel = async (
     sessionID: string,
     resolvedAgent: string | undefined,
@@ -2664,6 +2854,7 @@ fi
     autoRetryWithFallback,
     retryCurrentModel,
     retryCurrentModelInFreshSession,
+    dispatchExternal403Restart,
     resolveAgentForSessionFromContext,
     cleanupStaleSessions,
     recoverPreferredModels,

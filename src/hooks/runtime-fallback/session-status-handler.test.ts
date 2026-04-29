@@ -112,6 +112,7 @@ function createHelpers(
       })
       return true
     },
+    dispatchExternal403Restart: () => false,
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
     recoverPreferredModels: async () => {},
