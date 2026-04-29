@@ -1,5 +1,14 @@
 import { z } from "zod"
 
+const ProcessBudgetConfigSchema = z.object({
+  /** Cap on total tracked child roots (mcp + watchdog + probe + daemon). Default 12. */
+  maxTrackedRoots: z.number().int().min(1).optional(),
+  /** Cap on MCP/browser roots specifically. Default 4. */
+  maxMcpRoots: z.number().int().min(1).optional(),
+  /** Cap on runtime-fallback watchdog/probe roots. Default 4. */
+  maxRuntimeFallbackRoots: z.number().int().min(1).optional(),
+})
+
 const CircuitBreakerConfigSchema = z.object({
   enabled: z.boolean().optional(),
   maxToolCalls: z.number().int().min(10).optional(),
@@ -26,6 +35,7 @@ export const BackgroundTaskConfigSchema = z.object({
   /** Maximum tool calls per subagent task before circuit breaker triggers (default: 200, minimum: 10). Prevents runaway loops from burning unlimited tokens. */
   maxToolCalls: z.number().int().min(10).optional(),
   circuitBreaker: CircuitBreakerConfigSchema.optional(),
+  processBudget: ProcessBudgetConfigSchema.optional(),
 })
 
 export type BackgroundTaskConfig = z.infer<typeof BackgroundTaskConfigSchema>

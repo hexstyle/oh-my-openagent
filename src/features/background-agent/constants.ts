@@ -56,3 +56,7 @@ export interface SubagentSessionCreatedEvent {
 }
 
 export type OnSubagentSessionCreated = (event: SubagentSessionCreatedEvent) => Promise<void>
+
+export const DEFAULT_MAX_TRACKED_ROOTS = 12
+export const DEFAULT_MAX_MCP_ROOTS = 4
+export const DEFAULT_MAX_RUNTIME_FALLBACK_ROOTS = 4

@@ -121,3 +121,49 @@ describe("BackgroundTaskConfigSchema", () => {
     })
   })
 })
+
+describe('BackgroundTaskConfigSchema processBudget', () => {
+  test('#given no processBudget #then parses without error', () => {
+    const result = BackgroundTaskConfigSchema.parse({})
+    expect(result.processBudget).toBeUndefined()
+  })
+
+  test('#given valid processBudget #then returns correct values', () => {
+    const result = BackgroundTaskConfigSchema.parse({
+      processBudget: { maxTrackedRoots: 20, maxMcpRoots: 6, maxRuntimeFallbackRoots: 6 },
+    })
+    expect(result.processBudget?.maxTrackedRoots).toBe(20)
+    expect(result.processBudget?.maxMcpRoots).toBe(6)
+    expect(result.processBudget?.maxRuntimeFallbackRoots).toBe(6)
+  })
+
+  test('#given maxTrackedRoots of 0 #then throws ZodError', () => {
+    let thrownError: unknown
+    try {
+      BackgroundTaskConfigSchema.parse({ processBudget: { maxTrackedRoots: 0 } })
+    } catch (error) {
+      thrownError = error
+    }
+    expect(thrownError).toBeInstanceOf(ZodError)
+  })
+
+  test('#given maxMcpRoots of 0 #then throws ZodError', () => {
+    let thrownError: unknown
+    try {
+      BackgroundTaskConfigSchema.parse({ processBudget: { maxMcpRoots: 0 } })
+    } catch (error) {
+      thrownError = error
+    }
+    expect(thrownError).toBeInstanceOf(ZodError)
+  })
+
+  test('#given maxRuntimeFallbackRoots of -1 #then throws ZodError', () => {
+    let thrownError: unknown
+    try {
+      BackgroundTaskConfigSchema.parse({ processBudget: { maxRuntimeFallbackRoots: -1 } })
+    } catch (error) {
+      thrownError = error
+    }
+    expect(thrownError).toBeInstanceOf(ZodError)
+  })
+})
