@@ -25,7 +25,7 @@ Primary model picture in this fork:
 - planning/review/controller roles prefer `anthropic/claude-opus-4-7` (Prometheus, Metis, Momus)
 - execution/orchestration roles prefer `anthropic/claude-sonnet-4-6` (Sisyphus, Oracle, Atlas, Hephaestus, Librarian, Sisyphus Junior)
 - `deep` category uses `anthropic/claude-sonnet-4-6` with `anthropic/claude-opus-4-7` as first fallback
-- `Explore (Code Search)` is the spark-first speed lane on `openai/gpt-5.3-codex-spark`
+- `Explore (Code Search)` runs on `anthropic/claude-sonnet-4-6` (low verbosity, low variant) for balanced speed and quality
 - `Sisyphus Junior (Focused Executor)` is the fast coding lane on `anthropic/claude-sonnet-4-6`
 - **every agent and category chain includes both Claude (Anthropic) and Codex/OpenAI paid models** — see cross-provider constraint below
 - free models stay behind every remaining paid OpenAI/Codex and Claude fallback
@@ -41,7 +41,7 @@ Primary agents and their visible fallback shape:
 - `Atlas` (orchestration): `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
 - `Hephaestus` (deep executor): `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-6` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
 - `Multimodal Looker`: `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-6` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
-- `Explore`: `openai/gpt-5.3-codex-spark` -> `anthropic/claude-sonnet-4-6` -> `openai/gpt-5.4` -> free models
+- `Explore`: `anthropic/claude-sonnet-4-6` -> `openai/gpt-5.4` -> `anthropic/claude-opus-4-6` -> `openai/gpt-5.3-codex-spark` -> free models
 - `Sisyphus Junior` (fast executor): `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
 
 Managed source of truth for this table: `assets/custom-opencode/oh-my-opencode.json`.
@@ -74,7 +74,7 @@ This constraint is enforced by:
 - same-model transient retries stay alive for up to 15 minutes
 - the retry interval grows over time and caps at 5 minutes between attempts
 - quota/cooldown/payment/usage-limit failures exhaust the remaining paid OpenAI/Codex and Claude chain before any free model
-- for `Explore`, `spark` is still the primary model, but quota fallback must continue through paid `gpt-5.4` and `claude-sonnet-4-6` before free models
+- for `Explore`, `claude-sonnet-4-6` is the primary model, with fallback through paid `gpt-5.4` and `codex-spark` before free models
 - for `Sisyphus Junior`, `claude-sonnet-4-6` is primary, with `gpt-5.4` as first fallback ahead of `spark`
 - when a session is pushed down to `spark` or free models, background recovery probes can move it back up to stronger models when they recover
 - the fork only treats free models as valid when they resolve in the local runtime baseline; deprecated cache-only entries are ignored
@@ -201,7 +201,19 @@ Five skills for enterprise .NET CI/CD workflows:
 
 **dotnet-playwright** — MSBuild error patterns, `dotnet test` filtering, Playwright failure taxonomy (TargetClosedException, selector timeout, visibility), evidence pipeline (screenshots + TRX), shard balancing rules. Key: `WaitForTimeoutAsync` is never the fix — find the right selector.
 
-**ci-green-loop** — The iterative red-to-green protocol: monitor → classify → prioritize (build-error > crash > assertion > timeout) → fix → local proof → push → repeat. Includes checkpoint format for session handoff and forbidden actions list. **Planning Mode**: when loaded by Prometheus during plan creation, enforces 100% failure coverage — every CI fix plan must start with a comprehensive diagnosis task and create per-root-cause fix tasks covering all known failures.
+**ci-green-loop** — The iterative red-to-green protocol: monitor → classify → prioritize (build-error > crash > assertion > timeout) → fix → local verify → push → repeat. Includes checkpoint format for session handoff, forbidden actions list, and mandatory local test verification gate. **Planning Mode**: when loaded by Prometheus during plan creation, enforces 100% failure coverage — every CI fix plan must start with a comprehensive diagnosis task and create per-root-cause fix tasks covering all known failures.
+
+**CI Workflow: Local-Verify-Before-Push Mandate**
+
+The ci-green-loop skill enforces a mandatory local test verification gate between fixing code and pushing. After fixing failing tests, agents MUST run `dotnet test --filter` locally and confirm all targeted tests pass before pushing. This eliminates blind 32-minute CI cycles on locally-catchable regressions. Bypass only when local test infrastructure is genuinely unavailable, documented in the commit message.
+
+**Evidence Management**
+
+Evidence in `.sisyphus/evidence/` is capped: 3KB/file, 500KB total, 20 files max. Raw JSON, build logs, TRX, and screenshots are forbidden. Eviction runs at each CI loop iteration start and on session start. Only structured markdown analysis files survive.
+
+**Anti-Plan-Churn**
+
+Before regenerating a CI fix plan, agents check for existing plans (<24h old) covering current failures. If coverage >=80% with no new failure types, the executor continues the existing plan. Three regenerations without a push triggers automatic execute-as-is.
 
 **merge-workflow** — Two-phase merge for hotfix branches (pre-fix merge + post-green merge), conflict resolution strategy by file type, post-merge validation. Key: application source prefers develop, test files prefer hotfix.
 
