@@ -1,10 +1,10 @@
-import { statSync } from "node:fs"
+import { statSync, readFileSync, existsSync, readdirSync } from "node:fs"
+import { join } from "node:path"
 import type { PluginInput } from "@opencode-ai/plugin"
 import { stripSingleEnclosingQuotes } from "../../shared/strip-enclosing-quotes"
 import {
   readBoulderState,
   writeBoulderState,
-  appendSessionId,
   findPrometheusPlans,
   getPlanProgress,
   createBoulderState,
@@ -84,13 +84,146 @@ function createDelegationKickoffBlock(): string {
   return `
 ## Delegation Kickoff
 
-After refreshing plan, boulder state, and notepad context, delegate tasks immediately.
+After refreshing plan and boulder state, delegate tasks immediately.
 
 - When unblocked tasks are independent AND touch different files, delegate IN PARALLEL
-- **CI green plans**: The plan has exactly 2 tasks (Diagnosis + Fix ALL). Delegate Task 2 ONLY after Task 1 completes — Task 2 needs the diagnosis evidence. Task 2 is ONE comprehensive session that fixes EVERYTHING. Do NOT split it further.
-- Keep your own work minimal: refresh state → delegate → monitor → verify
+- **CI green plans (FAST PATH)**: The plan's skills include \`ci-green-loop\` / \`bamboo-ci\` / \`dotnet-playwright\` and it has a Diagnosis task + Fix-all task (ignore F-prefixed verification tasks). Use the CI Green Loop Fast Path from your system prompt: skip TodoWrite, skip notepad, skip per-delegation verification, DO NOT read test files or run git show/diff. If Task 1 evidence already exists in \`.sisyphus/evidence/\`, delegate Task 2 directly. Task 2 is ONE comprehensive session that fixes EVERYTHING — do NOT split, do NOT investigate from Atlas, do NOT pad the prompt. The executor handles verification via ci-green-loop STEP 3.5.
+- Keep your own work minimal: refresh state → delegate → done
 - Do not investigate implementation details yourself before delegating — that's the subagent's job
 - If a task touches many files, delegate it as ONE task to ONE agent — do NOT split by file or group`
+}
+
+const CI_SKILL_PATTERN = /\bci-green-loop\b|\bbamboo-ci\b|\bdotnet-playwright\b/
+const CI_TASK_CATEGORY_PATTERN = /\|\s*(?:Iteration|T2)\s*\|[^|]*\|\s*`(\w[\w-]*)`\s*\(load_skills=`([^`]+)`/
+
+interface CIFastPathResult {
+  active: boolean
+  block: string
+}
+
+function detectCIFastPath(planPath: string, projectDir: string): CIFastPathResult {
+  const inactive: CIFastPathResult = { active: false, block: "" }
+  try {
+    log("[start-work] CI fast path check START", { planPath, projectDir })
+    if (!existsSync(planPath)) {
+      log("[start-work] CI fast path: plan not found", { planPath })
+      return inactive
+    }
+    const content = readFileSync(planPath, "utf-8")
+
+    if (!CI_SKILL_PATTERN.test(content)) {
+      log("[start-work] CI fast path: no CI skill match", { planPath })
+      return inactive
+    }
+
+    const lines = content.split(/\r?\n/)
+    let task1Checked = false
+    let task2Unchecked = false
+    let task2StartLine = -1
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      const m = line.match(/^- \[([ xX])\]\s*(\d+)\.\s*\*\*(.+?)\*\*/)
+      if (m) {
+        const num = parseInt(m[2], 10)
+        const checked = m[1].toLowerCase() === "x"
+        if (num === 1 && checked) task1Checked = true
+        if (num === 2 && !checked) {
+          task2Unchecked = true
+          task2StartLine = i
+        }
+      }
+    }
+
+    // If Task 2 is [x] but CI checkpoint shows failures > 0, override to unchecked
+    let task2FalsePositive = false
+    if (task1Checked && !task2Unchecked) {
+      const checkpointPath = join(projectDir, ".sisyphus", "evidence", "ci-loop-checkpoint.md")
+      if (existsSync(checkpointPath)) {
+        const checkpoint = readFileSync(checkpointPath, "utf-8")
+        const failMatch = checkpoint.match(/(?:failed|fails)[:\s]*(\d+)/i)
+        if (failMatch && parseInt(failMatch[1], 10) > 0) {
+          task2Unchecked = true
+          task2FalsePositive = true
+          // Find task2StartLine if we didn't already
+          if (task2StartLine < 0) {
+            for (let i = 0; i < lines.length; i++) {
+              const m = lines[i].match(/^- \[([ xX])\]\s*(\d+)\.\s*\*\*(.+?)\*\*/)
+              if (m && parseInt(m[2], 10) === 2) { task2StartLine = i; break }
+            }
+          }
+          log("[start-work] CI fast path: Task 2 [x] overridden — checkpoint shows failures", {
+            failures: failMatch[1],
+          })
+        }
+      }
+    }
+
+    log("[start-work] CI fast path task state", { task1Checked, task2Unchecked, task2StartLine, task2FalsePositive })
+    if (!task1Checked || !task2Unchecked || task2StartLine < 0) return inactive
+
+    const evidenceDir = join(projectDir, ".sisyphus", "evidence")
+    if (!existsSync(evidenceDir)) {
+      log("[start-work] CI fast path: evidence dir missing", { evidenceDir })
+      return inactive
+    }
+    const evidenceFiles = readdirSync(evidenceDir).filter((f) => f.endsWith(".md"))
+    if (evidenceFiles.length === 0) {
+      log("[start-work] CI fast path: no evidence .md files", { evidenceDir })
+      return inactive
+    }
+
+    for (const line of lines) {
+      const catMatch = line.match(CI_TASK_CATEGORY_PATTERN)
+      if (catMatch) {
+        break
+      }
+    }
+
+    const evidencePaths = evidenceFiles.map((f) => ".sisyphus/evidence/" + f).join(", ")
+    const planRelPath = planPath.startsWith(projectDir)
+      ? planPath.slice(projectDir.length + 1)
+      : planPath
+
+    // Check for per-test tracker files
+    const testsDir = join(projectDir, ".sisyphus", "evidence", "tests")
+    let testTrackerInfo = ""
+    if (existsSync(testsDir)) {
+      const trackerFiles = readdirSync(testsDir).filter((f) => f.endsWith(".md"))
+      if (trackerFiles.length > 0) {
+        testTrackerInfo = "\\nRead per-test tracker files in `.sisyphus/evidence/tests/` (" + trackerFiles.length + " files) — each contains fix history for a specific test. Do NOT repeat approaches that already failed. Before pushing, tracker counts/statuses must reconcile with the current failing-test count."
+      }
+    }
+
+    const block = [
+      "CI FAST PATH — ACTIVE",
+      "",
+      "Fix ALL failing tests in Bamboo build and drive failedTestCount to 0.",
+      "",
+      "## CONTEXT",
+      "Read the plan file at `" + planRelPath + "` — it contains the complete root-cause analysis, fix instructions for all failure groups, and evidence paths.",
+      "Read evidence files: " + evidencePaths,
+      "If present, read `.sisyphus/evidence/ci-loop-checkpoint.md` and `.sisyphus/evidence/repair-log.md` before changing code.",
+      testTrackerInfo ? "Read `.sisyphus/evidence/tests/` for per-test tracker files with fix history." + testTrackerInfo : "",
+      "",
+      "## MANDATORY WORKFLOW",
+      "1. Read the plan file and ALL evidence files listed above",
+      "2. Validate `.sisyphus/evidence/repair-log.md`: the latest entry must be an `## Iteration ...` block with failures in scope, coverage map, code changed, local verify, push/CI status, conclusion, and next action. If the file is missing or free-form, normalize it before editing code.",
+      "3. For each failing test: check if a previous fix was attempted — if so, choose a DIFFERENT strategy",
+      "4. Apply ALL fixes in one pass (every failing test must be addressed, not just some)",
+      "5. Update `.sisyphus/evidence/repair-log.md` with the current iteration block: build/revision, failures covered, files changed, local verify result, push result, conclusion, next action",
+      "6. PRE-PUSH AUDIT: verify git diff covers ALL failing tests and that tracker counts/statuses reconcile with the current failing-test count",
+      "7. Update `.sisyphus/evidence/ci-loop-checkpoint.md` so it matches the latest repair-log conclusion, latest build/revision, and tracker counts",
+      "8. git add <specific files only> — NEVER git add -A",
+      "9. git commit and git push to trigger CI",
+    ].filter(Boolean).join("\n")
+
+    log("[start-work] CI fast path detected", { planPath, evidenceFiles })
+    return { active: true, block }
+  } catch (e) {
+    log("[start-work] CI fast path detection failed", { error: String(e) })
+    return inactive
+  }
 }
 
 function createEvidenceGateBlock(): string {
@@ -126,10 +259,44 @@ export function createStartWorkHook(ctx: PluginInput) {
     const existingState = readBoulderState(ctx.directory)
     const timestamp = new Date().toISOString()
 
-    const { planName: explicitPlanName, explicitWorktreePath } = parseUserRequest(promptText)
+    let explicitPlanName: string | null = null
+    let explicitWorktreePath: string | null = null
+    try {
+      const parsed = parseUserRequest(promptText)
+      explicitPlanName = parsed.planName
+      explicitWorktreePath = parsed.explicitWorktreePath
+    } catch (e) {
+      log(`[${HOOK_NAME}] parseUserRequest failed`, { sessionID: sessionId, error: String(e) })
+    }
     const { worktreePath, block: worktreeBlock } = resolveWorktreeContext(explicitWorktreePath)
-    const delegationKickoffBlock = createDelegationKickoffBlock()
-    const evidenceGateBlock = createEvidenceGateBlock()
+
+    log(`[${HOOK_NAME}] Path decision`, {
+      sessionID: sessionId,
+      hasExistingState: !!existingState,
+      explicitPlanName: explicitPlanName ?? "(null)",
+      activePlan: existingState?.active_plan ?? "(none)",
+    })
+
+    const resolvePlanBlocks = (planPath: string) => {
+      log(`[${HOOK_NAME}] resolvePlanBlocks called`, { planPath, directory: ctx.directory })
+      const ciFastPath = detectCIFastPath(planPath, ctx.directory)
+      log(`[${HOOK_NAME}] CI fast path result`, { active: ciFastPath.active, blockLen: ciFastPath.block.length })
+      if (ciFastPath.active) {
+        return {
+          isFastPath: true,
+          delegationKickoffBlock: ciFastPath.block,
+          evidenceGateBlock: "",
+        }
+      }
+      return {
+        isFastPath: false,
+        delegationKickoffBlock: createDelegationKickoffBlock(),
+        evidenceGateBlock: createEvidenceGateBlock(),
+      }
+    }
+
+    let delegationKickoffBlock = createDelegationKickoffBlock()
+    let evidenceGateBlock = createEvidenceGateBlock()
 
     let contextInfo = ""
 
@@ -160,6 +327,10 @@ All ${progress.total} tasks are done. Create a new plan with: /plan "your task"`
           const newState = createBoulderState(matchedPlan, sessionId, activeAgent, worktreePath)
           writeBoulderState(ctx.directory, newState)
 
+          const planBlocks = resolvePlanBlocks(matchedPlan)
+          delegationKickoffBlock = planBlocks.delegationKickoffBlock
+          evidenceGateBlock = planBlocks.evidenceGateBlock
+
           contextInfo = `
 ## Auto-Selected Plan
 
@@ -170,8 +341,7 @@ All ${progress.total} tasks are done. Create a new plan with: /plan "your task"`
 **Started**: ${timestamp}
 ${worktreeBlock}
 ${evidenceGateBlock}
-
-boulder.json has been created. Read the plan and begin execution.
+${planBlocks.isFastPath ? "" : "\nboulder.json has been created. Read the plan and begin execution."}
 ${delegationKickoffBlock}`
         }
       } else {
@@ -203,22 +373,28 @@ No incomplete plans available. Create a new plan with: /plan "your task"`
       }
     } else if (existingState) {
       const progress = getPlanProgress(existingState.active_plan)
+      log(`[${HOOK_NAME}] Existing state branch`, { planComplete: progress.isComplete, completed: progress.completed, total: progress.total, planPath: existingState.active_plan })
 
       if (!progress.isComplete) {
+        const planBlocks = resolvePlanBlocks(existingState.active_plan)
+        delegationKickoffBlock = planBlocks.delegationKickoffBlock
+        evidenceGateBlock = planBlocks.evidenceGateBlock
+
         const effectiveWorktree = worktreePath ?? existingState.worktree_path
 
-        if (worktreePath !== undefined) {
-          const updatedSessions = existingState.session_ids.includes(sessionId)
-            ? existingState.session_ids
-            : [...existingState.session_ids, sessionId]
-          writeBoulderState(ctx.directory, {
-            ...existingState,
-            worktree_path: worktreePath,
-            session_ids: updatedSessions,
-          })
-        } else {
-          appendSessionId(ctx.directory, sessionId)
+        // Prune stale sessions from previous aborted runs — keep only current session
+        const staleSessions = existingState.session_ids.filter((s) => s !== sessionId)
+        if (staleSessions.length > 0) {
+          log(`[${HOOK_NAME}] Pruning ${staleSessions.length} stale session(s) from boulder.json`)
         }
+        const cleanedState: typeof existingState = {
+          ...existingState,
+          session_ids: [sessionId],
+          session_origins: { [sessionId]: "direct" as const },
+          task_sessions: {},
+          ...(worktreePath !== undefined ? { worktree_path: worktreePath } : {}),
+        }
+        writeBoulderState(ctx.directory, cleanedState)
 
         const worktreeDisplay = effectiveWorktree ? createWorktreeActiveBlock(effectiveWorktree) : worktreeBlock
 
@@ -235,7 +411,7 @@ ${worktreeDisplay}
 ${evidenceGateBlock}
 
 The current session (${sessionId}) has been added to session_ids.
-Read the plan file and continue from the first unchecked task.
+${planBlocks.isFastPath ? "" : "Read the plan file and continue from the first unchecked task."}
 ${delegationKickoffBlock}`
       } else {
         contextInfo = `
@@ -272,6 +448,10 @@ All ${plans.length} plan(s) are complete. Create a new plan with: /plan "your ta
         const newState = createBoulderState(planPath, sessionId, activeAgent, worktreePath)
         writeBoulderState(ctx.directory, newState)
 
+        const planBlocks = resolvePlanBlocks(planPath)
+        delegationKickoffBlock = planBlocks.delegationKickoffBlock
+        evidenceGateBlock = planBlocks.evidenceGateBlock
+
         contextInfo += `
 
 ## Auto-Selected Plan
@@ -283,8 +463,7 @@ All ${plans.length} plan(s) are complete. Create a new plan with: /plan "your ta
 **Started**: ${timestamp}
 ${worktreeBlock}
 ${evidenceGateBlock}
-
-boulder.json has been created. Read the plan and begin execution.
+${planBlocks.isFastPath ? "" : "\nboulder.json has been created. Read the plan and begin execution."}
 ${delegationKickoffBlock}`
       } else {
         const planList = incompletePlans
@@ -317,13 +496,37 @@ ${worktreeBlock}
         .replace(/\$SESSION_ID/g, sessionId)
         .replace(/\$TIMESTAMP/g, timestamp)
 
-      output.parts[idx].text += `\n\n---\n${contextInfo}`
+      // CI fast path: REPLACE prompt AND switch agent to sisyphus (executor)
+      // Atlas's 500-line system prompt overrides any user-message override,
+      // so we bypass Atlas entirely and use the executor directly
+      if (contextInfo.includes("CI FAST PATH")) {
+        output.parts[idx].text = contextInfo
+        const ciAgent = "sisyphus"
+        const ciAgentDisplay = getAgentDisplayName(ciAgent)
+        updateSessionAgent(sessionId, ciAgent)
+        if (output.message) {
+          output.message["agent"] = ciAgentDisplay
+        }
+        log(`[${HOOK_NAME}] CI fast path: prompt REPLACED, agent switched to ${ciAgent} (${ciAgentDisplay})`)
+      } else {
+        output.parts[idx].text += `\n\n---\n${contextInfo}`
+      }
     }
 
     log(`[${HOOK_NAME}] Context injected`, {
       sessionID: sessionId,
       hasExistingState: !!existingState,
       worktreePath,
+      contextPath: contextInfo.includes("CI FAST PATH") ? "ci-fast-path"
+        : contextInfo.includes("Active Work Session") ? "active-session"
+        : contextInfo.includes("Previous Work Complete") ? "prev-complete"
+        : contextInfo.includes("Auto-Selected Plan") ? "auto-select"
+        : contextInfo.includes("No Plans Found") ? "no-plans"
+        : contextInfo.includes("All Plans Complete") ? "all-complete"
+        : contextInfo.includes("Multiple Plans") ? "multiple-plans"
+        : contextInfo.includes("Plan Not Found") ? "plan-not-found"
+        : contextInfo.includes("Plan Already Complete") ? "plan-already-complete"
+        : `unknown(len=${contextInfo.length})`,
     })
   }
 

@@ -78,7 +78,7 @@ const LONG_RUNNING_TERMINAL_TOOL_STATUSES = new Set(["completed", "error", "abor
 export const MODEL_RECOVERY_INTERVAL_MS = 2 * 60 * 1000
 export const MODEL_RECOVERY_PROBE_MIN_INTERVAL_MS = 60 * 1000
 export const MODEL_RECOVERY_PROBE_TIMEOUT_MS = 30 * 1000
-export const STALLED_SESSION_NUDGE_MS = 15 * 60 * 1000
+export const STALLED_SESSION_NUDGE_MS = 5 * 60 * 1000
 
 export function isLongRunningAssistantProgress(args: {
   partType?: string

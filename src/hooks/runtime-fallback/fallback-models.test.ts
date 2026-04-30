@@ -177,6 +177,7 @@ describe("runtime-fallback fallback-models", () => {
 
     expect(result).toEqual([
       "openai/gpt-5.4",
+      "anthropic/claude-opus-4-6",
       "openai/gpt-5.3-codex-spark",
       "opencode/nemotron-3-super-free",
       "opencode/minimax-m2.5-free",

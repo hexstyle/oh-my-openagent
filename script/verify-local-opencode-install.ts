@@ -60,6 +60,11 @@ type SmokeResult = {
   exitCode: number
 }
 
+type SmokeConfig = {
+  agentName: string
+  model: { providerID: string; modelID: string }
+}
+
 type SmokeMessage = {
   role?: string
   info?: {
@@ -79,8 +84,17 @@ type SmokeChildSession = {
   id?: string
 }
 
-const DEFAULT_SMOKE_TIMEOUT_MS = 5 * 60 * 1000
-const ANTHROPIC_RECOVERY_SMOKE_TIMEOUT_MS = 8 * 60 * 1000
+const SMOKE_PROMPT = "Stateless smoke test. Do not resume prior work, do not inspect the repository, do not ask questions. Reply with exactly OK."
+const DEFAULT_SMOKE_TIMEOUT_OVERRIDE_MS = 90 * 1000
+const ANTHROPIC_SMOKE_TIMEOUT_OVERRIDE_MS = 2 * 60 * 1000
+const SMOKE_HEARTBEAT_INTERVAL_MS = 15 * 1000
+
+function readPositiveIntEnv(name: string): number | undefined {
+  const raw = process.env[name]
+  if (!raw) return undefined
+  const parsed = Number(raw)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+}
 
 function buildExpectedAgents(pluginConfig: Record<string, unknown>): RuntimeAgentExpectation[] {
   const agents = (pluginConfig.agents ?? {}) as Record<string, { model?: unknown }>
@@ -242,7 +256,11 @@ export function assertSmokeSucceededOrSkippable(args: {
     return
   }
 
-  fail(`${args.providerLabel} smoke test did not return OK`)
+  const normalizedOutput = args.result.output.trim()
+  const excerpt = normalizedOutput.length > 0
+    ? normalizedOutput.slice(0, 400)
+    : "no output captured"
+  fail(`${args.providerLabel} smoke test did not return OK: ${excerpt}`)
 }
 
 function stringifySmokeError(error: unknown): string {
@@ -379,14 +397,34 @@ export function createSmokeWorkspace(baseDir = os.tmpdir()): string {
 }
 
 export function resolveSmokeTimeoutMs(agentName: string): number {
-  if (agentName === "Prometheus (Plan Builder)") {
-    return ANTHROPIC_RECOVERY_SMOKE_TIMEOUT_MS
+  const globalOverride = readPositiveIntEnv("OH_MY_OPENAGENT_VERIFY_SMOKE_TIMEOUT_MS")
+  if (globalOverride) {
+    return globalOverride
   }
 
-  return DEFAULT_SMOKE_TIMEOUT_MS
+  if (agentName === "Prometheus (Plan Builder)") {
+    return readPositiveIntEnv("OH_MY_OPENAGENT_VERIFY_ANTHROPIC_SMOKE_TIMEOUT_MS")
+      ?? ANTHROPIC_SMOKE_TIMEOUT_OVERRIDE_MS
+  }
+
+  return DEFAULT_SMOKE_TIMEOUT_OVERRIDE_MS
 }
 
-async function runSmoke(agentName: string): Promise<SmokeResult> {
+export function getProviderSmokeConfig(provider: "anthropic" | "openai"): SmokeConfig {
+  if (provider === "anthropic") {
+    return {
+      agentName: "Sisyphus (Ultraworker)",
+      model: { providerID: "anthropic", modelID: "claude-sonnet-4-6" },
+    }
+  }
+
+  return {
+    agentName: "Sisyphus (Ultraworker)",
+    model: { providerID: "openai", modelID: "gpt-5.4" },
+  }
+}
+
+async function runSmoke(config: SmokeConfig): Promise<SmokeResult> {
   const port = 44000 + Math.floor(Math.random() * 1000)
   const server = await createOpencodeServer({ port, timeout: 30_000 })
   const smokeDirectory = createSmokeWorkspace()
@@ -394,13 +432,15 @@ async function runSmoke(agentName: string): Promise<SmokeResult> {
     baseUrl: server.url,
     directory: smokeDirectory,
   })
-  const timeoutAt = Date.now() + resolveSmokeTimeoutMs(agentName)
+  const timeoutAt = Date.now() + resolveSmokeTimeoutMs(config.agentName)
+  const startedAt = Date.now()
+  let nextHeartbeatAt = startedAt + SMOKE_HEARTBEAT_INTERVAL_MS
   let latestOutput = ""
 
   try {
     const created = await client.session.create({
       body: {
-        title: `verify smoke ${agentName}`,
+        title: `verify smoke ${config.model.providerID}/${config.model.modelID}`,
         permission: [
           { permission: "question", action: "deny", pattern: "*" },
         ],
@@ -419,8 +459,9 @@ async function runSmoke(agentName: string): Promise<SmokeResult> {
     await client.session.promptAsync({
       path: { id: sessionID },
       body: {
-        agent: agentName,
-        parts: [{ type: "text", text: "Reply with OK only." }],
+        agent: config.agentName,
+        model: config.model,
+        parts: [{ type: "text", text: SMOKE_PROMPT }],
       },
       query: { directory: smokeDirectory },
     })
@@ -459,6 +500,14 @@ async function runSmoke(agentName: string): Promise<SmokeResult> {
 
       if (descendantOutcome.state === "skippable" || descendantOutcome.state === "failed") {
         return { output: descendantOutcome.output, exitCode: 1 }
+      }
+
+      const now = Date.now()
+      if (now >= nextHeartbeatAt) {
+        console.log(
+          `[verify] smoke ${config.model.providerID}/${config.model.modelID} still waiting (${Math.round((now - startedAt) / 1000)}s elapsed, ${Math.max(0, Math.round((timeoutAt - now) / 1000))}s left)`,
+        )
+        nextHeartbeatAt = now + SMOKE_HEARTBEAT_INTERVAL_MS
       }
 
       await new Promise((resolve) => setTimeout(resolve, 1_000))
@@ -628,7 +677,7 @@ async function main(): Promise<void> {
 
   if (authStore.anthropic && typeof authStore.anthropic === "object") {
     console.log("[verify] running Anthropic smoke")
-    const result = await runSmoke("Prometheus (Plan Builder)")
+    const result = await runSmoke(getProviderSmokeConfig("anthropic"))
     assertSmokeSucceededOrSkippable({
       providerLabel: "Anthropic",
       result,
@@ -637,7 +686,7 @@ async function main(): Promise<void> {
 
   if (authStore.openai && typeof authStore.openai === "object") {
     console.log("[verify] running OpenAI smoke")
-    const result = await runSmoke("Hephaestus (Deep Agent)")
+    const result = await runSmoke(getProviderSmokeConfig("openai"))
     assertSmokeSucceededOrSkippable({
       providerLabel: "OpenAI",
       result,

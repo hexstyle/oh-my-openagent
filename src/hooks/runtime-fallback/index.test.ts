@@ -660,14 +660,11 @@ describe("runtime-fallback", () => {
         },
       })
 
-      expect(promptCalls).toHaveLength(1)
-      expect(
-        (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
-      ).toEqual({
-        providerID: "openai",
-        modelID: "gpt-5.4",
-      })
-      expect((promptCalls[0].path as { id?: string } | undefined)?.id).toBe("ses_fresh_child")
+      // 403 "request not allowed" is now handled via external process restart
+      // (dispatchExternal403Restart) instead of in-process promptAsync
+      const externalRestartLog = logCalls.find((call) => call.msg.includes("Dispatched external 403 restart"))
+      expect(externalRestartLog).toBeDefined()
+      expect((externalRestartLog?.data as Record<string, unknown>)?.model).toBe("openai/gpt-5.4")
 
       const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
       expect(fallbackLogs).toHaveLength(0)
@@ -798,14 +795,10 @@ describe("runtime-fallback", () => {
         },
       })
 
-      expect(promptCalls).toHaveLength(1)
-      expect(
-        (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
-      ).toEqual({
-        providerID: "openai",
-        modelID: "gpt-5.4",
-      })
-      expect((promptCalls[0].path as { id?: string } | undefined)?.id).toBe("ses_fresh_child")
+      // 403 "request not allowed" is now handled via external process restart
+      const externalRestartLog = logCalls.find((call) => call.msg.includes("Dispatched external 403 restart"))
+      expect(externalRestartLog).toBeDefined()
+      expect((externalRestartLog?.data as Record<string, unknown>)?.model).toBe("openai/gpt-5.4")
 
       const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
       expect(fallbackLogs).toHaveLength(0)
@@ -864,14 +857,10 @@ describe("runtime-fallback", () => {
         },
       })
 
-      expect(promptCalls).toHaveLength(1)
-      expect(
-        (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
-      ).toEqual({
-        providerID: "openai",
-        modelID: "gpt-5.4",
-      })
-      expect((promptCalls[0].path as { id?: string } | undefined)?.id).toBe("ses_fresh_child")
+      // 403 "request not allowed" is now handled via external process restart
+      const externalRestartLog = logCalls.find((call) => call.msg.includes("Dispatched external 403 restart"))
+      expect(externalRestartLog).toBeDefined()
+      expect((externalRestartLog?.data as Record<string, unknown>)?.model).toBe("openai/gpt-5.4")
 
       const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
       expect(fallbackLogs).toHaveLength(0)
@@ -1130,14 +1119,10 @@ describe("runtime-fallback", () => {
         statusCode: 403,
       })
 
-      expect(promptCalls).toHaveLength(1)
-      expect(
-        (promptCalls[0].body as { model?: { providerID?: string; modelID?: string } } | undefined)?.model,
-      ).toEqual({
-        providerID: "anthropic",
-        modelID: "claude-opus-4-6",
-      })
-      expect((promptCalls[0].path as { id?: string } | undefined)?.id).toBe("ses_fresh_child")
+      // 403 "request not allowed" is now handled via external process restart
+      const externalRestartLog = logCalls.find((call) => call.msg.includes("Dispatched external 403 restart"))
+      expect(externalRestartLog).toBeDefined()
+      expect((externalRestartLog?.data as Record<string, unknown>)?.model).toBe("anthropic/claude-opus-4-6")
 
       await hook.event({
         event: {
@@ -1146,14 +1131,13 @@ describe("runtime-fallback", () => {
         },
       })
 
-      expect(promptCalls).toHaveLength(1)
-      expect(promptCalls).toHaveLength(1)
-
       const fallbackLogs = logCalls.filter((call) => call.msg.includes("Preparing fallback"))
       expect(fallbackLogs).toHaveLength(0)
     })
 
     test("duplicate assistant error updates do not back off an already scheduled transient 403 retry", async () => {
+      // Use a non-tracked provider (google/) so the 403 follows the transient
+      // retry path rather than the external-restart path for tracked providers.
       const hook = createRuntimeFallbackHook(
         createMockPluginInput({
           session: {
@@ -1169,7 +1153,7 @@ describe("runtime-fallback", () => {
             transient_retry_max_delay_seconds: 0.2,
           }),
           pluginConfig: createMockPluginConfigWithCategoryFallback([
-            "anthropic/claude-opus-4-6",
+            "google/gemini-2.5-pro",
             "openai/gpt-5.4",
           ]),
         },
@@ -1180,7 +1164,7 @@ describe("runtime-fallback", () => {
       await hook.event({
         event: {
           type: "session.created",
-          properties: { info: { id: sessionID, model: "anthropic/claude-opus-4-6" } },
+          properties: { info: { id: sessionID, model: "google/gemini-2.5-pro" } },
         },
       })
 
@@ -1208,7 +1192,7 @@ describe("runtime-fallback", () => {
             info: {
               sessionID,
               role: "assistant",
-              model: "anthropic/claude-opus-4-6",
+              model: "google/gemini-2.5-pro",
               error: {
                 name: "AI_APICallError",
                 message: "Forbidden",

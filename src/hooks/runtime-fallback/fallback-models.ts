@@ -73,7 +73,7 @@ function getRawFallbackModelsForSession(
   const sessionCategory = SessionCategoryRegistry.get(sessionID)
   if (sessionCategory && pluginConfig.categories?.[sessionCategory]) {
     const categoryConfig = pluginConfig.categories[sessionCategory]
-    if (categoryConfig?.fallback_models) {
+    if (categoryConfig && "fallback_models" in categoryConfig) {
       return normalizeFallbackModels(categoryConfig.fallback_models)
     }
   }
@@ -83,14 +83,14 @@ function getRawFallbackModelsForSession(
     const agentConfig = pluginConfig.agents?.[normalizedAgentName as keyof typeof pluginConfig.agents]
     if (!agentConfig) return undefined
 
-    if (agentConfig?.fallback_models) {
+    if ("fallback_models" in agentConfig) {
       return normalizeFallbackModels(agentConfig.fallback_models)
     }
 
     const agentCategory = agentConfig?.category
     if (agentCategory && pluginConfig.categories?.[agentCategory]) {
       const categoryConfig = pluginConfig.categories[agentCategory]
-      if (categoryConfig?.fallback_models) {
+      if (categoryConfig && "fallback_models" in categoryConfig) {
         return normalizeFallbackModels(categoryConfig.fallback_models)
       }
     }
@@ -111,7 +111,7 @@ function getRawFallbackModelsForSession(
   }
 
   // Fallback to root-level fallback_models when agent/category resolution fails
-  if (pluginConfig.fallback_models) {
+  if ("fallback_models" in pluginConfig) {
     log(`[${HOOK_NAME}] Using root-level fallback_models for session`, { sessionID, agent })
     return normalizeFallbackModels(pluginConfig.fallback_models)
   }

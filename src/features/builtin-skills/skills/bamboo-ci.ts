@@ -34,21 +34,32 @@ print(f'Reason: {d.get(\"buildReason\", \"unknown\")}')
 \`\`\`
 
 ### Fetch Failing Test NAMES Only (Step 1 — always do this first)
+
+**CRITICAL: Test results are stored at the JOB level, not the plan level.** Use \`{PLAN_KEY}-JOB1-{N}\` (with JOB1 in the key) and \`-H "Accept: application/json"\` to get JSON instead of XML.
+
 \`\`\`bash
-curl -s "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-{N}.json?expand=testResults.failedTests.testResult" | python3 -c "
+# CORRECT — job-level endpoint with JSON header
+curl -s -H "Accept: application/json" "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-JOB1-{N}.json?expand=testResults.failedTests.testResult" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 tests = d.get('testResults',{}).get('failedTests',{}).get('testResult',[])
+print(f'Total failing: {len(tests)}')
 for t in tests:
     err = (t.get('errors',{}).get('error',[{}])[0].get('message','') or '')[:150]
     print(f'{t[\"className\"].split(\".\")[-1]}.{t[\"methodName\"]} | {err}')
 "
+
+# WRONG — plan-level returns failedTestCount but empty testResults:
+# curl -s "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-{N}.json?expand=testResults.failedTests" → testResults: {}
+# WRONG — without Accept header, job-level returns XML not JSON:
+# curl -s "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-JOB1-{N}.json" → <?xml ...>
 \`\`\`
 **This extracts ~100 bytes per test instead of ~5KB. For 15 failures = 1.5KB vs 75KB.**
+**MUST verify: \`len(tests)\` equals \`failedTestCount\` from the summary endpoint. If 0 but failedTestCount > 0, you're using the wrong endpoint.**
 
 ### Fetch ONE Test's Full Error (Step 2 — only when diagnosing a specific test)
 \`\`\`bash
-curl -s "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-{N}.json?expand=testResults.failedTests.testResult" | python3 -c "
+curl -s -H "Accept: application/json" "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-JOB1-{N}.json?expand=testResults.failedTests.testResult" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 for t in d.get('testResults',{}).get('failedTests',{}).get('testResult',[]):
@@ -107,6 +118,17 @@ Next: fix group-selector (affects 8/15 failures)
 \`\`\`
 **No stack traces. No full error messages. No narratives. Table + one "Next" line.**
 
+### Iteration Ledger Coupling
+
+Every Bamboo iteration must also update \`.sisyphus/evidence/repair-log.md\`:
+- append one compact iteration block
+- list build number + revision
+- list every failure group covered in this iteration
+- list exact source files changed
+- record local verify result and push/queue result
+
+If Bamboo data was fetched but \`repair-log.md\` was not updated, the iteration is incomplete.
+
 ### FORBIDDEN Evidence Actions (violation = wasted CI iteration)
 - Saving raw Bamboo API JSON responses to ANY file in \`.sisyphus/evidence/\`
 - Saving full build log output (even excerpts > 500 bytes) to evidence
@@ -114,5 +136,6 @@ Next: fix group-selector (affects 8/15 failures)
 - Piping \`curl\` output directly to files: \`curl ... > .sisyphus/evidence/file\` is ALWAYS WRONG. Filter first: \`curl ... | python3 -c "..." > file\`
 - After saving any evidence file, verify: \`wc -c .sisyphus/evidence/{file}\`. If > 3072 bytes, rewrite it shorter.
 - Writing \`*.json\`, \`*.log\`, \`*.trx\`, \`*.xml\` to \`.sisyphus/evidence/\` — ci-green-loop STEP 0 auto-deletes these extensions every iteration. Use \`build-{N}-analysis.md\` format ONLY.
+- Writing a free-form narrative without build number / revision / changed-files coverage into \`repair-log.md\`
 `,
 }

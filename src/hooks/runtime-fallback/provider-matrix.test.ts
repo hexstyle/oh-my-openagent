@@ -18,7 +18,7 @@ describe("runtime-fallback provider matrix quota tests", () => {
 
       //#then
       expect(errorType).toBe("quota_exceeded")
-      expect(retryable).toBe(false)
+      expect(retryable).toBe(true)
     })
 
     test("classifies OpenAI billing_hard_limit error as quota_exceeded", () => {
@@ -54,7 +54,7 @@ describe("runtime-fallback provider matrix quota tests", () => {
   })
 
   describe("Anthropic provider", () => {
-    test("classifies Anthropic quota exceeded as non-retryable", () => {
+    test("classifies Anthropic quota exceeded as retryable (triggers fallback)", () => {
       //#given
       const error = {
         name: "QuotaExceededError",
@@ -68,10 +68,10 @@ describe("runtime-fallback provider matrix quota tests", () => {
 
       //#then
       expect(errorType).toBe("quota_exceeded")
-      expect(retryable).toBe(false)
+      expect(retryable).toBe(true)
     })
 
-    test("classifies Anthropic subscription quota as non-retryable", () => {
+    test("classifies Anthropic subscription quota as retryable (triggers fallback)", () => {
       //#given
       const error = {
         name: "AI_APICallError",
@@ -85,7 +85,7 @@ describe("runtime-fallback provider matrix quota tests", () => {
 
       //#then
       expect(errorType).toBe("quota_exceeded")
-      expect(retryable).toBe(false)
+      expect(retryable).toBe(true)
     })
 
     test("classifies Anthropic cooling down with retry signal as retryable (auto-retry pattern)", () => {
@@ -125,7 +125,7 @@ describe("runtime-fallback provider matrix quota tests", () => {
       expect(retryable).toBe(true)
     })
 
-    test("classifies Google quota exceeded as quota_exceeded", () => {
+    test("classifies Google quota exceeded as retryable (triggers fallback)", () => {
       //#given
       const error = {
         name: "QuotaExceededError",
@@ -139,7 +139,7 @@ describe("runtime-fallback provider matrix quota tests", () => {
 
       //#then
       expect(errorType).toBe("quota_exceeded")
-      expect(retryable).toBe(false)
+      expect(retryable).toBe(true)
     })
 
     test("classifies Google rate limit exceeded as retryable", () => {
@@ -274,7 +274,7 @@ describe("runtime-fallback provider matrix quota tests", () => {
       expect(retryable).toBe(true)
     })
 
-    test("402 payment required is NOT retryable", () => {
+    test("402 payment required is retryable (quota_exceeded triggers fallback)", () => {
       //#given
       const error = { statusCode: 402, message: "Payment Required" }
 
@@ -282,7 +282,7 @@ describe("runtime-fallback provider matrix quota tests", () => {
       const retryable = isRetryableError(error, [429, 500, 502, 503, 504])
 
       //#then
-      expect(retryable).toBe(false)
+      expect(retryable).toBe(true)
     })
 
     test("500 server error is retryable", () => {

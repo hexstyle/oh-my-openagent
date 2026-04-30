@@ -5890,6 +5890,27 @@
             }
           },
           "additionalProperties": false
+        },
+        "processBudget": {
+          "type": "object",
+          "properties": {
+            "maxTrackedRoots": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "maxMcpRoots": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "maxRuntimeFallbackRoots": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

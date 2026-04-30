@@ -482,7 +482,7 @@ export function getPlanProgress(planPath: string): PlanProgress {
       isComplete: total > 0 && completed === total,
     }
   } catch {
-    return { total: 0, completed: 0, isComplete: true }
+    return { total: 0, completed: 0, isComplete: false }
   }
 }
 

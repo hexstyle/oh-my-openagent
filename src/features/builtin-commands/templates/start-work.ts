@@ -100,12 +100,14 @@ Reading plan and beginning execution...
 
 Run this command FIRST, unconditionally:
 \`\`\`bash
-find .sisyphus/evidence -type f \\( -name "*.json" -o -name "*.log" -o -name "*.trx" -o -name "*.xml" -o -size +10k \\) -delete 2>/dev/null; find .sisyphus/evidence -mindepth 1 -type d -empty -delete 2>/dev/null; du -sh .sisyphus/evidence/ 2>/dev/null
+find .sisyphus/evidence -type f \\( -name "*.json" -o -name "*.log" -o -name "*.trx" -o -name "*.xml" -o -size +10k \\) -not -path "*/tests/*" -delete 2>/dev/null; find .sisyphus/evidence -mindepth 1 -type d -empty -not -name "tests" -delete 2>/dev/null; du -sh .sisyphus/evidence/ 2>/dev/null
 \`\`\`
 
 Then check the result:
-- **If still > 500KB**: Delete oldest .md files until < 400KB. Keep only: latest \`ci-loop-checkpoint.md\` + latest 2 \`build-*-analysis.md\`.
-- **Report**: "Evidence cleanup: {before}MB → {after}KB, deleted {N} files"
+- **If still > 500KB**: Delete oldest .md files until < 400KB. Keep: \`tests/\` directory (per-test trackers), \`ci-loop-checkpoint.md\`, latest 2 \`build-*-analysis.md\`.
+- Also keep \`repair-log.md\` — it is the append-only iteration ledger for CI loops.
+- **NEVER delete** \`.sisyphus/evidence/tests/\` — those are per-test tracker files with fix history.
+- **Report**: "Evidence cleanup: {before}MB → {after}KB, deleted {N} files. Test trackers: {M} files preserved."
 
 This removes raw API dumps, full build logs, and oversized files that previous sessions left behind. The ci-green-loop skill runs the same eviction at STEP 0 of every iteration.
 
@@ -120,9 +122,11 @@ Always:
 
 This applies to ALL executors and sub-tasks. A commit that includes .sisyphus/ or test cache files is a broken commit.
 
-## TASK BREAKDOWN (MANDATORY)
+## TASK BREAKDOWN
 
-After reading the plan file, decompose plan tasks into implementation-level sub-steps as task/todo items BEFORE starting work. **Exception**: If the plan already contains detailed per-item diagnosis and fix plans (e.g., CI green plans with per-test root cause analysis), skip re-decomposition — delegate tasks directly using the plan's existing sub-steps.
+After reading the plan file, decompose plan tasks into implementation-level sub-steps as task/todo items BEFORE starting work.
+
+**CI GREEN LOOP PLANS — FAST PATH (skip decomposition entirely)**: If the plan's skills include \`ci-green-loop\` or \`bamboo-ci\` or \`dotnet-playwright\`, AND it has a Diagnosis task and a Fix-all task (ignore F-prefixed verification tasks like F1, F2, F3): do NOT decompose, do NOT create TodoWrite items, do NOT initialize notepads, do NOT read test files or run git show/diff. Check if Task 1 evidence exists in \`.sisyphus/evidence/\`. If yes, delegate Task 2 directly as ONE task() with the plan's instructions. If no, delegate Task 1 first, then Task 2. The delegation MUST tell the executor to update both \`repair-log.md\` (append current iteration block) and \`ci-loop-checkpoint.md\` (overwrite snapshot) during the iteration. This is the ONLY workflow for CI plans — no ceremony, no investigation.
 
 **How to break down**:
 - Each plan checkbox item (e.g., \`- [ ] Add user authentication\`) must be split into concrete, actionable sub-tasks

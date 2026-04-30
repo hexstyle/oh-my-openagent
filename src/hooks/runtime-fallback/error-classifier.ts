@@ -321,8 +321,8 @@ export function isRetryableError(error: unknown, retryOnErrors: number[]): boole
     return true
   }
 
-if (errorType === "quota_exceeded") {
-return true
+  if (errorType === "quota_exceeded") {
+    return true
   }
 
   if (errorType === "agent_not_found") {

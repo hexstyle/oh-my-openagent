@@ -62,6 +62,7 @@ function createHelpers(clearCalls: string[]): AutoRetryHelpers {
     clearSessionFallbackTimeout: (sessionID: string) => {
       clearCalls.push(sessionID)
     },
+    clearSessionTransientRetryTimeout: (_sessionID: string) => {},
     scheduleSessionFallbackTimeout: (_sessionID: string, _args?: { timeoutMsOverride?: number }) => {},
     autoRetryWithFallback: async () => {},
     retryCurrentModel: async () => false,

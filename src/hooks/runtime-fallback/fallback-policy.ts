@@ -176,6 +176,14 @@ export function getSameModelRetryAttemptLimit(
     return 2
   }
 
+  // Network/infra errors (TLS, cert, DNS, ECONNRESET) classified as
+  // unknown_error → retry_same_model_delayed.  These are typically persistent
+  // (proxy misconfiguration, blocked endpoint) — cap retries to avoid burning
+  // tokens for 15 minutes on a problem that won't self-resolve.
+  if (isNetworkError(error)) {
+    return 3
+  }
+
   return undefined
 }
 

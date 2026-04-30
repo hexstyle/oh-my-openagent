@@ -57,6 +57,10 @@ type FirstMessageVariantGate = {
   clear: (sessionID: string) => void;
 };
 
+function getContinuationMarkerDirectory(ctx: PluginContext): string | null {
+  return typeof ctx.directory === "string" && ctx.directory.length > 0 ? ctx.directory : null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -1896,7 +1900,12 @@ function applyUserConfiguredFallbackChain(
 ): void {
   const agentKey = getAgentConfigKey(agentName);
   const rawFallbackModels = getRawFallbackModels(sessionID, agentKey, pluginConfig);
-  if (!rawFallbackModels || rawFallbackModels.length === 0) return;
+  if (rawFallbackModels === undefined) return;
+
+  if (rawFallbackModels.length === 0) {
+    setSessionFallbackChain(sessionID, undefined);
+    return;
+  }
 
   const fallbackChain = buildFallbackChainFromModels(rawFallbackModels, currentProviderID);
 
@@ -1953,9 +1962,18 @@ export function createEventHandler(args: {
   const lastHandledModelErrorMessageID = new Map<string, string>();
   const lastHandledRetryStatusKey = new Map<string, string>();
   const lastKnownModelBySession = new Map<string, { providerID: string; modelID: string }>();
+  const continuationMarkerDirectory = getContinuationMarkerDirectory(args.ctx);
+  const setRecoveryContinuationMarker = (
+    sessionID: string,
+    state: "active" | "idle",
+    reason?: string,
+  ): void => {
+    if (!continuationMarkerDirectory) return;
+    setContinuationMarkerSource(continuationMarkerDirectory, sessionID, "recovery", state, reason);
+  };
   const clearEmptyAssistantRecoveryTimer = (sessionID: string): void => {
     clearSharedEmptyAssistantRecoveryTimer(sessionID);
-    setContinuationMarkerSource(args.ctx.directory, sessionID, "recovery", "idle");
+    setRecoveryContinuationMarker(sessionID, "idle");
   };
 
   const clearAbortedToolRecoveryTimer = (sessionID: string): void => {
@@ -2010,13 +2028,7 @@ export function createEventHandler(args: {
     const previousMeta = emptyAssistantRecoveryTimerMetaBySession.get(sessionID);
     clearEmptyAssistantRecoveryTimer(sessionID);
     const delayMs = getEmptyAssistantRecoveryDelayMs(sessionID, messageID);
-    setContinuationMarkerSource(
-      args.ctx.directory,
-      sessionID,
-      "recovery",
-      "active",
-      "empty assistant recovery is pending",
-    );
+    setRecoveryContinuationMarker(sessionID, "active", "empty assistant recovery is pending");
     const timer = setTimeout(() => {
       void (async () => {
         try {
@@ -2114,7 +2126,7 @@ export function createEventHandler(args: {
           log("[event] delayed empty assistant recovery failed", { sessionID, messageID, error });
         } finally {
           if (!emptyAssistantRecoveryTimers.has(sessionID)) {
-            setContinuationMarkerSource(args.ctx.directory, sessionID, "recovery", "idle");
+            setRecoveryContinuationMarker(sessionID, "idle");
           }
         }
       })();

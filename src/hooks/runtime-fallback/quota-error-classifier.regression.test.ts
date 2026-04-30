@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test"
 import { classifyErrorType, isRetryableError } from "./error-classifier"
 
 describe("runtime-fallback quota error regressions", () => {
-  test("classifies subscription quota errors as quota_exceeded and stops retry", () => {
+  test("classifies subscription quota errors as quota_exceeded and triggers fallback", () => {
     //#given
     const error = {
       name: "AI_APICallError",
@@ -16,10 +16,12 @@ describe("runtime-fallback quota error regressions", () => {
 
     //#then
     expect(errorType).toBe("quota_exceeded")
-    expect(retryable).toBe(false)
+    // Quota errors are retryable to trigger cross-provider fallback
+    // (e.g., Anthropic quota exhausted → try OpenAI)
+    expect(retryable).toBe(true)
   })
 
-  test("treats HTTP 402 payment required as non-retryable", () => {
+  test("treats HTTP 402 payment required as retryable for fallback", () => {
     //#given
     const error = { statusCode: 402, message: "Payment Required" }
 
@@ -27,7 +29,8 @@ describe("runtime-fallback quota error regressions", () => {
     const retryable = isRetryableError(error, [429, 500, 502, 503, 504])
 
     //#then
-    expect(retryable).toBe(false)
+    // 402 triggers quota_exceeded classification → retryable for fallback chain
+    expect(retryable).toBe(true)
   })
 
   test("keeps HTTP 429 rate limit retryable", () => {
@@ -41,7 +44,7 @@ describe("runtime-fallback quota error regressions", () => {
     expect(retryable).toBe(true)
   })
 
-  test("classifies quota error names as quota_exceeded without retry", () => {
+  test("classifies quota error names as quota_exceeded and triggers fallback", () => {
     //#given
     const error = { name: "QuotaExceededError", message: "Request failed." }
 
@@ -51,6 +54,7 @@ describe("runtime-fallback quota error regressions", () => {
 
     //#then
     expect(errorType).toBe("quota_exceeded")
-    expect(retryable).toBe(false)
+    // QuotaExceededError triggers fallback to try a different provider
+    expect(retryable).toBe(true)
   })
 })

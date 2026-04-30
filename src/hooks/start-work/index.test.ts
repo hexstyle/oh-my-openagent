@@ -122,6 +122,94 @@ describe("start-work hook", () => {
       expect(readBoulderState(testDir)?.session_ids).toContain("session-raw-start-work")
     })
 
+    test("activates CI fast path and requires structured repair-log plus checkpoint updates", async () => {
+      const plansDir = join(testDir, ".sisyphus", "plans")
+      const evidenceDir = join(testDir, ".sisyphus", "evidence")
+      mkdirSync(plansDir, { recursive: true })
+      mkdirSync(evidenceDir, { recursive: true })
+
+      writeFileSync(
+        join(plansDir, "ci-green-final.md"),
+        `# Plan
+
+**Skills**: \`ci-green-loop\`, \`bamboo-ci\`, \`dotnet-playwright\`
+
+## TODOs
+- [x] 1. **T1 — Diagnosis**
+- [ ] 2. **T2 — Fix ALL failures**
+`,
+      )
+      writeFileSync(join(evidenceDir, "build-315-analysis.md"), "# Build 315\n")
+      writeFileSync(join(evidenceDir, "ci-loop-checkpoint.md"), "# checkpoint\n")
+      writeFileSync(join(evidenceDir, "repair-log.md"), "# repair log\n")
+
+      const hook = createStartWorkHook(createMockPluginInput())
+      const output = {
+        message: {},
+        parts: [{ type: "text", text: "/start-work ci-green-final" }],
+      }
+
+      await hook["chat.message"](
+        { sessionID: "session-ci-fast-path" },
+        output,
+      )
+
+      const text = output.parts[0].text
+      expect(text).toContain("CI FAST PATH — ACTIVE")
+      expect(text).toContain(".sisyphus/evidence/ci-loop-checkpoint.md")
+      expect(text).toContain(".sisyphus/evidence/repair-log.md")
+      expect(text).toContain("Validate `.sisyphus/evidence/repair-log.md`")
+      expect(text).toContain("`## Iteration ...` block")
+      expect(text).toContain("free-form")
+      expect(text).toContain("Update `.sisyphus/evidence/repair-log.md`")
+      expect(text).toContain("Update `.sisyphus/evidence/ci-loop-checkpoint.md`")
+      expect(text).toContain("tracker counts/statuses reconcile with the current failing-test count")
+      expect(output.message?.agent).toBe("Sisyphus (Ultraworker)")
+    })
+
+    test("ci fast path surfaces per-test tracker discipline when tracker files exist", async () => {
+      const plansDir = join(testDir, ".sisyphus", "plans")
+      const evidenceDir = join(testDir, ".sisyphus", "evidence")
+      const testsDir = join(evidenceDir, "tests")
+      mkdirSync(plansDir, { recursive: true })
+      mkdirSync(testsDir, { recursive: true })
+
+      writeFileSync(
+        join(plansDir, "ci-green-final.md"),
+        `# Plan
+
+**Skills**: \`ci-green-loop\`, \`bamboo-ci\`, \`dotnet-playwright\`
+
+## TODOs
+- [x] 1. **T1 — Diagnosis**
+- [ ] 2. **T2 — Fix ALL failures**
+`,
+      )
+      writeFileSync(join(evidenceDir, "build-315-analysis.md"), "# Build 315\n")
+      writeFileSync(join(evidenceDir, "ci-loop-checkpoint.md"), "# checkpoint\n")
+      writeFileSync(join(evidenceDir, "repair-log.md"), "# repair log\n")
+      writeFileSync(
+        join(testsDir, "ScenarioE2ETests.Scenario_NewlyCreatedScenario.md"),
+        "# tracker\n## Status: failing\n",
+      )
+
+      const hook = createStartWorkHook(createMockPluginInput())
+      const output = {
+        message: {},
+        parts: [{ type: "text", text: "/start-work ci-green-final" }],
+      }
+
+      await hook["chat.message"](
+        { sessionID: "session-ci-fast-path-trackers" },
+        output,
+      )
+
+      const text = output.parts[0].text
+      expect(text).toContain(".sisyphus/evidence/tests/")
+      expect(text).toContain("Do NOT repeat approaches that already failed")
+      expect(text).toContain("tracker counts/statuses must reconcile with the current failing-test count")
+    })
+
     test("should inject resume info when existing boulder state found", async () => {
       // given - existing boulder state with incomplete plan
       const planPath = join(testDir, "test-plan.md")

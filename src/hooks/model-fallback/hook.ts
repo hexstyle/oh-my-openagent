@@ -41,6 +41,7 @@ const pendingModelFallbacks = new Map<string, ModelFallbackState>()
 const lastToastKey = new Map<string, string>()
 const sessionFallbackChains = new Map<string, FallbackEntry[]>()
 const trustedSessionFallbackChains = new Set<string>()
+const disabledSessionFallbackChains = new Set<string>()
 
 function canonicalizeModelID(modelID: string): string {
   return modelID
@@ -52,14 +53,39 @@ export function setSessionFallbackChain(
   sessionID: string,
   fallbackChain: FallbackEntry[] | undefined,
   options?: { trustUnknownModels?: boolean },
+): void
+export function setSessionFallbackChain(
+  _legacyHook: unknown,
+  sessionID: string,
+  fallbackChain: FallbackEntry[] | undefined,
+): void
+export function setSessionFallbackChain(
+  sessionIDOrLegacyHook: string | unknown,
+  fallbackChainOrSessionID: FallbackEntry[] | string | undefined,
+  optionsOrFallbackChain?: { trustUnknownModels?: boolean } | FallbackEntry[],
 ): void {
+  const sessionID = typeof sessionIDOrLegacyHook === "string"
+    ? sessionIDOrLegacyHook
+    : typeof fallbackChainOrSessionID === "string"
+      ? fallbackChainOrSessionID
+      : ""
+  const fallbackChain = Array.isArray(fallbackChainOrSessionID)
+    ? fallbackChainOrSessionID
+    : Array.isArray(optionsOrFallbackChain)
+      ? optionsOrFallbackChain
+      : undefined
+  const options = (
+    !Array.isArray(optionsOrFallbackChain) ? optionsOrFallbackChain : undefined
+  ) as { trustUnknownModels?: boolean } | undefined
   if (!sessionID) return
   if (!fallbackChain || fallbackChain.length === 0) {
     sessionFallbackChains.delete(sessionID)
     trustedSessionFallbackChains.delete(sessionID)
+    disabledSessionFallbackChains.add(sessionID)
     return
   }
   sessionFallbackChains.set(sessionID, fallbackChain)
+  disabledSessionFallbackChains.delete(sessionID)
   if (options?.trustUnknownModels) {
     trustedSessionFallbackChains.add(sessionID)
   } else {
@@ -70,6 +96,7 @@ export function setSessionFallbackChain(
 export function clearSessionFallbackChain(sessionID: string): void {
   sessionFallbackChains.delete(sessionID)
   trustedSessionFallbackChains.delete(sessionID)
+  disabledSessionFallbackChains.delete(sessionID)
 }
 
 /**
@@ -85,12 +112,15 @@ export function setPendingModelFallback(
   const agentKey = getAgentConfigKey(agentName)
   const requirements = AGENT_MODEL_REQUIREMENTS[agentKey]
   const sessionFallback = sessionFallbackChains.get(sessionID)
+  const sessionFallbackDisabled = disabledSessionFallbackChains.has(sessionID)
   const usesSessionFallbackChain = !!(sessionFallback && sessionFallback.length > 0)
   const trustSessionFallbackChain =
     usesSessionFallbackChain && trustedSessionFallbackChains.has(sessionID)
   const fallbackChain = usesSessionFallbackChain
     ? sessionFallback
-    : requirements?.fallbackChain
+    : sessionFallbackDisabled
+      ? undefined
+      : requirements?.fallbackChain
 
   if (!fallbackChain || fallbackChain.length === 0) {
     log("[model-fallback] No fallback chain for agent: " + agentName + " (key: " + agentKey + ")")
@@ -318,4 +348,5 @@ export function _resetForTesting(): void {
   lastToastKey.clear()
   sessionFallbackChains.clear()
   trustedSessionFallbackChains.clear()
+  disabledSessionFallbackChains.clear()
 }

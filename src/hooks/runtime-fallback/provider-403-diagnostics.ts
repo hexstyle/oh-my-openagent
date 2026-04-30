@@ -10,6 +10,19 @@ import {
 
 type Tracked403ProviderFamily = "claude" | "codex"
 
+function hasExplicit403StatusCode(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false
+  const obj = error as Record<string, unknown>
+  const candidates = [
+    obj.statusCode,
+    obj.status,
+    (obj.data as Record<string, unknown> | undefined)?.statusCode,
+    (obj.error as Record<string, unknown> | undefined)?.statusCode,
+    (obj.cause as Record<string, unknown> | undefined)?.statusCode,
+  ]
+  return candidates.some((code) => code === 403)
+}
+
 function isRequestNotAllowedForbiddenError(error: unknown): boolean {
   const message = getErrorMessage(error)
   if (/\brequest not allowed\b/i.test(message)) {
@@ -32,9 +45,16 @@ export function getTrackedProvider403Details(args: {
     return undefined
   }
 
+  // Any 403 from a tracked provider (Claude/Codex) is an access block that
+  // benefits from a session restart.  Previously only "request not allowed" and
+  // gateway-blocked patterns matched, so a plain "forbidden" 403 would slip
+  // through and cascade to free models instead of triggering external restart.
+  // Use hasExplicit403StatusCode to avoid matching "403" in unrelated message
+  // text (e.g. "remote compact task: unexpected status 403 Forbidden").
   const isAccessBlocked403 =
     isGatewayBlockedForbiddenError(args.error)
     || isRequestNotAllowedForbiddenError(args.error)
+    || hasExplicit403StatusCode(args.error)
 
   if (!isAccessBlocked403) {
     return undefined

@@ -1,7 +1,7 @@
 import type { OhMyOpenCodeConfig } from "../config"
 import type { PluginContext } from "./types"
 
-import { hasConnectedProvidersCache } from "../shared"
+import { hasConnectedProvidersCache, log } from "../shared"
 import { getSessionModel, setSessionModel } from "../shared/session-model-state"
 import { getMainSessionID, setSessionAgent, subagentSessions } from "../features/claude-code-session-state"
 import { applyUltraworkModelOverrideOnMessage } from "./ultrawork-model-override"
@@ -120,6 +120,16 @@ export function createChatMessageHandler(args: {
     input: ChatMessageInput,
     output: ChatMessageHandlerOutput
   ): Promise<void> => {
+    const promptPreview = output.parts
+      ?.filter((p) => p.type === "text")
+      .map((p) => (p.text ?? "").slice(0, 60))
+      .join("|") || "(empty)"
+    log("[chat.message] ENTRY", {
+      sessionID: input.sessionID,
+      agent: input.agent,
+      promptPreview,
+    })
+
     if (input.agent) {
       setSessionAgent(input.sessionID, input.agent)
     }

@@ -325,7 +325,7 @@ describe("runtime-fallback recent completion replay guard", () => {
     expect(promptAsyncCalls).toHaveLength(1)
     expect(promptAsyncCalls[0]).toEqual({
       sessionID,
-      agent: undefined,
+      agent: "Prometheus (Plan Builder)",
     })
   })
 })

@@ -823,13 +823,24 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       }
     }
 
-    const preferFreshTrackedProvider403Handoff =
-      getRuntimeFallbackTier(state.currentModel) === "paid"
-      && shouldPreferFreshTrackedProvider403Handoff({
-        model: state.currentModel,
-        error: effectiveError,
-        isScopedFallbackChild: state.isScopedFallbackChild,
+    const tier403 = getRuntimeFallbackTier(state.currentModel)
+    const shouldPrefer403 = shouldPreferFreshTrackedProvider403Handoff({
+      model: state.currentModel,
+      error: effectiveError,
+      isScopedFallbackChild: state.isScopedFallbackChild,
+    })
+    const preferFreshTrackedProvider403Handoff = tier403 === "paid" && shouldPrefer403
+    if (isSameModelRetryAction(action)) {
+      log(`[${HOOK_NAME}] 403 handoff evaluation`, {
+        sessionID,
+        currentModel: state.currentModel,
+        tier: tier403,
+        shouldPrefer403,
+        preferFreshHandoff: preferFreshTrackedProvider403Handoff,
+        isScopedChild: state.isScopedFallbackChild,
+        action,
       })
+    }
     const shouldPreferInPlacePreludeRetry =
       bootstrappedFromAgentModelForPrelude403
       && state.lastMeaningfulProgressAt === undefined

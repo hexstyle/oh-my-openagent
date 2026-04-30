@@ -68,6 +68,8 @@ import { hasVisibleAssistantEventContent } from "./visible-assistant-response"
 import { extractAutoRetrySignal } from "./error-classifier"
 import { getScopedFallbackParentSessionHint, rememberScopedFallbackSessionHint } from "./scoped-fallback-hints"
 import { markGlobalModelCooldown } from "./global-model-cooldown"
+import { reapOrphans } from "../../features/background-agent/orphan-reaper"
+import { ProcessTracker } from "../../features/background-agent/process-tracker"
 
 const SESSION_TTL_MS = 30 * 60 * 1000
 const EXTERNAL_WATCHDOG_RESPAWN_MS = 10_000
@@ -100,6 +102,9 @@ const RECOVERY_PROBE_FAILURE_PATTERNS = [
   /\bpayment required\b/i,
   /continue the current task from where you left off/i,
 ]
+
+const runtimeFallbackProcessTracker = new ProcessTracker()
+let orphanReaperStarted = false
 
 type RuntimeFallbackSessionStatus = {
   type?: string
@@ -331,7 +336,7 @@ function buildScopedFallbackHandoffPrompt(args: {
   lastUserRetryParts: Array<{ type?: string; text?: string }>
 }): string {
   const brief = formatScopedFallbackBrief(args.lastUserRetryParts)
-  return `Scoped fallback handoff (parent: ${args.parentSessionID}, model: ${args.newModel}).\nContinue from existing project state. Do not redo completed work. Focus on next unresolved step.\n\nTask brief:\n${brief}`
+  return `Scoped fallback handoff (parent: ${args.parentSessionID}, model: ${args.newModel}).\nContinue from existing project state. Do not redo completed work. Focus on next unresolved step.\nIMPORTANT: Do NOT delegate to subagents (call_omo_agent/task). Execute all remaining work directly in this session. Spawning child agents from a fallback session wastes tokens by duplicating work already in progress.\n\nTask brief:\n${brief}`
 }
 
 function buildFreshPaidRetryHandoffPrompt(args: {
@@ -531,6 +536,26 @@ function isBlockingDescendantSessionStatus(type: string | undefined): boolean {
   return type === "busy" || type === "retry" || type === "running"
 }
 
+function ensureRuntimeFallbackOrphanReaperStarted(): void {
+  if (orphanReaperStarted) {
+    return
+  }
+  orphanReaperStarted = true
+  void reapOrphans()
+    .then((report) => {
+      if (
+        report.killed.length > 0
+        || report.alreadyDead.length > 0
+        || report.errors.length > 0
+      ) {
+        log(`[${HOOK_NAME}] Startup orphan reaper scanned tracked roots`, report)
+      }
+    })
+    .catch((error) => {
+      log(`[${HOOK_NAME}] Startup orphan reaper failed`, { error: String(error) })
+    })
+}
+
 export function createAutoRetryHelpers(deps: HookDeps) {
   const {
     ctx,
@@ -549,6 +574,7 @@ export function createAutoRetryHelpers(deps: HookDeps) {
   } = deps
   const sessionTimeoutRecoveryInProgress =
     deps.sessionTimeoutRecoveryInProgress ?? new Set<string>()
+  ensureRuntimeFallbackOrphanReaperStarted()
   const externalWatchdogSpawnedAt = new Map<string, number>()
   const recoveryProbeLastAttemptAt = new Map<string, number>()
   const sessionFallbackTimeoutTokens = new Map<string, symbol>()
@@ -594,6 +620,7 @@ export function createAutoRetryHelpers(deps: HookDeps) {
       process.kill(pid, "SIGKILL")
     } catch {
     }
+    untrackDetachedProcess(pid)
   }
 
   const hasLiveExternalWatchdogProcess = (sessionID: string): boolean => {
@@ -618,6 +645,31 @@ export function createAutoRetryHelpers(deps: HookDeps) {
     } catch {
     }
     terminateExternalWatchdogProcess(sessionID)
+  }
+
+  const trackDetachedProcess = (args: {
+    pid?: number
+    kind: "watchdog" | "probe"
+    sessionID: string
+    command: string
+  }): void => {
+    if (!args.pid || args.pid <= 0) {
+      return
+    }
+    runtimeFallbackProcessTracker.register({
+      pid: args.pid,
+      pgid: process.platform !== "win32" ? args.pid : undefined,
+      kind: args.kind,
+      sessionID: args.sessionID,
+      command: args.command,
+    })
+  }
+
+  const untrackDetachedProcess = (pid?: number): void => {
+    if (!pid || pid <= 0) {
+      return
+    }
+    runtimeFallbackProcessTracker.markExited(pid)
   }
 
   const splitWatchdogCliModel = (model: string): {
@@ -819,6 +871,12 @@ fi
       )
       child.unref()
       if (child.pid) {
+        trackDetachedProcess({
+          pid: child.pid,
+          kind: "watchdog",
+          sessionID: args.sessionID,
+          command: "runtime-fallback-watchdog",
+        })
         try {
           writeFileSync(getExternalWatchdogPidPath(args.sessionID), String(child.pid))
         } catch (error) {
@@ -830,12 +888,14 @@ fi
         }
 
         child.on("exit", () => {
+          untrackDetachedProcess(child.pid)
           const activePid = readExternalWatchdogPid(args.sessionID)
           if (activePid === child.pid) {
             clearExternalWatchdogPid(args.sessionID)
           }
         })
         child.on("error", () => {
+          untrackDetachedProcess(child.pid)
           const activePid = readExternalWatchdogPid(args.sessionID)
           if (activePid === child.pid) {
             clearExternalWatchdogPid(args.sessionID)
@@ -2403,16 +2463,24 @@ fi
       child.unref()
 
       if (child.pid) {
+        trackDetachedProcess({
+          pid: child.pid,
+          kind: "watchdog",
+          sessionID: args.sessionID,
+          command: "runtime-fallback-403-restart",
+        })
         try {
           writeFileSync(getExternalWatchdogPidPath(args.sessionID), String(child.pid))
         } catch {}
         child.on("exit", () => {
+          untrackDetachedProcess(child.pid)
           const activePid = readExternalWatchdogPid(args.sessionID)
           if (activePid === child.pid) {
             clearExternalWatchdogPid(args.sessionID)
           }
         })
         child.on("error", () => {
+          untrackDetachedProcess(child.pid)
           const activePid = readExternalWatchdogPid(args.sessionID)
           if (activePid === child.pid) {
             clearExternalWatchdogPid(args.sessionID)
@@ -2608,6 +2676,12 @@ fi
             },
           },
         )
+        trackDetachedProcess({
+          pid: child.pid,
+          kind: "probe",
+          sessionID,
+          command: `runtime-fallback-recovery-probe:${cliModel.model}`,
+        })
       } catch (error) {
         clearTimeout(timeout)
         log(`[${HOOK_NAME}] Failed to spawn recovery probe`, {
@@ -2629,11 +2703,13 @@ fi
 
       child.on("error", () => {
         clearTimeout(timeout)
+        untrackDetachedProcess(child?.pid)
         finalize(false)
       })
 
       child.on("close", (code) => {
         clearTimeout(timeout)
+        untrackDetachedProcess(child?.pid)
         const output = `${stdout}\n${stderr}`
         finalize(didRecoveryProbeSucceed(code, output))
       })
@@ -2728,11 +2804,7 @@ fi
     sessionID: string,
     state: FallbackState,
   ): Promise<boolean> => {
-    if (sessionRetryInFlight.has(sessionID) || sessionAwaitingFallbackResult.has(sessionID)) {
-      return false
-    }
-
-    if (sessionFallbackTimeouts.has(sessionID) || sessionTransientRetryTimeouts.has(sessionID)) {
+    if (sessionRetryInFlight.has(sessionID)) {
       return false
     }
 
@@ -2746,7 +2818,38 @@ fi
     }
 
     const lastAccessAgeMs = Math.max(0, Date.now() - lastAccess)
-    if (lastAccessAgeMs < STALLED_SESSION_NUDGE_MS) {
+
+    // When the session is awaiting fallback result (scoped child is running)
+    // or has an armed timeout, only allow nudge if the session itself has been
+    // without meaningful progress for 2× the nudge threshold.  This breaks the
+    // deadlock where child-session activity keeps refreshing the parent timeout
+    // while the parent itself is stuck.
+    const isAwaiting = sessionAwaitingFallbackResult.has(sessionID)
+    const hasArmedTimeout = sessionFallbackTimeouts.has(sessionID) || sessionTransientRetryTimeouts.has(sessionID)
+    if (isAwaiting || hasArmedTimeout) {
+      const ownProgressAge = typeof state.lastMeaningfulProgressAt === "number"
+        ? Math.max(0, Date.now() - state.lastMeaningfulProgressAt)
+        : lastAccessAgeMs
+      const hardStallThresholdMs = STALLED_SESSION_NUDGE_MS * 2
+      if (ownProgressAge < hardStallThresholdMs) {
+        return false
+      }
+
+      // Session's own progress is stale beyond the hard threshold — clear
+      // the awaiting state and armed timeout so the nudge can proceed.
+      if (isAwaiting) {
+        sessionAwaitingFallbackResult.delete(sessionID)
+      }
+      clearSessionFallbackTimeout(sessionID)
+
+      log(`[${HOOK_NAME}] Breaking stalled-session deadlock — parent awaiting fallback with no own progress`, {
+        sessionID,
+        currentModel: state.currentModel,
+        ownProgressAgeMs: ownProgressAge,
+        hardStallThresholdMs,
+        wasAwaiting: isAwaiting,
+      })
+    } else if (lastAccessAgeMs < STALLED_SESSION_NUDGE_MS) {
       return false
     }
 
