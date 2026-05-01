@@ -229,6 +229,8 @@ ${librarianSection}
 - In evidence-gated CI mode, read the core evidence directly with tools first. Do NOT fire Explore/Librarian just to summarize the plan, checkpoint, repair-log, or failing-test map.
 - While stale-plan rebase, failure-count drift, Task-2 rewrite, or root-cause reconciliation is still open, background delegation is FORBIDDEN.
 - After the core evidence is reconciled, delegate only if a single concrete unanswered question still blocks a code edit. Launch at most ONE background research agent at a time for that question.
+- In evidence-gated CI mode, once you have read the dirty candidate files, the directly failing tests/helpers, and enough app code to name at least one code-backed action per failure cluster, STOP researching and start the edit batch immediately.
+- Do NOT open a second-wave adjacent-code audit in evidence-gated CI mode just to gain confidence. Extra source inspection is allowed only after the first edit batch fails local verification.
 - If waiting on a background result and there is no non-overlapping work, end your response immediately. Do not poll, do not idle, do not launch speculative sidecars.
 </ci_fast_path_override>
 
