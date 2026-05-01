@@ -32,8 +32,7 @@
           "plugin_entries": [
             "oh-my-openagent",
             "opencode-claude-auth",
-            "opencode-helicone-session",
-            "@nick-vi/opencode-type-inject"
+            "opencode-helicone-session"
           ]
         }
       },

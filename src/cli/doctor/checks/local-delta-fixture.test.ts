@@ -116,7 +116,6 @@ describe("local delta fixture regression", () => {
       "oh-my-openagent",
       "opencode-claude-auth",
       "opencode-helicone-session",
-      "@nick-vi/opencode-type-inject",
     ])
 
     const modelPolicyEntry = getEntry("config_only_deltas", "role-specific-model-policy")

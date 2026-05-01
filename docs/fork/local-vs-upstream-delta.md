@@ -14,7 +14,6 @@ This fork is no longer treated as a broad local parity playground. The supported
 - The host config also carries repo-managed shell instructions and explicit package-plugin entries for:
   - `opencode-claude-auth`
   - `opencode-helicone-session`
-  - `@nick-vi/opencode-type-inject`
 - The managed config keeps the fork model policy explicit:
   - controller/review roles stay `anthropic/claude-opus-4-6` first
   - deep workers stay `openai/gpt-5.4` first

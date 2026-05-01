@@ -17,7 +17,6 @@ Upstream reference at the last synced README:
 - the managed local baseline also installs:
   - `opencode-claude-auth`
   - `opencode-helicone-session`
-  - `@nick-vi/opencode-type-inject`
   - a built-in non-interactive shell instruction set equivalent to `opencode-shell-strategy`
 
 Primary model picture in this fork:
@@ -274,5 +273,4 @@ Skill scopes (highest priority wins):
 - the live plugin entry is rewritten to `file:///absolute/path/to/this/repo`
 - only the managed JSON config surface is synced into the live OpenCode config dir
 - `opencode-helicone-session` is inert until you configure a Helicone-backed provider
-- `@nick-vi/opencode-type-inject` is active after install and augments TypeScript/Svelte reads plus adds type lookup tools
 - upstream feature docs still apply unless this fork says otherwise

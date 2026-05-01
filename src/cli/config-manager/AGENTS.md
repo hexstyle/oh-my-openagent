@@ -20,7 +20,6 @@ This directory owns install-time config writing. In this fork, install-time conf
   - `file://<repo-root>`
   - `opencode-claude-auth`
   - `opencode-helicone-session`
-  - `@nick-vi/opencode-type-inject`
 - The managed host config may also reference repo-owned instruction files through `./node_modules/oh-my-openagent/...`.
 - Live plugin config basename must be `oh-my-openagent.json`.
 - Legacy live plugin basenames like `oh-my-opencode.json` should be removed during managed install.

@@ -119,7 +119,6 @@ That command must remain able to:
 - install the managed runtime package set into `~/.cache/opencode`:
   - `opencode-claude-auth`
   - `opencode-helicone-session`
-  - `@nick-vi/opencode-type-inject`
 - keep the built-in shell-strategy equivalent wired through the managed `instructions` path in `opencode.json`
 - sync `Codex` OAuth into the OpenCode auth store when `~/.codex/auth.json` exists
 - validate the effective model config against a refreshed model catalog
@@ -249,7 +248,6 @@ bun test src/hooks/runtime-fallback/error-classifier.test.ts src/hooks/runtime-f
 
 - Safe managed baseline additions in this fork currently include:
   - `opencode-helicone-session`
-  - `@nick-vi/opencode-type-inject`
 - `opencode-shell-strategy` is not a normal runtime npm plugin. Keep its behavior vendored as repo-managed instructions instead of adding a git-clone side path to the installer.
 - `opencode-supermemory` must remain out of the managed baseline unless the compaction stack is intentionally redesigned around it.
 - `src/shared/external-plugin-detector.ts` is where warnings for overlapping external plugins belong.
