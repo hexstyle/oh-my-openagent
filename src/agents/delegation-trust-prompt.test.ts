@@ -125,6 +125,7 @@ describe("delegation trust prompt rules", () => {
     expect(prompt).toContain("Launch at most ONE background research agent at a time")
     expect(prompt).toContain("STOP researching and start the edit batch immediately")
     expect(prompt).toContain("Do NOT open a second-wave adjacent-code audit")
+    expect(prompt).toContain("maximum discovery budget after the evidence pass")
     expect(prompt).toContain("Do not poll, do not idle")
   })
 
