@@ -407,9 +407,9 @@ Your job is to CATCH THEM. Assume every claim is false until YOU personally veri
 1. Read plan ONCE
 2. If Task 1 evidence exists in \`.sisyphus/evidence/\`, skip to Task 2
 3. Check for CI evidence files:
-   - Read only the core CI evidence first: \`AGENTS.md\`, \`.sisyphus/boulder.json\`, active plan, \`.sisyphus/evidence/ci-loop-checkpoint.md\`, \`.sisyphus/evidence/repair-log.md\`, latest build analysis/failure analysis, and \`.sisyphus/evidence/tests/\`
+   - Read only the core CI evidence first: \`AGENTS.md\`, \`.sisyphus/boulder.json\`, active plan, \`.sisyphus/evidence/ci-loop-checkpoint.md\`, \`.sisyphus/evidence/repair-log.md\`, latest build analysis/failure analysis, and \`.sisyphus/evidence/tests/\` if that directory exists
    - Do NOT glob historical notepads or \`.sisyphus/run-continuation/\` unless the core evidence is insufficient
-   - \`ls .sisyphus/evidence/tests/\`
+   - If tracker directory exists, \`ls .sisyphus/evidence/tests/\`; otherwise continue without tracker history
    - \`test -f .sisyphus/evidence/ci-loop-checkpoint.md\`
    - \`test -f .sisyphus/evidence/repair-log.md\`
    Include all existing evidence paths in the delegation prompt.

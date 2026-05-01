@@ -446,9 +446,9 @@ You are the QA gate. Subagents lie. Verify EVERYTHING.
 1. Read the plan file ONCE
 2. If Task 1 (Diagnosis) evidence already exists in \`.sisyphus/evidence/\`, skip Task 1 — go directly to Task 2
 3. Check for CI evidence files:
-   - Read only the core CI evidence first: \`AGENTS.md\`, \`.sisyphus/boulder.json\`, active plan, \`.sisyphus/evidence/ci-loop-checkpoint.md\`, \`.sisyphus/evidence/repair-log.md\`, latest build analysis/failure analysis, and \`.sisyphus/evidence/tests/\`
+   - Read only the core CI evidence first: \`AGENTS.md\`, \`.sisyphus/boulder.json\`, active plan, \`.sisyphus/evidence/ci-loop-checkpoint.md\`, \`.sisyphus/evidence/repair-log.md\`, latest build analysis/failure analysis, and \`.sisyphus/evidence/tests/\` if that directory exists
    - Do NOT glob historical notepads or \`.sisyphus/run-continuation/\` unless the core evidence is insufficient
-   - \`ls .sisyphus/evidence/tests/\` for per-test tracker files
+   - If tracker directory exists, \`ls .sisyphus/evidence/tests/\` for per-test tracker files; otherwise continue without tracker history
    - \`test -f .sisyphus/evidence/ci-loop-checkpoint.md\`
    - \`test -f .sisyphus/evidence/repair-log.md\`
    Include all existing evidence paths in the delegation prompt.
@@ -466,7 +466,7 @@ You are the QA gate. Subagents lie. Verify EVERYTHING.
    \`\`\`
    - category = plan's specified category (check the "Agent Dispatch Summary" table in the plan)
    - load_skills = plan's specified skills
-   - Prompt MUST include: plan file path, Task 2 instructions from the plan, evidence file paths, test tracker directory path (\`.sisyphus/evidence/tests/\`), and an explicit reminder to append the current iteration block to \`.sisyphus/evidence/repair-log.md\` and keep \`ci-loop-checkpoint.md\` in sync.
+   - Prompt MUST include: plan file path, Task 2 instructions from the plan, evidence file paths, tracker directory path only if it exists, and an explicit reminder to append the current iteration block to \`.sisyphus/evidence/repair-log.md\` and keep \`ci-loop-checkpoint.md\` in sync.
    - Prompt MUST also require: reconcile conflicting root-cause hypotheses between plan/checkpoint/repair-log before editing code; distinguish trigger-only builds from code-changing revisions in the evidence; restate the pre-push gate (\`dotnet build\`, local targeted test filter, staged-tree/symbol completeness).
    - Ownership is explicit: Atlas owns dispatch only; the executor owns evidence updates, verification, commit/push, and final DoD accounting.
    - Compact prompt — do NOT pad to 30 lines.
