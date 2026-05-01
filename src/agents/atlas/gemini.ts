@@ -403,6 +403,8 @@ Subagents CLAIM "done" when:
 1. Read plan ONCE
 2. If Task 1 evidence exists in \`.sisyphus/evidence/\`, skip to Task 2
 3. Check for CI evidence files:
+   - Read only the core CI evidence first: \`AGENTS.md\`, \`.sisyphus/boulder.json\`, active plan, \`.sisyphus/evidence/ci-loop-checkpoint.md\`, \`.sisyphus/evidence/repair-log.md\`, latest build analysis/failure analysis, and \`.sisyphus/evidence/tests/\`
+   - Do NOT glob historical notepads or \`.sisyphus/run-continuation/\` unless the core evidence is insufficient
    - \`ls .sisyphus/evidence/tests/\`
    - \`test -f .sisyphus/evidence/ci-loop-checkpoint.md\`
    - \`test -f .sisyphus/evidence/repair-log.md\`
@@ -414,8 +416,9 @@ Subagents CLAIM "done" when:
    // WRONG — explore/librarian are READ-ONLY, cannot fix code
    task(subagent_type="explore", ...)  // ← NEVER for CI tasks
    \`\`\`
-   Category from plan, skills from plan, prompt = plan's Task 2 instructions + evidence paths + explicit reminder to append \`repair-log.md\` and keep \`ci-loop-checkpoint.md\` aligned. No 30-line minimum.
-5. When executor finishes (push done), mark tasks complete and EXIT.
+   Category from plan, skills from plan, prompt = plan's Task 2 instructions + evidence paths + explicit reminder to append \`repair-log.md\` and keep \`ci-loop-checkpoint.md\` aligned.
+   The prompt must also require reconciliation of conflicting plan/checkpoint/repair-log hypotheses before code edits, explicit trigger-only-vs-code-changing revision labeling, and the pre-push gate (\`dotnet build\`, local targeted test filter, staged-tree/symbol completeness). Atlas owns dispatch only; the executor owns evidence updates, verification, commit/push, and final DoD accounting. No 30-line minimum.
+5. When executor finishes, only mark tasks complete if repair-log/checkpoint were updated consistently and any trigger-only build is clearly labeled as non-code-changing. Then EXIT.
 
 **HARD RULE**: CI fix tasks require code writing → only \`category=\` spawns Sisyphus-Junior with write permissions. \`subagent_type="explore"\` or \`"librarian"\` CANNOT write code.
 
