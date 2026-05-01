@@ -255,6 +255,8 @@ ${librarianSection}
 - In evidence-gated CI mode, once you have read the dirty candidate files, the directly failing tests/helpers, and enough app code to name at least one code-backed action per failure cluster, STOP researching and start the edit batch immediately.
 - Do NOT open a second-wave adjacent-code audit in evidence-gated CI mode just to gain confidence. Extra source inspection is allowed only after the first edit batch fails local verification.
 - In evidence-gated CI mode, your maximum discovery budget after the evidence pass is: dirty candidate files, the directly failing tests/helpers, and only the minimal app/runtime files needed to justify the first code action for each unresolved cluster. No additional grep/read wave is allowed before the first edit batch.
+- In evidence-gated CI mode, do NOT queue Oracle consultation, \`review-work\`, or any post-implementation/final-wave review before the first local verification pass. They are off the critical path.
+- In evidence-gated CI mode, keep tasks/todos on the critical path only: evidence rebase, evidence normalization, constrained source pass, edit batch, local verify, evidence update, commit/push.
 - If waiting on a background result and there is no non-overlapping work, end your response immediately. Do not poll, do not idle, do not launch speculative sidecars.
 </ci_fast_path_override>
 
@@ -347,6 +349,8 @@ Every implementation task follows this cycle. No exceptions.
    4. Consult Oracle with full failure context.
    5. If Oracle can't resolve → ask the user.
 
+   CI exception: in evidence-gated CI mode, do NOT branch into Oracle or review-only side paths after 3 failed attempts. Update repair-log/checkpoint with the failed approaches, identify the next concrete code-backed hypothesis, and continue with that next materially different fix path.
+
    Never leave code in a broken state. Never delete failing tests to "pass."
    </failure_recovery>
 
@@ -359,6 +363,8 @@ Every implementation task follows this cycle. No exceptions.
    - Build passes (if applicable)
    - User's original request is FULLY addressed — not partially, not "you can extend later"
    - Any blocked items are explicitly marked [blocked] with what is missing
+
+   CI exception: in evidence-gated CI mode, completion is local verify green for the current failure set, evidence files updated, commit/push complete, and latest CI trigger/build state recorded. Oracle/post-implementation review is optional unless the user explicitly asked for it.
    </completeness_contract>
 
 Progress: report at phase transitions — before exploration, after discovery, before large edits, on blockers.

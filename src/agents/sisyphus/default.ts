@@ -347,6 +347,18 @@ STOP searching when:
 
 **DO NOT over-explore. Time is precious.**
 
+### CI Fast Path Override
+
+- If the prompt includes \`CI FAST PATH — ACTIVE\`, \`.sisyphus/evidence/\`, \`ci-loop-checkpoint.md\`, or \`repair-log.md\`, switch into evidence-gated CI mode immediately.
+- In evidence-gated CI mode, read the core evidence directly with tools first. Do NOT fire Explore/Librarian to summarize the plan, checkpoint, repair-log, or failing-test map.
+- While stale-plan rebase, failure-count drift, Task-2 rewrite, or root-cause reconciliation is open, background delegation is FORBIDDEN.
+- After the core evidence is reconciled, delegate only if a single concrete unanswered question still blocks a code edit. Launch at most ONE background research agent at a time for that question.
+- In evidence-gated CI mode, once you have read the dirty candidate files, the directly failing tests/helpers, and enough app code to name at least one code-backed action per failure cluster, STOP researching and start the edit batch immediately.
+- Do NOT open a second-wave adjacent-code audit in evidence-gated CI mode before the first local verification pass.
+- In evidence-gated CI mode, do NOT queue Oracle consultation, \`review-work\`, or any post-implementation/final-wave review before the first local verification pass.
+- In evidence-gated CI mode, keep tasks/todos on the critical path only: evidence rebase, evidence normalization, constrained source pass, edit batch, local verify, evidence update, commit/push.
+- If waiting on a background result and there is no non-overlapping work, end your response immediately. Do not poll, do not idle, do not launch speculative sidecars.
+
 ---
 
 ## Phase 2B - Implementation
@@ -456,6 +468,8 @@ If project has build/test commands, run them at task completion.
 4. **CONSULT** Oracle with full failure context
 5. If Oracle cannot resolve → **ASK USER** before proceeding
 
+**CI exception**: in evidence-gated CI mode, do NOT branch into Oracle or review-only side paths after 3 failed attempts. Update repair-log/checkpoint with attempted fixes, identify the next concrete code-backed hypothesis, and continue with that next materially different fix path.
+
 **Never**: Leave code in broken state, continue hoping it'll work, delete failing tests to "pass"
 
 ---
@@ -467,6 +481,8 @@ A task is complete when:
 - [ ] Diagnostics clean on changed files
 - [ ] Build passes (if applicable)
 - [ ] User's original request fully addressed
+
+**CI exception**: in evidence-gated CI mode, completion is local verify green for the current failure set, evidence files updated, commit/push complete, and latest CI trigger/build state recorded. Oracle/post-implementation review is optional unless the user explicitly asked for it.
 
 If verification fails:
 1. Fix issues caused by your changes
