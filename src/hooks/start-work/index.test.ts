@@ -216,6 +216,50 @@ describe("start-work hook", () => {
       expect(text).toContain("tracker counts/statuses must reconcile with the current failing-test count")
     })
 
+    test("ci fast path flags stale plan and failure-count drift from newer evidence", async () => {
+      const plansDir = join(testDir, ".sisyphus", "plans")
+      const evidenceDir = join(testDir, ".sisyphus", "evidence")
+      mkdirSync(plansDir, { recursive: true })
+      mkdirSync(evidenceDir, { recursive: true })
+
+      writeFileSync(
+        join(plansDir, "ci-green-build314-fix.md"),
+        `# Plan
+
+**Skills**: \`ci-green-loop\`, \`bamboo-ci\`, \`dotnet-playwright\`
+
+## TODOs
+- [x] 1. **T1 — Diagnosis**
+- [ ] 2. **T2 — Fix ALL failures**
+
+Task 2: exact code changes for 14 remaining failures.
+`,
+      )
+      writeFileSync(join(evidenceDir, "build-315-failures.md"), "# Build 315\n")
+      writeFileSync(join(evidenceDir, "ci-loop-checkpoint.md"), "Build #315\nfailed: 15\n")
+      writeFileSync(join(evidenceDir, "repair-log.md"), "# repair log\n")
+
+      const hook = createStartWorkHook(createMockPluginInput())
+      const output = {
+        message: {},
+        parts: [{ type: "text", text: "/start-work ci-green-build314-fix" }],
+      }
+
+      await hook["chat.message"](
+        { sessionID: "session-ci-fast-path-stale" },
+        output,
+      )
+
+      const text = output.parts[0].text
+      expect(text).toContain("STALE PLAN REBASE REQUIRED")
+      expect(text).toContain("active plan targets build #314")
+      expect(text).toContain("latest evidence is build #315")
+      expect(text).toContain("FAILURE-COUNT DRIFT")
+      expect(text).toContain("plan targets 14 failures")
+      expect(text).toContain("checkpoint reports 15")
+      expect(text).toContain("rebase the fix batch to the latest build evidence")
+    })
+
     test("should inject resume info when existing boulder state found", async () => {
       // given - existing boulder state with incomplete plan
       const planPath = join(testDir, "test-plan.md")
