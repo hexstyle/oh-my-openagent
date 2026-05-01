@@ -159,6 +159,7 @@ describe("start-work hook", () => {
       expect(text).toContain(".sisyphus/evidence/ci-loop-checkpoint.md")
       expect(text).toContain(".sisyphus/evidence/repair-log.md")
       expect(text).toContain("Read only the core CI evidence first")
+      expect(text).toContain("NEVER use a file-read tool on the directory path")
       expect(text).toContain("If the tests directory is absent, note it once and continue")
       expect(text).toContain("Do NOT glob historical notepads")
       expect(text).toContain("Validate `.sisyphus/evidence/repair-log.md`")

@@ -266,7 +266,7 @@ function detectCIFastPath(planPath: string, projectDir: string): CIFastPathResul
       "## CONTEXT",
       "Read the plan file at `" + planRelPath + "` — it contains the complete root-cause analysis, fix instructions for all failure groups, and evidence paths.",
       "Read evidence files: " + evidencePaths,
-      "Read only the core CI evidence first: `AGENTS.md`, `.sisyphus/boulder.json`, active plan, `ci-loop-checkpoint.md`, `repair-log.md`, latest build analysis/failure analysis, and `.sisyphus/evidence/tests/` if that directory exists. If the tests directory is absent, note it once and continue. Do NOT glob historical notepads or `.sisyphus/run-continuation/` unless the core evidence is insufficient.",
+      "Read only the core CI evidence first: `AGENTS.md`, `.sisyphus/boulder.json`, active plan, `ci-loop-checkpoint.md`, `repair-log.md`, latest build analysis/failure analysis, and `.sisyphus/evidence/tests/` if that directory exists. Check the tracker directory only with `test -d` or `ls` — NEVER use a file-read tool on the directory path. If the tests directory is absent, note it once and continue. Do NOT glob historical notepads or `.sisyphus/run-continuation/` unless the core evidence is insufficient.",
       stalePlanInfo,
       failureDriftInfo,
       planRewriteInfo,
