@@ -116,6 +116,16 @@ describe("delegation trust prompt rules", () => {
     expect(prompt).toContain("DO NOT perform the same search yourself")
   })
 
+  test("Sisyphus GPT-5.4 prompt adds evidence-gated CI delegation override", () => {
+    const agent = createSisyphusAgent("openai/gpt-5.4", [exploreAgent])
+    const prompt = agent.prompt
+
+    expect(prompt).toContain("evidence-gated CI mode")
+    expect(prompt).toContain("background delegation is FORBIDDEN")
+    expect(prompt).toContain("Launch at most ONE background research agent at a time")
+    expect(prompt).toContain("Do not poll, do not idle")
+  })
+
   test("Sisyphus-Junior GPT-5.4 prompt forbids duplicate delegated exploration", () => {
     // given
     const prompt = buildSisyphusJuniorPrompt("openai/gpt-5.4", false)

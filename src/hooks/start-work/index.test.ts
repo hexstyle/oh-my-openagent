@@ -257,7 +257,49 @@ Task 2: exact code changes for 14 remaining failures.
       expect(text).toContain("FAILURE-COUNT DRIFT")
       expect(text).toContain("plan targets 14 failures")
       expect(text).toContain("checkpoint reports 15")
-      expect(text).toContain("rebase the fix batch to the latest build evidence")
+      expect(text).toContain("rebase Task 2 against the newer build evidence")
+    })
+
+    test("ci fast path flags speculative task-2 plans for rewrite before code edits", async () => {
+      const plansDir = join(testDir, ".sisyphus", "plans")
+      const evidenceDir = join(testDir, ".sisyphus", "evidence")
+      mkdirSync(plansDir, { recursive: true })
+      mkdirSync(evidenceDir, { recursive: true })
+
+      writeFileSync(
+        join(plansDir, "ci-green-build315-fix.md"),
+        `# Plan
+
+**Skills**: \`ci-green-loop\`, \`bamboo-ci\`, \`dotnet-playwright\`
+
+## TODOs
+- [x] 1. **T1 — Diagnosis**
+- [ ] 2. **T2 — Fix ALL failures**
+
+### FIX 3: Menu Navigation Sidebar — This is NOT a code fix
+Investigate the sidebar state first.
+Quick fix: increase timeout significantly.
+`,
+      )
+      writeFileSync(join(evidenceDir, "build-315-failures.md"), "# Build 315\n")
+      writeFileSync(join(evidenceDir, "ci-loop-checkpoint.md"), "Build #315\nfailed: 15\n")
+      writeFileSync(join(evidenceDir, "repair-log.md"), "# repair log\n")
+
+      const hook = createStartWorkHook(createMockPluginInput())
+      const output = {
+        message: {},
+        parts: [{ type: "text", text: "/start-work ci-green-build315-fix" }],
+      }
+
+      await hook["chat.message"](
+        { sessionID: "session-ci-fast-path-rewrite" },
+        output,
+      )
+
+      const text = output.parts[0].text
+      expect(text).toContain("TASK-2 REWRITE REQUIRED")
+      expect(text).toContain("speculative investigation language")
+      expect(text).toContain("rewrite Task 2 against current evidence")
     })
 
     test("should inject resume info when existing boulder state found", async () => {

@@ -121,6 +121,11 @@ function extractPlanFailureTarget(content: string): number | null {
   return parseFirstInt(generic)
 }
 
+function hasSpeculativeTaskTwoContent(content: string): boolean {
+  const taskTwoSection = content.match(/- \[[ xX]\]\s*2\..*?(?=\n- \[[ xX]\]\s*\d+\.|\Z)/is)?.[0] ?? content
+  return /\bInvestigate\b|NOT a code fix|Quick fix:|might be server-side|If .* still failing:/i.test(taskTwoSection)
+}
+
 function extractCheckpointFailureCount(checkpoint: string): number | null {
   const failMatch = checkpoint.match(/(?:failed|fails)[:\s]*(\d+)/i)?.[1]
   return parseFirstInt(failMatch)
@@ -222,6 +227,7 @@ function detectCIFastPath(planPath: string, projectDir: string): CIFastPathResul
     const planBuildNumber = extractPlanBuildNumber(planPath, content)
     const latestEvidenceBuildNumber = extractLatestEvidenceBuildNumber(evidenceFiles)
     const planFailureTarget = extractPlanFailureTarget(content)
+    const speculativeTaskTwo = hasSpeculativeTaskTwoContent(content)
 
     // Check for per-test tracker files
     const testsDir = join(projectDir, ".sisyphus", "evidence", "tests")
@@ -247,6 +253,11 @@ function detectCIFastPath(planPath: string, projectDir: string): CIFastPathResul
       failureDriftInfo = "FAILURE-COUNT DRIFT: the plan targets " + planFailureTarget + " failures but the current checkpoint reports " + checkpointFailureCount + ". Treat the latest checkpoint/build evidence as authoritative, reconcile the delta before code edits, and do not execute an outdated fix batch blindly."
     }
 
+    let planRewriteInfo = ""
+    if (speculativeTaskTwo) {
+      planRewriteInfo = "TASK-2 REWRITE REQUIRED: the active fix task still contains speculative investigation language (`Investigate`, `NOT a code fix`, quick-fix placeholders, or server-side guesses). Before code edits, rewrite Task 2 against current evidence into an execution-ready fix batch with concrete root-cause actions and no stale placeholder guidance."
+    }
+
     const block = [
       "CI FAST PATH — ACTIVE",
       "",
@@ -258,12 +269,13 @@ function detectCIFastPath(planPath: string, projectDir: string): CIFastPathResul
       "Read only the core CI evidence first: `AGENTS.md`, `.sisyphus/boulder.json`, active plan, `ci-loop-checkpoint.md`, `repair-log.md`, latest build analysis/failure analysis, and `.sisyphus/evidence/tests/`. Do NOT glob historical notepads or `.sisyphus/run-continuation/` unless the core evidence is insufficient.",
       stalePlanInfo,
       failureDriftInfo,
+      planRewriteInfo,
       "If present, read `.sisyphus/evidence/ci-loop-checkpoint.md` and `.sisyphus/evidence/repair-log.md` before changing code.",
       testTrackerInfo ? "Read `.sisyphus/evidence/tests/` for per-test tracker files with fix history." + testTrackerInfo : "",
       "",
       "## MANDATORY WORKFLOW",
       "1. Read the plan file and ALL evidence files listed above",
-      "1.5 If stale-plan rebase or failure-count drift was detected above, rebase the fix batch to the latest build evidence before editing code.",
+      "1.5 If stale-plan rebase, failure-count drift, or Task-2 rewrite was detected above, rebase and rewrite the fix batch against the latest build evidence before editing code.",
       "2. Validate `.sisyphus/evidence/repair-log.md`: the latest entry must be an `## Iteration ...` block with failures in scope, coverage map, code changed, local verify, push/CI status, conclusion, and next action. If the file is missing or free-form, normalize it before editing code.",
       "3. If the plan, checkpoint, and repair-log disagree on root cause, reconcile the conflicting hypotheses in evidence before editing code.",
       "4. For each failing test: check if a previous fix was attempted — if so, choose a DIFFERENT strategy",

@@ -224,6 +224,14 @@ ${librarianSection}
 - Prefer tools over internal knowledge whenever you need specific data (files, configs, patterns)
 </tool_usage_rules>
 
+<ci_fast_path_override>
+- If the prompt includes \`CI FAST PATH — ACTIVE\`, \`.sisyphus/evidence/\`, \`ci-loop-checkpoint.md\`, or \`repair-log.md\`, switch into evidence-gated CI mode immediately.
+- In evidence-gated CI mode, read the core evidence directly with tools first. Do NOT fire Explore/Librarian just to summarize the plan, checkpoint, repair-log, or failing-test map.
+- While stale-plan rebase, failure-count drift, Task-2 rewrite, or root-cause reconciliation is still open, background delegation is FORBIDDEN.
+- After the core evidence is reconciled, delegate only if a single concrete unanswered question still blocks a code edit. Launch at most ONE background research agent at a time for that question.
+- If waiting on a background result and there is no non-overlapping work, end your response immediately. Do not poll, do not idle, do not launch speculative sidecars.
+</ci_fast_path_override>
+
 **Explore/Librarian = Grep, not consultants.
 
 \`\`\`typescript
@@ -276,6 +284,8 @@ STOP searching when:
 1. If task has 2+ steps → Create todo list IMMEDIATELY, IN SUPER DETAIL. No announcements—just create it.
 2. Mark current task \`in_progress\` before starting
 3. Mark \`completed\` as soon as done (don't batch) - OBSESSIVELY TRACK YOUR WORK USING TODO TOOLS
+
+CI exception: in evidence-gated CI mode, direct tool reads come first and background agents stay off until the evidence is rebased, reconciled, and reduced to a single concrete missing answer.
 
 ${categorySkillsGuide}
 

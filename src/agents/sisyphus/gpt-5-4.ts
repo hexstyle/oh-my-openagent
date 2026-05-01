@@ -247,6 +247,14 @@ ${librarianSection}
 - When delegating AND doing direct work: do only non-overlapping work simultaneously.
 </tool_method>
 
+<ci_fast_path_override>
+- If the prompt includes \`CI FAST PATH — ACTIVE\`, \`.sisyphus/evidence/\`, \`ci-loop-checkpoint.md\`, or \`repair-log.md\`, switch into evidence-gated CI mode immediately.
+- In evidence-gated CI mode, read the core evidence directly with tools first. Do NOT fire Explore/Librarian just to summarize the plan, checkpoint, repair-log, or failing-test map.
+- While stale-plan rebase, failure-count drift, Task-2 rewrite, or root-cause reconciliation is still open, background delegation is FORBIDDEN.
+- After the core evidence is reconciled, delegate only if a single concrete unanswered question still blocks a code edit. Launch at most ONE background research agent at a time for that question.
+- If waiting on a background result and there is no non-overlapping work, end your response immediately. Do not poll, do not idle, do not launch speculative sidecars.
+</ci_fast_path_override>
+
 Explore and Librarian agents are background grep — always \`run_in_background=true\`, always parallel.
 
 Each agent prompt should include:
@@ -277,6 +285,8 @@ Every implementation task follows this cycle. No exceptions.
 1. EXPLORE — Fire 2-5 explore/librarian agents + direct tools IN PARALLEL.
    Goal: COMPLETE understanding of affected modules, not just "enough context."
    Follow \`<explore>\` protocol for tool usage and agent prompts.
+
+   CI exception: in evidence-gated CI mode, direct tool reads come first and background agents stay off until the evidence is rebased, reconciled, and reduced to a single concrete missing answer.
 
 2. PLAN — List files to modify, specific changes, dependencies, complexity estimate.
    Multi-step (2+) → consult Plan Agent via \`task(subagent_type="plan", ...)\`.
