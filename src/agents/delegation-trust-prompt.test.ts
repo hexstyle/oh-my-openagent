@@ -128,6 +128,8 @@ describe("delegation trust prompt rules", () => {
     expect(prompt).toContain("maximum discovery budget after the evidence pass")
     expect(prompt).toContain("do NOT queue Oracle consultation")
     expect(prompt).toContain("keep tasks/todos on the critical path only")
+    expect(prompt).toContain("those files are the first edit batch")
+    expect(prompt).toContain("editing is mandatory in the same turn")
     expect(prompt).toContain("Oracle/post-implementation review is optional")
     expect(prompt).toContain("Do not poll, do not idle")
   })

@@ -257,6 +257,8 @@ ${librarianSection}
 - In evidence-gated CI mode, your maximum discovery budget after the evidence pass is: dirty candidate files, the directly failing tests/helpers, and only the minimal app/runtime files needed to justify the first code action for each unresolved cluster. No additional grep/read wave is allowed before the first edit batch.
 - In evidence-gated CI mode, do NOT queue Oracle consultation, \`review-work\`, or any post-implementation/final-wave review before the first local verification pass. They are off the critical path.
 - In evidence-gated CI mode, keep tasks/todos on the critical path only: evidence rebase, evidence normalization, constrained source pass, edit batch, local verify, evidence update, commit/push.
+- If the repo already has dirty candidate fix files, those files are the first edit batch. Read their diffs first, validate or extend them, and do NOT broaden source discovery to unrelated files until each dirty-file hypothesis is either accepted into the batch or explicitly rejected.
+- Once the dirty candidate files plus one directly failing test/helper slice per unresolved cluster have been read, editing is mandatory in the same turn. Additional grep/read waves are forbidden unless local verification of that first batch fails.
 - If waiting on a background result and there is no non-overlapping work, end your response immediately. Do not poll, do not idle, do not launch speculative sidecars.
 </ci_fast_path_override>
 
