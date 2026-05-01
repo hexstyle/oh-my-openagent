@@ -23,6 +23,7 @@ const hostConfig = JSON.parse(readFileSync(hostConfigPath, "utf-8")) as {
 const pluginConfigContents = readFileSync(pluginConfigPath, "utf-8")
 const pluginConfig = JSON.parse(pluginConfigContents) as {
   $schema?: string
+  disabled_mcps?: string[]
   agents?: Record<string, Record<string, unknown>>
   categories?: Record<string, Record<string, unknown>>
   fallback_models?: FallbackModelEntry[]
@@ -156,6 +157,7 @@ describe("managed custom OpenCode config assets", () => {
 
   it("keeps the intentional runtime knob changes while removing unsupported drift", () => {
     expect(pluginConfig.$schema).toBe("./node_modules/oh-my-openagent/dist/oh-my-opencode.schema.json")
+    expect(pluginConfig.disabled_mcps).toEqual(["websearch", "context7", "grep_app"])
     expect(pluginConfigContents).not.toContain("raw.githubusercontent.com/code-yeongyu/oh-my-openagent/dev/assets/oh-my-opencode.schema.json")
 
     expect(pluginConfig.hashline_edit).toBe(true)
