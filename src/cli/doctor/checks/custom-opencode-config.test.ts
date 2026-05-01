@@ -86,7 +86,7 @@ describe("managed custom OpenCode config assets", () => {
     })
   })
 
-  it("pins Claude as primary for all agents with gpt-5.4 as cross-provider fallback after Claude models", () => {
+  it("pins role-appropriate execution lanes and preserves cross-provider fallbacks", () => {
     const prometheus = pluginConfig.agents?.prometheus
     expect(prometheus?.model).toBe("anthropic/claude-opus-4-7")
     expect(prometheus?.variant).toBe("max")
@@ -98,17 +98,29 @@ describe("managed custom OpenCode config assets", () => {
       expect(reviewAgent?.model).toBe("anthropic/claude-opus-4-7")
     }
 
-    // Executor agents use Sonnet
-    for (const executorName of ["sisyphus", "oracle", "atlas", "hephaestus", "librarian", "sisyphus-junior"] as const) {
-      expect(pluginConfig.agents?.[executorName]?.model).toBe("anthropic/claude-sonnet-4-6")
+    // Execution lanes follow AGENTS.md policy: OpenAI-first where speed/coding throughput matters.
+    for (const executorName of ["sisyphus", "atlas", "hephaestus", "librarian", "multimodal-looker", "sisyphus-junior"] as const) {
+      expect(pluginConfig.agents?.[executorName]?.model).toBe("openai/gpt-5.4")
     }
 
-    expect(pluginConfig.agents?.explore?.model).toBe("anthropic/claude-sonnet-4-6")
+    // Oracle remains Claude-primary.
+    expect(pluginConfig.agents?.oracle?.model).toBe("anthropic/claude-sonnet-4-6")
+
+    // Explore is the only spark-primary speed lane.
+    expect(pluginConfig.agents?.explore?.model).toBe("openai/gpt-5.3-codex-spark")
     expect(pluginConfig.agents?.["sisyphus-junior"]?.variant).toBe("medium")
+    expect(pluginConfig.agents?.["sisyphus-junior"]?.fallback_models).toEqual([
+      "anthropic/claude-sonnet-4-6",
+      "anthropic/claude-opus-4-7",
+      "openai/gpt-5.3-codex-spark",
+      "opencode/nemotron-3-super-free",
+      "opencode/minimax-m2.5-free",
+      "opencode/big-pickle",
+    ])
 
     // CROSS-PROVIDER INVARIANT: Every agent chain must have both Claude AND OpenAI models.
     // This ensures provider-level redundancy — if one provider is down, the other takes over.
-    // gpt-5.4 appears AFTER Claude models in all chains (Claude is primary, OpenAI is fallback).
+    // The primary model can vary by role, but every chain must retain both providers.
     for (const [agentName, agentConfig] of Object.entries(pluginConfig.agents ?? {})) {
       const fallback = agentConfig?.fallback_models as unknown[]
       if (!fallback || fallback.length === 0) continue
@@ -120,7 +132,9 @@ describe("managed custom OpenCode config assets", () => {
       expect(hasAnthropic).toBe(true)
     }
 
-    expect(pluginConfig.categories?.deep?.model).toBe("anthropic/claude-sonnet-4-6")
+    for (const categoryName of ["deep", "quick", "unspecified-low", "unspecified-high", "writing", "artistry", "visual-engineering"] as const) {
+      expect(pluginConfig.categories?.[categoryName]?.model).toBe("openai/gpt-5.4")
+    }
     expect(pluginConfig.default_run_agent).toBe("Prometheus (Plan Builder)")
   })
 
