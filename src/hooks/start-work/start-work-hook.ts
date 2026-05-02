@@ -37,7 +37,7 @@ interface StartWorkHookOutput {
 
 function isStartWorkPrompt(promptText: string): boolean {
   const trimmed = stripSingleEnclosingQuotes(promptText)
-  return trimmed.startsWith("/start-work")
+  return /(^|\n)\s*\/start-work\b/.test(trimmed)
     || promptText.includes("# /start-work Command")
     || promptText.includes("You are starting a Sisyphus work session.")
 }

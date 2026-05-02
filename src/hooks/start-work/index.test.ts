@@ -122,6 +122,39 @@ describe("start-work hook", () => {
       expect(readBoulderState(testDir)?.session_ids).toContain("session-raw-start-work")
     })
 
+    test("should detect raw /start-work command after analyze-mode prefix injection", async () => {
+      const plansDir = join(testDir, ".sisyphus", "plans")
+      mkdirSync(plansDir, { recursive: true })
+      writeFileSync(
+        join(plansDir, "ci-green-final.md"),
+        `# Plan
+
+## TODOs
+- [ ] 1. Real task
+`,
+      )
+
+      const hook = createStartWorkHook(createMockPluginInput())
+      const output = {
+        message: {},
+        parts: [
+          {
+            type: "text",
+            text: "[analyze-mode]\nANALYSIS MODE.\n\n/start-work ci-green-final",
+          },
+        ],
+      }
+
+      await hook["chat.message"](
+        { sessionID: "session-start-work-after-analyze" },
+        output,
+      )
+
+      expect(output.parts[0].text).toContain("Auto-Selected Plan")
+      expect(output.parts[0].text).toContain("ci-green-final")
+      expect(output.message?.agent).toBe("Atlas (Plan Executor)")
+    })
+
     test("activates CI fast path and requires structured repair-log plus checkpoint updates", async () => {
       const plansDir = join(testDir, ".sisyphus", "plans")
       const evidenceDir = join(testDir, ".sisyphus", "evidence")
