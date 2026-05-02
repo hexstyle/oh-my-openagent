@@ -6,6 +6,8 @@ import { join } from "node:path"
 import type { OhMyOpenCodeConfig } from "../../config"
 import {
   cleanupIsolatedRunDataHome,
+  getRunTransportRecoveryPolicy,
+  isCertificateVerificationTransportError,
   prepareIsolatedRunDataHome,
   resolveRunAgent,
   resolveRunPromptAgent,
@@ -215,6 +217,15 @@ describe("run with invalid model", () => {
 })
 
 describe("shouldRecoverRunTransportError", () => {
+  it("identifies unknown certificate verification errors", () => {
+    expect(
+      isCertificateVerificationTransportError(new Error("unknown certificate verification error")),
+    ).toBe(true)
+    expect(
+      isCertificateVerificationTransportError(new Error("ECONNRESET")),
+    ).toBe(false)
+  })
+
   it("returns true for unknown certificate verification errors", () => {
     expect(
       shouldRecoverRunTransportError(new Error("unknown certificate verification error")),
@@ -237,6 +248,21 @@ describe("shouldRecoverRunTransportError", () => {
     expect(
       shouldRecoverRunTransportError(new Error("out of extra usage")),
     ).toBe(false)
+  })
+
+  it("uses extended recovery policy for certificate verification transport errors", () => {
+    expect(
+      getRunTransportRecoveryPolicy(new Error("unknown certificate verification error")),
+    ).toEqual({
+      maxAttempts: 8,
+      delayMs: 5000,
+    })
+    expect(
+      getRunTransportRecoveryPolicy(new Error("ECONNRESET")),
+    ).toEqual({
+      maxAttempts: 2,
+      delayMs: 2000,
+    })
   })
 })
 

@@ -25,6 +25,8 @@ export { resolveRunAgent, resolveRunPromptAgent }
 const EVENT_PROCESSOR_SHUTDOWN_TIMEOUT_MS = 2_000
 const RUN_TRANSPORT_RECOVERY_MAX_ATTEMPTS = 2
 const RUN_TRANSPORT_RECOVERY_DELAY_MS = 2_000
+const RUN_CERT_RECOVERY_MAX_ATTEMPTS = 8
+const RUN_CERT_RECOVERY_DELAY_MS = 5_000
 const RUN_ISOLATED_DATA_HOME_DISABLE_ENV = "OH_MY_OPENAGENT_DISABLE_RUN_DATA_ISOLATION"
 
 type RunIsolatedDataHomeState = {
@@ -38,6 +40,27 @@ export function shouldRecoverRunTransportError(error: unknown): boolean {
     RUNTIME_FALLBACK_DEFAULT_CONFIG.retry_on_errors,
   )
   return isSameModelRetryAction(action)
+}
+
+export function isCertificateVerificationTransportError(error: unknown): boolean {
+  return /unknown certificate verification error/i.test(serializeError(error))
+}
+
+export function getRunTransportRecoveryPolicy(error: unknown): {
+  maxAttempts: number
+  delayMs: number
+} {
+  if (isCertificateVerificationTransportError(error)) {
+    return {
+      maxAttempts: RUN_CERT_RECOVERY_MAX_ATTEMPTS,
+      delayMs: RUN_CERT_RECOVERY_DELAY_MS,
+    }
+  }
+
+  return {
+    maxAttempts: RUN_TRANSPORT_RECOVERY_MAX_ATTEMPTS,
+    delayMs: RUN_TRANSPORT_RECOVERY_DELAY_MS,
+  }
 }
 
 export function shouldUseIsolatedRunDataHome(options: Pick<RunOptions, "attach">, env: NodeJS.ProcessEnv = process.env): boolean {
@@ -199,8 +222,9 @@ export async function run(options: RunOptions): Promise<number> {
           exitCode = await pollForCompletion(ctx, eventState, abortController)
           break
         } catch (err) {
+          const recoveryPolicy = getRunTransportRecoveryPolicy(err)
           if (
-            transportRecoveryAttempts >= RUN_TRANSPORT_RECOVERY_MAX_ATTEMPTS
+            transportRecoveryAttempts >= recoveryPolicy.maxAttempts
             || !shouldRecoverRunTransportError(err)
           ) {
             throw err
@@ -209,10 +233,10 @@ export async function run(options: RunOptions): Promise<number> {
           transportRecoveryAttempts += 1
           console.error(
             pc.yellow(
-              `Run transport recovery ${transportRecoveryAttempts}/${RUN_TRANSPORT_RECOVERY_MAX_ATTEMPTS}: ${serializeError(err)}`
+              `Run transport recovery ${transportRecoveryAttempts}/${recoveryPolicy.maxAttempts}: ${serializeError(err)}`
             )
           )
-          await new Promise((resolve) => setTimeout(resolve, RUN_TRANSPORT_RECOVERY_DELAY_MS))
+          await new Promise((resolve) => setTimeout(resolve, recoveryPolicy.delayMs))
         }
       }
 
