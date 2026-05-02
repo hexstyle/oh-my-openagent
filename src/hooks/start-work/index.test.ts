@@ -166,6 +166,8 @@ describe("start-work hook", () => {
       expect(text).toContain("`## Iteration ...` block")
       expect(text).toContain("free-form")
       expect(text).toContain("reconcile the conflicting hypotheses")
+      expect(text).toContain("rewrite the active plan on disk")
+      expect(text).toContain("before any source-code reads outside `.sisyphus/evidence/`")
       expect(text).toContain("limit source discovery to the dirty candidate files")
       expect(text).toContain("Distinguish trigger-only builds from code-changing revisions")
       expect(text).toContain("staged-tree/symbol completeness")
@@ -260,7 +262,8 @@ Task 2: exact code changes for 14 remaining failures.
       expect(text).toContain("FAILURE-COUNT DRIFT")
       expect(text).toContain("plan targets 14 failures")
       expect(text).toContain("checkpoint reports 15")
-      expect(text).toContain("rebase Task 2 against the newer build evidence")
+      expect(text).toContain("rewrite the active plan on disk")
+      expect(text).toContain("before any source-code reads outside `.sisyphus/evidence/`")
     })
 
     test("ci fast path flags speculative task-2 plans for rewrite before code edits", async () => {

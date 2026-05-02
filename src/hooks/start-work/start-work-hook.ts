@@ -245,7 +245,7 @@ function detectCIFastPath(planPath: string, projectDir: string): CIFastPathResul
 
     let stalePlanInfo = ""
     if (planBuildNumber !== null && latestEvidenceBuildNumber !== null && latestEvidenceBuildNumber > planBuildNumber) {
-      stalePlanInfo = "STALE PLAN REBASE REQUIRED: the active plan targets build #" + planBuildNumber + " but the latest evidence is build #" + latestEvidenceBuildNumber + ". Before code edits, rebase Task 2 against the newer build evidence, include any newly-failing tests in scope, and update repair-log/checkpoint to reflect the rebased build."
+      stalePlanInfo = "STALE PLAN REBASE REQUIRED: the active plan targets build #" + planBuildNumber + " but the latest evidence is build #" + latestEvidenceBuildNumber + ". Before any source-code reads outside .sisyphus/evidence/, rewrite the active plan itself so Task 1/Task 2 target the newer build evidence, include any newly-failing tests in scope, and update repair-log/checkpoint to reflect the rebased build."
     }
 
     let failureDriftInfo = ""
@@ -275,7 +275,7 @@ function detectCIFastPath(planPath: string, projectDir: string): CIFastPathResul
       "",
       "## MANDATORY WORKFLOW",
       "1. Read the plan file and ALL evidence files listed above",
-      "1.5 If stale-plan rebase, failure-count drift, or Task-2 rewrite was detected above, rebase and rewrite the fix batch against the latest build evidence before editing code.",
+      "1.5 If stale-plan rebase, failure-count drift, or Task-2 rewrite was detected above, rewrite the active plan on disk against the latest build evidence before any source-code reads outside `.sisyphus/evidence/`.",
       "2. Validate `.sisyphus/evidence/repair-log.md`: the latest entry must be an `## Iteration ...` block with failures in scope, coverage map, code changed, local verify, push/CI status, conclusion, and next action. If the file is missing or free-form, normalize it before editing code.",
       "3. If the plan, checkpoint, and repair-log disagree on root cause, reconcile the conflicting hypotheses in evidence before editing code.",
       "3.5 After evidence is reconciled, limit source discovery to the dirty candidate files, the directly failing tests/helpers, and only the minimal app/runtime files needed to name a concrete code action for each failure cluster. Then start the edit batch immediately.",

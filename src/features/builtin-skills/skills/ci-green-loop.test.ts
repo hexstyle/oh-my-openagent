@@ -18,6 +18,8 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("one shared file/helper")
     expect(ciGreenLoopSkill.template).toContain("MATERIALIZE EVIDENCE NOW (hard gate)")
     expect(ciGreenLoopSkill.template).toContain("BEFORE any source-code reads outside `.sisyphus/evidence/`")
+    expect(ciGreenLoopSkill.template).toContain("ACTIVE PLAN REBASE (hard gate)")
+    expect(ciGreenLoopSkill.template).toContain("Do not carry an old `#315 / 15 fails` Task 2 beside `#317 / 14 fails` evidence")
   })
 
   test("bamboo-ci template couples Bamboo fetches to repair-log updates", () => {

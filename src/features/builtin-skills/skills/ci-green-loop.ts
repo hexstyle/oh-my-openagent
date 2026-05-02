@@ -231,10 +231,11 @@ LOOP:
        - If new: create tracker with status \`failing\`, empty Fix History
     f) Classify each test: build-error|test-crash|test-timeout|test-assertion|setup-error|infra-error
     f1) **MATERIALIZE EVIDENCE NOW (hard gate)**: immediately write/update all per-test tracker files, \`build-{N}-analysis.md\`, \`repair-log.md\`, and \`ci-loop-checkpoint.md\` for the CURRENT build before any grep/read on source files outside \`.sisyphus/evidence/\`.
+    f2) **ACTIVE PLAN REBASE (hard gate)**: if the active plan references an older build, older revision, wrong failing-test count, or a superseded Task 2 scope, rewrite the active plan immediately after evidence materialization so Task 1/Task 2 match the CURRENT build truth. Do not carry an old \`#315 / 15 fails\` Task 2 beside \`#317 / 14 fails\` evidence.
 
     Managed .sisyphus repo fast-path:
-    - You may reuse existing diagnosis text ONLY after verifying that steps (b)-(f) are already satisfied for the CURRENT build.
-    - "Already satisfied" means: tracker directory exists, tracker count with current failing tests matches N, every current failing test has a tracker, and each tracker's current Error / Root Cause Group / Status has been refreshed for this build.
+    - You may reuse existing diagnosis text ONLY after verifying that steps (b)-(f2) are already satisfied for the CURRENT build.
+    - "Already satisfied" means: tracker directory exists, tracker count with current failing tests matches N, every current failing test has a tracker, each tracker's current Error / Root Cause Group / Status has been refreshed for this build, and the active plan itself now names the current build/revision/failure scope.
     - If any of those checks fail, DO NOT skip steps (b)-(f).
     - Only after that reconciliation and evidence materialization may you read existing dirty candidate files first, sample the minimal unresolved failure slices, and move to the first edit batch.
     g) Only for UNCLEAR failures: fetch ONE test's full error (≤500 chars). READ source code.
