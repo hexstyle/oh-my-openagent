@@ -132,6 +132,8 @@ describe("delegation trust prompt rules", () => {
     expect(prompt).toContain("editing is mandatory in the same turn")
     expect(prompt).toContain("one failing test method slice")
     expect(prompt).toContain("must stop reading and write the expanded edit batch immediately")
+    expect(prompt).toContain("any further `read`, `grep`, `glob`")
+    expect(prompt).toContain("may not take a second failing-test slice")
     expect(prompt).toContain("Oracle/post-implementation review is optional")
     expect(prompt).toContain("Do not poll, do not idle")
   })

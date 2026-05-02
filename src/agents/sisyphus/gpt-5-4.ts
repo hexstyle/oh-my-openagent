@@ -261,6 +261,8 @@ ${librarianSection}
 - Once the dirty candidate files plus one directly failing test/helper slice per unresolved cluster have been read, editing is mandatory in the same turn. Additional grep/read waves are forbidden unless local verification of that first batch fails.
 - For each unresolved cluster in evidence-gated CI mode, you may read at most: (a) one failing test method slice and (b) one shared helper/runtime slice. After that pair, you must either add the change to the batch or explicitly reject that cluster's hypothesis in evidence.
 - If three unresolved clusters have been sampled this way, you must stop reading and write the expanded edit batch immediately. Do not sample a fourth cluster before editing.
+- In evidence-gated CI mode, once three unresolved clusters have been sampled, any further \`read\`, \`grep\`, \`glob\`, Explore, or Librarian call is forbidden until you perform at least one code edit in the batch.
+- In evidence-gated CI mode, you may not take a second failing-test slice or a second helper slice for the same unresolved cluster before the first edit batch. First sample only, then edit.
 - If waiting on a background result and there is no non-overlapping work, end your response immediately. Do not poll, do not idle, do not launch speculative sidecars.
 </ci_fast_path_override>
 
