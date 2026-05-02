@@ -62,19 +62,33 @@ fetch_json() {
 ## API Patterns — TOKEN BUDGET RULES
 
 **CRITICAL: Bamboo API responses are HUGE. ALWAYS pipe through jq/python to extract ONLY what you need. NEVER dump raw JSON into context.**
+**CRITICAL SHELL RULE: For Bamboo fetch + parse steps, prefer multi-line shell with \`python3 <<'PY'\` heredocs. Do NOT build giant one-line commands with nested quotes, f-strings, and inline Python — they frequently break under zsh quoting and waste CI cycles before evidence is even written.**
+
+Safe combined pattern:
+\`\`\`bash
+JSON="$(fetch_json "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}/latest.json")"
+python3 <<'PY' <<<"$JSON"
+import json, sys
+d = json.load(sys.stdin)
+print(f"Build: #{d['buildNumber']}")
+print(f"State: {d['state']}")
+print(f"Revision: {d.get('vcsRevisionKey', 'unknown')}")
+PY
+\`\`\`
 
 ### Fetch Latest Build Result (summary only — ~200 bytes)
 \`\`\`bash
-curl -s "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}/latest.json" | python3 -c "
-import sys, json
+JSON="$(fetch_json "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}/latest.json")"
+python3 <<'PY' <<<"$JSON"
+import json, sys
 d = json.load(sys.stdin)
-print(f'Build: #{d[\"buildNumber\"]}')
-print(f'State: {d[\"state\"]}')
-print(f'Duration: {d.get(\"buildDurationInSeconds\", \"?\")}s')
-print(f'Tests: {d.get(\"successfulTestCount\", 0)} pass, {d.get(\"failedTestCount\", 0)} fail')
-print(f'Revision: {d.get(\"vcsRevisionKey\", \"unknown\")}')
-print(f'Reason: {d.get(\"buildReason\", \"unknown\")}')
-"
+print(f"Build: #{d['buildNumber']}")
+print(f"State: {d['state']}")
+print(f"Duration: {d.get('buildDurationInSeconds', '?')}s")
+print(f"Tests: {d.get('successfulTestCount', 0)} pass, {d.get('failedTestCount', 0)} fail")
+print(f"Revision: {d.get('vcsRevisionKey', 'unknown')}")
+print(f"Reason: {d.get('buildReason', 'unknown')}")
+PY
 \`\`\`
 
 ### Fetch Failing Test NAMES Only (Step 1 — always do this first)
@@ -83,15 +97,16 @@ print(f'Reason: {d.get(\"buildReason\", \"unknown\")}')
 
 \`\`\`bash
 # CORRECT — job-level endpoint with JSON header
-curl -s -H "Accept: application/json" "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-JOB1-{N}.json?expand=testResults.failedTests.testResult" | python3 -c "
-import sys, json
+JSON="$(fetch_json "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-JOB1-{N}.json?expand=testResults.failedTests.testResult")"
+python3 <<'PY' <<<"$JSON"
+import json, sys
 d = json.load(sys.stdin)
-tests = d.get('testResults',{}).get('failedTests',{}).get('testResult',[])
-print(f'Total failing: {len(tests)}')
+tests = d.get("testResults", {}).get("failedTests", {}).get("testResult", [])
+print(f"Total failing: {len(tests)}")
 for t in tests:
-    err = (t.get('errors',{}).get('error',[{}])[0].get('message','') or '')[:150]
-    print(f'{t[\"className\"].split(\".\")[-1]}.{t[\"methodName\"]} | {err}')
-"
+    err = (t.get("errors", {}).get("error", [{}])[0].get("message", "") or "")[:150]
+    print(f"{t.get('className', '').split('.')[-1]}.{t.get('methodName', '')} | {err}")
+PY
 
 # WRONG — plan-level returns failedTestCount but empty testResults:
 # curl -s "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-{N}.json?expand=testResults.failedTests" → testResults: {}
@@ -103,15 +118,16 @@ for t in tests:
 
 ### Fetch ONE Test's Full Error (Step 2 — only when diagnosing a specific test)
 \`\`\`bash
-curl -s -H "Accept: application/json" "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-JOB1-{N}.json?expand=testResults.failedTests.testResult" | python3 -c "
-import sys, json
+JSON="$(fetch_json "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-JOB1-{N}.json?expand=testResults.failedTests.testResult")"
+python3 <<'PY' <<<"$JSON"
+import json, sys
 d = json.load(sys.stdin)
-for t in d.get('testResults',{}).get('failedTests',{}).get('testResult',[]):
-    if '{TEST_METHOD}' in t.get('methodName',''):
-        for e in t.get('errors',{}).get('error',[]):
-            print(e.get('message','')[:500])
+for t in d.get("testResults", {}).get("failedTests", {}).get("testResult", []):
+    if "{TEST_METHOD}" in t.get("methodName", ""):
+        for e in t.get("errors", {}).get("error", []):
+            print((e.get("message", "") or "")[:500])
         break
-"
+PY
 \`\`\`
 
 ### Fetch Build Log — NEVER FULL LOG
@@ -122,11 +138,12 @@ curl -s "https://{BAMBOO_HOST}/download/{PLAN_KEY}-JOB1/build_logs/{PLAN_KEY}-JO
 
 ### List Recent Builds (summary table — ~500 bytes for 5 builds)
 \`\`\`bash
-curl -s "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}.json?max-result=5&expand=results.result" | python3 -c "
-import sys, json
-for r in json.load(sys.stdin).get('results',{}).get('result',[]):
-    print(f'#{r[\"buildNumber\"]} {r[\"state\"]} {r.get(\"successfulTestCount\",0)}p/{r.get(\"failedTestCount\",0)}f {r.get(\"vcsRevisionKey\",\"\")[:8]}')
-"
+JSON="$(fetch_json "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}.json?max-result=5&expand=results.result")"
+python3 <<'PY' <<<"$JSON"
+import json, sys
+for r in json.load(sys.stdin).get("results", {}).get("result", []):
+    print(f"#{r['buildNumber']} {r['state']} {r.get('successfulTestCount', 0)}p/{r.get('failedTestCount', 0)}f {str(r.get('vcsRevisionKey', ''))[:8]}")
+PY
 \`\`\`
 
 ### Queue a Build (requires auth)
@@ -178,6 +195,7 @@ If Bamboo data was fetched but \`repair-log.md\` was not updated, the iteration 
 - Saving full build log output (even excerpts > 500 bytes) to evidence
 - Creating evidence files > 3KB — if your file exceeds 3KB, you are including raw data. Rewrite as a structured table.
 - Piping \`curl\` output directly to files: \`curl ... > .sisyphus/evidence/file\` is ALWAYS WRONG. Filter first: \`curl ... | python3 -c "..." > file\`
+- Building giant single-line Bamboo fetch commands with nested quotes and inline Python. Use heredocs and multi-line shell blocks instead.
 - After saving any evidence file, verify: \`wc -c .sisyphus/evidence/{file}\`. If > 3072 bytes, rewrite it shorter.
 - Writing \`*.json\`, \`*.log\`, \`*.trx\`, \`*.xml\` to \`.sisyphus/evidence/\` — ci-green-loop STEP 0 auto-deletes these extensions every iteration. Use \`build-{N}-analysis.md\` format ONLY.
 - Writing a free-form narrative without build number / revision / changed-files coverage into \`repair-log.md\`

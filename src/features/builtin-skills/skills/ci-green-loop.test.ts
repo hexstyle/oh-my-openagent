@@ -31,6 +31,8 @@ describe("ci green loop builtin skills", () => {
     expect(bambooCiSkill.template).toContain("curl --insecure")
     expect(bambooCiSkill.template).toContain("Corporate TLS is not a terminal blocker")
     expect(bambooCiSkill.template).toContain("Do NOT stop after a successful push")
+    expect(bambooCiSkill.template).toContain("python3 <<'PY'")
+    expect(bambooCiSkill.template).toContain("Do NOT build giant one-line commands with nested quotes")
   })
 
   test("ci-green-loop treats Bamboo certificate errors as monitoring fallback, not push failure", () => {
