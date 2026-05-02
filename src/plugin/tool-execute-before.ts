@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto"
 import { getMainSessionID } from "../features/claude-code-session-state"
 import { clearBoulderState } from "../features/boulder-state"
 import { log } from "../shared"
+import { getSessionTools } from "../shared/session-tools-store"
 import { resolveSessionAgent } from "./session-agent-resolver"
 import { parseRalphLoopArguments } from "../hooks/ralph-loop/command-arguments"
 import { ULTRAWORK_VERIFICATION_PROMISE } from "../hooks/ralph-loop/constants"
@@ -41,6 +42,13 @@ export function createToolExecuteBeforeHandler(args: {
   }
 
   return async (input, output): Promise<void> => {
+    const sessionTools = getSessionTools(input.sessionID)
+    if (sessionTools?.[input.tool] === false || sessionTools?.[`${input.tool}_*`] === false) {
+      throw new Error(
+        `[tool-execute-before] Tool "${input.tool}" is disabled for session ${input.sessionID}.`
+      )
+    }
+
     if (input.tool.toLowerCase() === "bash" && typeof output.args.command === "string") {
       if (output.args.command.includes("\x00")) {
         output.args.command = output.args.command.replace(/\x00/g, "")

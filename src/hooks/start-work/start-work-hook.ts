@@ -596,6 +596,13 @@ ${worktreeBlock}
         updateSessionAgent(sessionId, ciAgent)
         if (output.message) {
           output.message["agent"] = ciAgentDisplay
+          output.message["tools"] = {
+            ...((output.message["tools"] as Record<string, unknown> | undefined) ?? {}),
+            task: false,
+            "task_*": false,
+            teammate: false,
+            call_omo_agent: false,
+          }
         }
         log(`[${HOOK_NAME}] CI fast path: prompt REPLACED, agent switched to ${ciAgent} (${ciAgentDisplay})`)
       } else {

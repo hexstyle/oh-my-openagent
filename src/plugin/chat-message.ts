@@ -2,7 +2,9 @@ import type { OhMyOpenCodeConfig } from "../config"
 import type { PluginContext } from "./types"
 
 import { hasConnectedProvidersCache, log } from "../shared"
+import { normalizePromptTools } from "../shared/prompt-tools"
 import { getSessionModel, setSessionModel } from "../shared/session-model-state"
+import { setSessionTools } from "../shared/session-tools-store"
 import { getMainSessionID, setSessionAgent, subagentSessions } from "../features/claude-code-session-state"
 import { applyUltraworkModelOverrideOnMessage } from "./ultrawork-model-override"
 import { NATIVE_LOOP_TRIGGERED_FLAG } from "./command-execute-before"
@@ -178,6 +180,12 @@ export function createChatMessageHandler(args: {
     await hooks.noHephaestusNonGpt?.["chat.message"]?.(input, output)
     if (hooks.startWork && isStartWorkHookOutput(output)) {
       await hooks.startWork["chat.message"]?.(input, output)
+    }
+    const normalizedTools = normalizePromptTools(
+      output.message["tools"] as Record<string, boolean | "allow" | "deny" | "ask"> | undefined,
+    )
+    if (normalizedTools) {
+      setSessionTools(input.sessionID, normalizedTools)
     }
 
     if (!hasConnectedProvidersCache()) {

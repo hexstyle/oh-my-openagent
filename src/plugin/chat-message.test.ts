@@ -11,6 +11,7 @@ import { createAutoSlashCommandHook } from "../hooks/auto-slash-command/hook"
 import { createStartWorkHook } from "../hooks/start-work"
 import { readBoulderState } from "../features/boulder-state"
 import { registerAgentName } from "../features/claude-code-session-state"
+import { clearSessionTools, getSessionTools } from "../shared/session-tools-store"
 
 type ChatMessagePart = { type: string; text?: string; [key: string]: unknown }
 type ChatMessageHandlerOutput = { message: Record<string, unknown>; parts: ChatMessagePart[] }
@@ -45,6 +46,7 @@ afterEach(() => {
   clearSessionModel("test-session")
   clearSessionModel("main-session")
   clearSessionModel("subagent-session")
+  clearSessionTools()
 })
 
 describe("createChatMessageHandler - start-work integration", () => {
@@ -129,6 +131,74 @@ describe("createChatMessageHandler - start-work integration", () => {
     expect(state?.active_plan).toBe(join(testDir, ".sisyphus", "plans", "ci-green-final.md"))
     expect(state?.session_ids).toContain("session-start-work")
     expect(state?.agent).toBe("atlas")
+  })
+
+  test("persists ci fast-path tool restrictions into the session tool store", async () => {
+    const evidenceDir = join(testDir, ".sisyphus", "evidence")
+    mkdirSync(evidenceDir, { recursive: true })
+    writeFileSync(join(evidenceDir, "build-315-analysis.md"), "# Build 315\n")
+    writeFileSync(join(evidenceDir, "ci-loop-checkpoint.md"), "# checkpoint\n")
+    writeFileSync(join(evidenceDir, "repair-log.md"), "# repair log\n")
+    writeFileSync(
+      join(testDir, ".sisyphus", "plans", "ci-green-final.md"),
+      `# Plan
+
+**Skills**: \`ci-green-loop\`, \`bamboo-ci\`, \`dotnet-playwright\`
+
+## TODOs
+- [x] 1. **T1 — Diagnosis**
+- [ ] 2. **T2 — Fix ALL failures**
+`,
+    )
+
+    const autoSlashCommand = createAutoSlashCommandHook({
+      pluginsEnabled: true,
+      enabledPluginsOverride: {},
+    })
+    const startWork = createStartWorkHook({
+      directory: testDir,
+      client: { tui: { showToast: async () => {} } },
+    } as any)
+    const handler = createChatMessageHandler({
+      ctx: { client: { tui: { showToast: async () => {} } } } as any,
+      pluginConfig: {} as any,
+      firstMessageVariantGate: {
+        shouldOverride: () => false,
+        markApplied: () => {},
+      },
+      hooks: {
+        stopContinuationGuard: null,
+        backgroundNotificationHook: null,
+        runtimeFallback: null,
+        keywordDetector: null,
+        thinkMode: null,
+        claudeCodeHooks: null,
+        autoSlashCommand,
+        noSisyphusGpt: null,
+        noHephaestusNonGpt: null,
+        startWork,
+        ralphLoop: null,
+      } as any,
+    })
+    const output = {
+      message: {},
+      parts: [{ type: "text", text: "/start-work ci-green-final" }],
+    }
+
+    await handler(
+      {
+        sessionID: "session-ci-tools",
+        agent: "prometheus",
+      },
+      output,
+    )
+
+    expect(getSessionTools("session-ci-tools")).toEqual({
+      task: false,
+      "task_*": false,
+      teammate: false,
+      call_omo_agent: false,
+    })
   })
 
   test("routes quoted raw /start-work through auto-slash and start-work hooks in opencode run style sessions", async () => {

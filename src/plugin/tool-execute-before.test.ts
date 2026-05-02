@@ -2,8 +2,59 @@ const { describe, expect, test } = require("bun:test")
 const { createToolExecuteBeforeHandler } = require("./tool-execute-before")
 const { createToolRegistry } = require("./tool-registry")
 const { builtinTools } = require("../tools")
+const { clearSessionTools, setSessionTools } = require("../shared/session-tools-store")
 
 describe("createToolExecuteBeforeHandler", () => {
+  test("blocks task when session tools explicitly disable it", async () => {
+    const sessionID = "ses_ci_block_task"
+    setSessionTools(sessionID, { task: false })
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "task", sessionID, callID: "call_task" },
+        { args: { prompt: "do work" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow(`Tool "task" is disabled for session ${sessionID}`)
+
+    clearSessionTools()
+  })
+
+  test("blocks call_omo_agent when session tools explicitly disable it", async () => {
+    const sessionID = "ses_ci_block_call_omo"
+    setSessionTools(sessionID, { call_omo_agent: false })
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "call_omo_agent", sessionID, callID: "call_omo" },
+        { args: { prompt: "delegate" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow(`Tool "call_omo_agent" is disabled for session ${sessionID}`)
+
+    clearSessionTools()
+  })
+
   test("does not execute subagent question blocker hook for question tool", async () => {
     //#given
     const ctx = {

@@ -183,6 +183,12 @@ describe("start-work hook", () => {
       expect(text).toContain("tracker counts/statuses reconcile with the current failing-test count")
       expect(text).toContain("every current failing test has a current-iteration tracker update plus concrete fix path or blocker conclusion")
       expect(output.message?.agent).toBe("Sisyphus (Ultraworker)")
+      expect(output.message?.tools).toEqual({
+        task: false,
+        "task_*": false,
+        teammate: false,
+        call_omo_agent: false,
+      })
     })
 
     test("ci fast path surfaces per-test tracker discipline when tracker files exist", async () => {
