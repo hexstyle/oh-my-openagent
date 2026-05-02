@@ -354,6 +354,8 @@ STOP searching when:
 - While stale-plan rebase, failure-count drift, Task-2 rewrite, or root-cause reconciliation is open, background delegation is FORBIDDEN.
 - After the core evidence is reconciled, delegate only if a single concrete unanswered question still blocks a code edit. Launch at most ONE background research agent at a time for that question.
 - In evidence-gated CI mode, once you have read the dirty candidate files, the directly failing tests/helpers, and enough app code to name at least one code-backed action per failure cluster, STOP researching and start the edit batch immediately.
+- In evidence-gated CI mode, once the live CI failure list has been fetched and any tracker drift is known, your very next write-capable action must be to materialize tracker/checkpoint/repair-log updates on disk for the current build. Do not spend another loop re-reading trackers or refetching Bamboo unless one still-uncovered test lacks even a short error or a single stack slice.
+- In evidence-gated CI mode, after one stack/details sample for a new or changed failure, silent think-time is forbidden until you either write the evidence updates or start the edit batch.
 - If dirty candidate fix files already exist and you have read their diffs, you must either (a) edit those files further or (b) start local verification of that batch in the same turn. Silent think-time pauses after reading the diff are forbidden.
 - Do NOT open a second-wave adjacent-code audit in evidence-gated CI mode before the first local verification pass.
 - In evidence-gated CI mode, do NOT queue Oracle consultation, \`review-work\`, or any post-implementation/final-wave review before the first local verification pass.

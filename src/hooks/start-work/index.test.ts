@@ -168,6 +168,7 @@ describe("start-work hook", () => {
       expect(text).toContain("`## Iteration ...` block")
       expect(text).toContain("free-form")
       expect(text).toContain("reconcile the conflicting hypotheses")
+      expect(text).toContain("the very next write-capable action must be updating tracker files")
       expect(text).toContain("rewrite the active plan on disk")
       expect(text).toContain("before any source-code reads outside `.sisyphus/evidence/`")
       expect(text).toContain("Do NOT burn time on repeated `wc`")

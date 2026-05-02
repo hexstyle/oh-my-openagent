@@ -124,6 +124,8 @@ describe("delegation trust prompt rules", () => {
     expect(prompt).toContain("background delegation is FORBIDDEN")
     expect(prompt).toContain("Launch at most ONE background research agent at a time")
     expect(prompt).toContain("STOP researching and start the edit batch immediately")
+    expect(prompt).toContain("your very next write-capable action must be to materialize tracker/checkpoint/repair-log updates on disk")
+    expect(prompt).toContain("after one stack/details sample for a new or changed failure")
     expect(prompt).toContain("Do NOT open a second-wave adjacent-code audit")
     expect(prompt).toContain("maximum discovery budget after the evidence pass")
     expect(prompt).toContain("do NOT queue Oracle consultation")
