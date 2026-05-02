@@ -131,6 +131,7 @@ describe("delegation trust prompt rules", () => {
     expect(prompt).toContain("those files are the first edit batch")
     expect(prompt).toContain("editing is mandatory in the same turn")
     expect(prompt).toContain("at most one source slice per product file")
+    expect(prompt).toContain("target <=250 lines")
     expect(prompt).toContain("one failing test method slice")
     expect(prompt).toContain("must stop reading and write the expanded edit batch immediately")
     expect(prompt).toContain("any further `read`, `grep`, `glob`")

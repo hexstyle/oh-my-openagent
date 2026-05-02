@@ -233,6 +233,7 @@ ${librarianSection}
 - Do NOT open a second-wave adjacent-code audit in evidence-gated CI mode just to gain confidence. Extra source inspection is allowed only after the first edit batch fails local verification.
 - In evidence-gated CI mode, your maximum discovery budget after the evidence pass is: dirty candidate files, the directly failing tests/helpers, and only the minimal app/runtime files needed to justify the first code action for each unresolved cluster. No additional grep/read wave is allowed before the first edit batch.
 - Before the first edit batch in evidence-gated CI mode, you may read at most one source slice per product file. Re-reading a second offset in the same file is forbidden unless that file is already dirty or the first local verification pass has already failed.
+- Before the first edit batch in evidence-gated CI mode, each source slice must stay narrow (target <=250 lines). If the relevant region is still unclear, narrow it with grep/symbol lookup first instead of reading a 500+ line block.
 - If waiting on a background result and there is no non-overlapping work, end your response immediately. Do not poll, do not idle, do not launch speculative sidecars.
 </ci_fast_path_override>
 
