@@ -25,6 +25,8 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("A push is forbidden if any current failing test appears only in diagnosis text")
     expect(ciGreenLoopSkill.template).toContain("current-iteration fix approach or blocker conclusion")
     expect(ciGreenLoopSkill.template).toContain("staged diff or an explicit reason why no code change was needed")
+    expect(ciGreenLoopSkill.template).toContain("The first working response after the live CI fetch is incomplete unless those evidence files were actually modified on disk")
+    expect(ciGreenLoopSkill.template).toContain("Do not spend that turn on todo churn, extra plan prose, or adjacent source reads")
   })
 
   test("bamboo-ci template couples Bamboo fetches to repair-log updates", () => {

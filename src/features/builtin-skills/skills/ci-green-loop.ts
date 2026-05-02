@@ -95,6 +95,7 @@ Hard rules:
 7. free-form narrative is forbidden in \`repair-log.md\`; every update must be a normalized iteration block plus, at most, one compact top summary.
 8. After fetching the live failing test list for the current build, you MUST write/update tracker files, \`repair-log.md\`, and \`ci-loop-checkpoint.md\` BEFORE any source-code reads outside \`.sisyphus/evidence/\`.
 9. A push is forbidden if any current failing test appears only in diagnosis text but not in the current iteration block's coverage map, per-test ledger, and pre-push audit conclusion.
+10. The first working response after the live CI fetch is incomplete unless those evidence files were actually modified on disk for the current build. "Will update next" is invalid.
 
 ### Reading Trackers Before Fixing
 BEFORE writing any code fix, you MUST:
@@ -245,6 +246,7 @@ LOOP:
        - If new: create tracker with status \`failing\`, empty Fix History
     f) Classify each test: build-error|test-crash|test-timeout|test-assertion|setup-error|infra-error
     f1) **MATERIALIZE EVIDENCE NOW (hard gate)**: immediately write/update all per-test tracker files, \`build-{N}-analysis.md\`, \`repair-log.md\`, and \`ci-loop-checkpoint.md\` for the CURRENT build before any grep/read on source files outside \`.sisyphus/evidence/\`.
+        The first working response after the live fetch must end with those files modified on disk. Do not spend that turn on todo churn, extra plan prose, or adjacent source reads.
     f2) **ACTIVE PLAN REBASE (hard gate)**: if the active plan references an older build, older revision, wrong failing-test count, or a superseded Task 2 scope, rewrite the active plan immediately after evidence materialization so Task 1/Task 2 match the CURRENT build truth. Do not carry an old \`#315 / 15 fails\` Task 2 beside \`#317 / 14 fails\` evidence.
 
     Managed .sisyphus repo fast-path:
