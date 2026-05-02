@@ -91,6 +91,7 @@ Hard rules:
 5. If \`git diff --name-only\` is non-empty and no new iteration block was appended, STOP and write it.
 6. Keep \`repair-log.md\` under 8KB by retaining only the last 12 iteration blocks plus one top summary.
 7. free-form narrative is forbidden in \`repair-log.md\`; every update must be a normalized iteration block plus, at most, one compact top summary.
+8. After fetching the live failing test list for the current build, you MUST write/update tracker files, \`repair-log.md\`, and \`ci-loop-checkpoint.md\` BEFORE any source-code reads outside \`.sisyphus/evidence/\`.
 
 ### Reading Trackers Before Fixing
 BEFORE writing any code fix, you MUST:
@@ -229,12 +230,13 @@ LOOP:
        - If tracker exists: update Error field, keep Fix History
        - If new: create tracker with status \`failing\`, empty Fix History
     f) Classify each test: build-error|test-crash|test-timeout|test-assertion|setup-error|infra-error
+    f1) **MATERIALIZE EVIDENCE NOW (hard gate)**: immediately write/update all per-test tracker files, \`build-{N}-analysis.md\`, \`repair-log.md\`, and \`ci-loop-checkpoint.md\` for the CURRENT build before any grep/read on source files outside \`.sisyphus/evidence/\`.
 
     Managed .sisyphus repo fast-path:
     - You may reuse existing diagnosis text ONLY after verifying that steps (b)-(f) are already satisfied for the CURRENT build.
     - "Already satisfied" means: tracker directory exists, tracker count with current failing tests matches N, every current failing test has a tracker, and each tracker's current Error / Root Cause Group / Status has been refreshed for this build.
     - If any of those checks fail, DO NOT skip steps (b)-(f).
-    - Only after that reconciliation may you read existing dirty candidate files first, sample the minimal unresolved failure slices, and move to the first edit batch.
+    - Only after that reconciliation and evidence materialization may you read existing dirty candidate files first, sample the minimal unresolved failure slices, and move to the first edit batch.
     g) Only for UNCLEAR failures: fetch ONE test's full error (≤500 chars). READ source code.
     h) Save compact build analysis to \`.sisyphus/evidence/build-{N}-analysis.md\` (MAX 3KB).
     i) **COVERAGE ACCOUNTING (hard gate)**: List all N failing tests by FullyQualifiedName.

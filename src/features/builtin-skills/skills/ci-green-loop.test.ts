@@ -16,6 +16,8 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("Missing tracker directory is a blocker for code edits")
     expect(ciGreenLoopSkill.template).toContain("If any of those checks fail, DO NOT skip steps (b)-(f)")
     expect(ciGreenLoopSkill.template).toContain("one shared file/helper")
+    expect(ciGreenLoopSkill.template).toContain("MATERIALIZE EVIDENCE NOW (hard gate)")
+    expect(ciGreenLoopSkill.template).toContain("BEFORE any source-code reads outside `.sisyphus/evidence/`")
   })
 
   test("bamboo-ci template couples Bamboo fetches to repair-log updates", () => {
