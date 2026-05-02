@@ -59,6 +59,21 @@ sync_runtime_workspace() {
 EOF
   rm -rf "$CACHE_DIR/node_modules" "$CACHE_DIR/bun.lock"
   (cd "$CACHE_DIR" && bun install)
+
+  while IFS='=' read -r package_name package_version; do
+    [[ -n "$package_name" ]] || continue
+    package_dir="$CACHE_DIR/packages/$package_name@latest"
+    mkdir -p "$package_dir"
+    rm -rf "$package_dir/node_modules"
+    ln -sfn "../../node_modules/$package_name" "$package_dir/node_modules"
+  done < <(
+    bun --eval "
+import { MANAGED_RUNTIME_PLUGIN_DEPENDENCIES } from '$ROOT_DIR/src/shared/managed-opencode-runtime.ts';
+for (const [name, version] of Object.entries(MANAGED_RUNTIME_PLUGIN_DEPENDENCIES)) {
+  console.log(name + '=' + version);
+}
+"
+  )
 }
 
 ensure_config_schema_link() {

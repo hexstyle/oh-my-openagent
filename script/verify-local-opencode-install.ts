@@ -156,6 +156,18 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) fail(message)
 }
 
+function assertManagedRuntimePackageLayout(): void {
+  for (const packageName of Object.keys(MANAGED_RUNTIME_PLUGIN_DEPENDENCIES)) {
+    const packageRoot = join(cacheDir, "packages", `${packageName}@latest`)
+    const packageJsonPath = join(packageRoot, "node_modules", "package.json")
+    assert(existsSync(packageRoot), `Managed runtime package directory is missing: ${packageRoot}`)
+    assert(
+      existsSync(packageJsonPath),
+      `Managed runtime package layout is incomplete for ${packageName}: missing ${packageJsonPath}`,
+    )
+  }
+}
+
 function readJson(filePath: string): Record<string, unknown> {
   assert(existsSync(filePath), `Missing file: ${filePath}`)
   return JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>
@@ -573,6 +585,8 @@ async function main(): Promise<void> {
   const runtimePackagePath = join(cacheDir, "package.json")
   const configWorkspacePackagePath = join(configDir, "package.json")
   const configSchemaLink = join(configDir, "node_modules", "oh-my-openagent")
+
+  assertManagedRuntimePackageLayout()
 
   const liveHost = readJson(liveHostPath)
   const livePlugin = readJson(livePluginPath)
