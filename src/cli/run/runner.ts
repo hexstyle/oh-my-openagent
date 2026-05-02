@@ -1,4 +1,7 @@
 import pc from "picocolors"
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { RunOptions, RunContext } from "./types"
 import { createEventState, processEvents, serializeError } from "./events"
 import { loadPluginConfig } from "../../plugin-config"
@@ -15,12 +18,19 @@ import { createTimestampedStdoutController } from "./timestamp-output"
 import { CONTINUATION_PROMPT, DEFAULT_CONFIG as RUNTIME_FALLBACK_DEFAULT_CONFIG } from "../../hooks/runtime-fallback/constants"
 import { getRuntimeFallbackAction, isSameModelRetryAction } from "../../hooks/runtime-fallback/fallback-policy"
 import { createInternalAgentTextPart } from "../../shared/internal-initiator-marker"
+import { getPreferredDataDir } from "../../shared/data-path"
 
 export { resolveRunAgent, resolveRunPromptAgent }
 
 const EVENT_PROCESSOR_SHUTDOWN_TIMEOUT_MS = 2_000
 const RUN_TRANSPORT_RECOVERY_MAX_ATTEMPTS = 2
 const RUN_TRANSPORT_RECOVERY_DELAY_MS = 2_000
+const RUN_ISOLATED_DATA_HOME_DISABLE_ENV = "OH_MY_OPENAGENT_DISABLE_RUN_DATA_ISOLATION"
+
+type RunIsolatedDataHomeState = {
+  tempDir: string
+  originalXdgDataHome: string | undefined
+}
 
 export function shouldRecoverRunTransportError(error: unknown): boolean {
   const action = getRuntimeFallbackAction(
@@ -28,6 +38,53 @@ export function shouldRecoverRunTransportError(error: unknown): boolean {
     RUNTIME_FALLBACK_DEFAULT_CONFIG.retry_on_errors,
   )
   return isSameModelRetryAction(action)
+}
+
+export function shouldUseIsolatedRunDataHome(options: Pick<RunOptions, "attach">, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (options.attach) {
+    return false
+  }
+
+  return env[RUN_ISOLATED_DATA_HOME_DISABLE_ENV] !== "1"
+}
+
+export function prepareIsolatedRunDataHome(env: NodeJS.ProcessEnv = process.env): RunIsolatedDataHomeState {
+  const tempDir = mkdtempSync(join(tmpdir(), "oh-my-openagent-run-data-"))
+  const opencodeDir = join(tempDir, "opencode")
+  mkdirSync(opencodeDir, { recursive: true })
+
+  const authSource = join(getPreferredDataDir(), "opencode", "auth.json")
+  const authTarget = join(opencodeDir, "auth.json")
+  if (existsSync(authSource)) {
+    copyFileSync(authSource, authTarget)
+  }
+
+  const state: RunIsolatedDataHomeState = {
+    tempDir,
+    originalXdgDataHome: env.XDG_DATA_HOME,
+  }
+  env.XDG_DATA_HOME = tempDir
+  return state
+}
+
+export function cleanupIsolatedRunDataHome(
+  state: RunIsolatedDataHomeState | null,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (!state) {
+    return
+  }
+
+  if (state.originalXdgDataHome === undefined) {
+    delete env.XDG_DATA_HOME
+  } else {
+    env.XDG_DATA_HOME = state.originalXdgDataHome
+  }
+
+  try {
+    rmSync(state.tempDir, { recursive: true, force: true })
+  } catch {
+  }
 }
 
 export async function waitForEventProcessorShutdown(
@@ -45,6 +102,9 @@ export async function waitForEventProcessorShutdown(
 export async function run(options: RunOptions): Promise<number> {
   process.env.OPENCODE_CLI_RUN_MODE = "true"
   process.env.OPENCODE_CLIENT = "run"
+  const isolatedRunDataHome = shouldUseIsolatedRunDataHome(options)
+    ? prepareIsolatedRunDataHome()
+    : null
 
   const startTime = Date.now()
   const {
@@ -201,6 +261,7 @@ export async function run(options: RunOptions): Promise<number> {
     console.error(pc.red(`Error: ${serializeError(err)}`))
     return 1
   } finally {
+    cleanupIsolatedRunDataHome(isolatedRunDataHome)
     timestampOutput?.restore()
   }
 }

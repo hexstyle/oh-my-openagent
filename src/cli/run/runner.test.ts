@@ -1,11 +1,16 @@
 /// <reference types="bun-types" />
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "bun:test"
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import type { OhMyOpenCodeConfig } from "../../config"
 import {
+  cleanupIsolatedRunDataHome,
+  prepareIsolatedRunDataHome,
   resolveRunAgent,
   resolveRunPromptAgent,
   shouldRecoverRunTransportError,
+  shouldUseIsolatedRunDataHome,
   waitForEventProcessorShutdown,
 } from "./runner"
 
@@ -232,5 +237,70 @@ describe("shouldRecoverRunTransportError", () => {
     expect(
       shouldRecoverRunTransportError(new Error("out of extra usage")),
     ).toBe(false)
+  })
+})
+
+describe("run isolated data home", () => {
+  let originalXdgDataHome: string | undefined
+  let originalDisableIsolation: string | undefined
+
+  beforeEach(() => {
+    originalXdgDataHome = process.env.XDG_DATA_HOME
+    originalDisableIsolation = process.env.OH_MY_OPENAGENT_DISABLE_RUN_DATA_ISOLATION
+  })
+
+  afterEach(() => {
+    if (originalXdgDataHome === undefined) {
+      delete process.env.XDG_DATA_HOME
+    } else {
+      process.env.XDG_DATA_HOME = originalXdgDataHome
+    }
+
+    if (originalDisableIsolation === undefined) {
+      delete process.env.OH_MY_OPENAGENT_DISABLE_RUN_DATA_ISOLATION
+    } else {
+      process.env.OH_MY_OPENAGENT_DISABLE_RUN_DATA_ISOLATION = originalDisableIsolation
+    }
+  })
+
+  it("uses isolated data home by default for local run sessions", () => {
+    expect(shouldUseIsolatedRunDataHome({ attach: undefined }, {})).toBe(true)
+  })
+
+  it("skips isolated data home when attach is used", () => {
+    expect(shouldUseIsolatedRunDataHome({ attach: "http://127.0.0.1:4096" }, {})).toBe(false)
+  })
+
+  it("supports disabling isolated data home through env override", () => {
+    expect(
+      shouldUseIsolatedRunDataHome(
+        { attach: undefined },
+        { OH_MY_OPENAGENT_DISABLE_RUN_DATA_ISOLATION: "1" } as NodeJS.ProcessEnv,
+      ),
+    ).toBe(false)
+  })
+
+  it("copies auth.json into the isolated run data home and restores XDG_DATA_HOME on cleanup", () => {
+    const fakePreferredDataHome = `/tmp/omo-run-auth-source-${Date.now()}`
+    const authSourceDir = join(fakePreferredDataHome, "opencode")
+    const authSourcePath = join(authSourceDir, "auth.json")
+    const authPayload = JSON.stringify({ provider: "openai", token: "test-token" })
+    mkdirSync(authSourceDir, { recursive: true })
+    writeFileSync(authSourcePath, authPayload)
+    process.env.XDG_DATA_HOME = fakePreferredDataHome
+
+    const isolated = prepareIsolatedRunDataHome(process.env)
+    const copiedAuthPath = join(process.env.XDG_DATA_HOME ?? "", "opencode", "auth.json")
+
+    try {
+      expect(process.env.XDG_DATA_HOME).toBe(isolated.tempDir)
+      expect(existsSync(copiedAuthPath)).toBe(true)
+      expect(readFileSync(copiedAuthPath, "utf8")).toBe(authPayload)
+    } finally {
+      cleanupIsolatedRunDataHome(isolated, process.env)
+      rmSync(fakePreferredDataHome, { recursive: true, force: true })
+    }
+
+    expect(process.env.XDG_DATA_HOME).toBe(fakePreferredDataHome)
   })
 })
