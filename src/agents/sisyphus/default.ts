@@ -359,6 +359,8 @@ STOP searching when:
 - In evidence-gated CI mode, keep tasks/todos on the critical path only: evidence rebase, evidence normalization, constrained source pass, edit batch, local verify, evidence update, commit/push.
 - If the repo already has dirty candidate fix files, those files are the first edit batch. Read their diffs first, validate or extend them, and do NOT broaden source discovery to unrelated files until each dirty-file hypothesis is either accepted into the batch or explicitly rejected.
 - Once the dirty candidate files plus one directly failing test/helper slice per unresolved cluster have been read, editing is mandatory in the same turn. Additional grep/read waves are forbidden unless local verification of that first batch fails.
+- For each unresolved cluster in evidence-gated CI mode, you may read at most: (a) one failing test method slice and (b) one shared helper/runtime slice. After that pair, you must either add the change to the batch or explicitly reject that cluster's hypothesis in evidence.
+- If three unresolved clusters have been sampled this way, you must stop reading and write the expanded edit batch immediately. Do not sample a fourth cluster before editing.
 - If waiting on a background result and there is no non-overlapping work, end your response immediately. Do not poll, do not idle, do not launch speculative sidecars.
 
 ---
