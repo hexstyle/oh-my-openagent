@@ -11,6 +11,9 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("Checkpoint MUST reference repair-log")
     expect(ciGreenLoopSkill.template).toContain("free-form narrative")
     expect(ciGreenLoopSkill.template).toContain("tracker files with status `fixed-pending`")
+    expect(ciGreenLoopSkill.template).toContain("Managed .sisyphus repo exception")
+    expect(ciGreenLoopSkill.template).toContain("Missing tracker directory is not a blocker")
+    expect(ciGreenLoopSkill.template).toContain("SKIP steps (b)-(f)")
   })
 
   test("bamboo-ci template couples Bamboo fetches to repair-log updates", () => {

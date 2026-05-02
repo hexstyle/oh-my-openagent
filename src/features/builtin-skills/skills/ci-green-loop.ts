@@ -14,6 +14,8 @@ Plans MUST cover 100% of known failures. A plan addressing a subset is REJECTED.
 1. **Task 1: Diagnosis** — fetch build SUMMARY (names + short errors only, NOT full test results), verify deployment succeeded, classify every failing test by name+error. Create per-test tracker files in \`.sisyphus/evidence/tests/\`. Skills: \`["bamboo-ci", "ci-green-loop"]\`. Category: \`quick\`.
 2. **Task 2: Fix ALL failures** — ONE comprehensive fix task covering ALL root cause groups, ALL files, ALL tests. The executor reads Task 1 evidence AND per-test tracker files, then fixes everything in a single session. For tests with prior failed attempts in tracker files, the plan MUST instruct the executor to try a DIFFERENT approach and cite what was already tried. Include \`"dotnet-playwright"\` skill. Category: \`deep\`. Ends with: pre-push audit → dotnet build → local test run → git commit → git push → verify CI picks up revision.
 
+**Managed .sisyphus repo exception:** If \`.sisyphus/evidence/ci-loop-checkpoint.md\`, \`repair-log.md\`, and the latest build analysis already exist and agree on the latest build scope, treat that as the diagnosis source of truth. Do NOT recreate diagnosis from scratch, do NOT regenerate per-test trackers just because \`.sisyphus/evidence/tests/\` is absent, and do NOT expand into a second diagnosis wave before the first edit batch.
+
 **Iteration ledger is mandatory**: every loop iteration MUST append ONE compact block to \`.sisyphus/evidence/repair-log.md\` capturing build number/revision, all failing tests covered, code files changed for each failure group, verification result, push result, and next action. If the iteration touches code but no ledger block was appended, the iteration is incomplete.
 
 **Why exactly 2 tasks:** Each task = ~2 min dispatch overhead + risk of parallel sessions editing the same file (duplicate ClassInitialize bug). One executor sees ALL changes holistically, avoids conflicts, pushes once.
@@ -61,6 +63,8 @@ Every failing test gets its own tracker file at \`.sisyphus/evidence/tests/{Test
 4. **After CI results**: Update status to \`green\` for tests that passed. Delete tracker files for tests that have been \`green\` for 2 consecutive builds.
 5. **Max file size**: 2KB per tracker. Keep Fix History to last 5 attempts. If over, prune oldest entries.
 6. The "Code Files" field lists which source files the test depends on — used by pre-push audit to verify code was changed.
+
+If the repo already operates without \`.sisyphus/evidence/tests/\` and the checkpoint explicitly records that absence, continue with the core evidence files only. Missing tracker directory is not a blocker and does not justify recreating diagnosis.
 
 ## Iteration Ledger (MANDATORY)
 
@@ -218,6 +222,11 @@ LOOP:
        - If tracker exists: update Error field, keep Fix History
        - If new: create tracker with status \`failing\`, empty Fix History
     f) Classify each test: build-error|test-crash|test-timeout|test-assertion|setup-error|infra-error
+
+    Managed .sisyphus repo fast-path:
+    - If \`ci-loop-checkpoint.md\`, \`repair-log.md\`, and the latest build analysis already reconcile the current build number, failure count, and root-cause groups, SKIP steps (b)-(f).
+    - In that case, read the existing dirty candidate files first, sample only the minimal unresolved failure slices still needed for code edits, and move directly to the first edit batch.
+    - Do NOT recreate tracker files or reclassify the entire failure set unless the current build introduces a new failure type that is absent from the checkpoint/repair-log.
        Assign root cause group. Update tracker's Root Cause Group field.
     g) Only for UNCLEAR failures: fetch ONE test's full error (≤500 chars). READ source code.
     h) Save compact build analysis to \`.sisyphus/evidence/build-{N}-analysis.md\` (MAX 3KB).
