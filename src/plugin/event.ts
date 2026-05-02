@@ -215,9 +215,20 @@ const PROMETHEUS_INTERRUPTED_VISIBLE_TURN_RECOVERY_TEXT = [
   "Only stop after the final plan file exists, has populated ## TODOs, and you provide a concise user-facing summary.",
   PROMETHEUS_FINAL_ARTIFACT_RECOVERY_TEXT,
 ].join("\n");
+const SISYPHUS_CI_REASONING_ONLY_RECOVERY_TEXT = [
+  "[session recovered - continue evidence-gated CI now]",
+  "You are in evidence-gated CI mode.",
+  "Do not stop at reasoning.",
+  "Immediately perform the next missing concrete action:",
+  "1. If the current build's tracker files, `repair-log.md`, or `ci-loop-checkpoint.md` are stale or not yet updated on disk, write them now.",
+  "2. Otherwise, if the first unified edit batch has not started yet, begin the edit batch now and cover the whole current failing set.",
+  "3. Otherwise, run the next constrained local verification step for that same unified batch.",
+  "Do not emit another prose-only or reasoning-only turn before a tool call.",
+].join("\n");
 const recoveredEmptyAssistantMessageBySession = new Map<string, string>();
 const recoveredPendingEmptyToolMessageBySession = new Map<string, string>();
 const recoveredPlannerReasoningOnlyMessageBySession = new Map<string, string>();
+const recoveredSisyphusCiReasoningOnlyMessageBySession = new Map<string, string>();
 const recoveredInterruptedPlannerVisibleMessageBySession = new Map<string, string>();
 const recoveredProviderBlockedErrorMessageBySession = new Map<string, string>();
 const prometheusProviderBlockedRetryStateBySession = new Map<string, {
@@ -267,6 +278,7 @@ export function _resetEventRecoveryStateForTesting(): void {
   recoveredEmptyAssistantMessageBySession.clear();
   recoveredPendingEmptyToolMessageBySession.clear();
   recoveredPlannerReasoningOnlyMessageBySession.clear();
+  recoveredSisyphusCiReasoningOnlyMessageBySession.clear();
   recoveredInterruptedPlannerVisibleMessageBySession.clear();
   recoveredProviderBlockedErrorMessageBySession.clear();
   prometheusProviderBlockedRetryStateBySession.clear();
@@ -338,6 +350,29 @@ function isPrometheusPlannerAgent(agent: string | undefined): boolean {
   if (!agent) return false;
   const normalizedAgent = agent.toLowerCase();
   return normalizedAgent.includes("prometheus") || normalizedAgent.includes("plan builder");
+}
+
+function isSisyphusExecutorAgent(agent: string | undefined): boolean {
+  if (!agent) return false;
+  const normalizedAgent = agent.toLowerCase();
+  return normalizedAgent.includes("sisyphus");
+}
+
+function messageIndicatesEvidenceGatedCi(message: RecoveryMessage | undefined): boolean {
+  const parts = message?.parts
+  if (!Array.isArray(parts) || parts.length === 0) return false
+  const text = parts
+    .filter((part) => part?.type === "text" && typeof part.text === "string")
+    .map((part) => (part.text ?? "").trim())
+    .filter((partText) => partText.length > 0)
+    .join("\n")
+
+  if (text.length === 0) return false
+
+  return text.includes("CI FAST PATH — ACTIVE")
+    || text.includes(".sisyphus/evidence/")
+    || text.includes("ci-loop-checkpoint.md")
+    || text.includes("repair-log.md")
 }
 
 function assistantMessageHasUserFacingContent(parts: RecoveryMessagePart[] | undefined): boolean {
@@ -1169,6 +1204,103 @@ async function maybeRecoverPrometheusReasoningOnlyAssistantMessage(
   if (resumed) {
     recoveredPlannerReasoningOnlyMessageBySession.set(sessionID, lastMessageID);
     log("[event] recovered idle planner reasoning-only message", {
+      sessionID,
+      source,
+      messageID: lastMessageID,
+      agent: lastMessageAgent,
+    });
+  }
+
+  return resumed;
+}
+
+async function maybeRecoverSisyphusCiReasoningOnlyAssistantMessage(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "session.status.idle",
+  options?: { abortBeforeResume?: boolean },
+): Promise<boolean> {
+  const session = ctx.client["session"] as {
+    messages?: (args: { path: { id: string } }) => Promise<unknown>;
+    abort?: (args: { path: { id: string } }) => Promise<unknown>;
+    promptAsync?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+    }) => Promise<unknown>;
+    prompt?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+    }) => Promise<unknown>;
+  } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    log("[event] sisyphus CI reasoning-only recovery skipped: session.messages unavailable", { sessionID, source });
+    return false;
+  }
+
+  let response: unknown;
+  try {
+    response = await readMessages({
+      path: { id: sessionID },
+    });
+  } catch (error) {
+    log("[event] sisyphus CI reasoning-only recovery skipped: session.messages failed", {
+      sessionID,
+      source,
+      error,
+    });
+    return false;
+  }
+
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = getMessageID(lastMessage);
+  const lastMessageAgent = getMessageAgent(lastMessage);
+  if (!lastMessageID) return false;
+  if (expectedMessageID && lastMessageID !== expectedMessageID) return false;
+  if (getMessageRole(lastMessage) !== "assistant") return false;
+  if (getMessageError(lastMessage)) return false;
+  if (!isSisyphusExecutorAgent(lastMessageAgent)) return false;
+  if (assistantMessageHasUserFacingContent(lastMessage.parts)) return false;
+  if (!assistantMessageHasVisibleContent(lastMessage.parts)) return false;
+  if (!assistantMessageHasRecoverablePlannerInternalParts(lastMessage.parts)) return false;
+
+  const lastUser = findLastUserMessage(messages as never);
+  if (!messageIndicatesEvidenceGatedCi(lastUser as RecoveryMessage | undefined)) {
+    return false;
+  }
+
+  const lastRecoveredMessageID = recoveredSisyphusCiReasoningOnlyMessageBySession.get(sessionID);
+  if (lastRecoveredMessageID === lastMessageID) {
+    log("[event] sisyphus CI reasoning-only recovery skipped: message already recovered", {
+      sessionID,
+      source,
+      lastMessageID,
+    });
+    return false;
+  }
+
+  if (options?.abortBeforeResume) {
+    await session?.abort?.({ path: { id: sessionID } }).catch(() => {});
+  }
+
+  const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+  resumeConfig.directory = ctx.directory;
+  resumeConfig.continuationText = SISYPHUS_CI_REASONING_ONLY_RECOVERY_TEXT;
+  const resumed = await resumeRecoveredPrometheusSession(
+    ctx,
+    sessionID,
+    SISYPHUS_CI_REASONING_ONLY_RECOVERY_TEXT,
+    resumeConfig,
+    session,
+  );
+
+  if (resumed) {
+    recoveredSisyphusCiReasoningOnlyMessageBySession.set(sessionID, lastMessageID);
+    log("[event] recovered idle sisyphus CI reasoning-only message", {
       sessionID,
       source,
       messageID: lastMessageID,
@@ -2115,6 +2247,17 @@ export function createEventHandler(args: {
             return;
           }
 
+          const recoveredSisyphusCiReasoningOnly = await maybeRecoverSisyphusCiReasoningOnlyAssistantMessage(
+            pluginContext,
+            sessionID,
+            messageID,
+            "message.updated.delayed",
+          );
+          if (recoveredSisyphusCiReasoningOnly) {
+            coordinator?.observe(sessionID, { kind: "recovery_result", success: true });
+            return;
+          }
+
           const recovered = await maybeRecoverIdleEmptyAssistantMessage(
             pluginContext,
             sessionID,
@@ -2321,6 +2464,17 @@ export function createEventHandler(args: {
       return true;
     }
 
+    const recoveredSisyphusCiReasoningOnly = await maybeRecoverSisyphusCiReasoningOnlyAssistantMessage(
+      pluginContext,
+      sessionID,
+      undefined,
+      source,
+      { abortBeforeResume: true },
+    );
+    if (recoveredSisyphusCiReasoningOnly) {
+      return true;
+    }
+
     const recoveredInterruptedVisible = await maybeRecoverPrometheusInterruptedVisibleAssistantMessage(
       pluginContext,
       sessionID,
@@ -2409,6 +2563,7 @@ export function createEventHandler(args: {
         assistantRecoverySnapshotBySession.delete(sessionInfo.id);
         recoveredPendingEmptyToolMessageBySession.delete(sessionInfo.id);
         recoveredPlannerReasoningOnlyMessageBySession.delete(sessionInfo.id);
+        recoveredSisyphusCiReasoningOnlyMessageBySession.delete(sessionInfo.id);
         recoveredInterruptedPlannerVisibleMessageBySession.delete(sessionInfo.id);
         recoveredEmptyAssistantMessageBySession.delete(sessionInfo.id);
         clearPendingModelFallback(sessionInfo.id);
@@ -2588,6 +2743,16 @@ export function createEventHandler(args: {
                 "message.updated.finish-other",
               );
               if (recoveredPlannerReasoningOnly) {
+                return;
+              }
+
+              const recoveredSisyphusCiReasoningOnly = await maybeRecoverSisyphusCiReasoningOnlyAssistantMessage(
+                pluginContext,
+                sessionID,
+                assistantMessageID,
+                "message.updated.finish-other",
+              );
+              if (recoveredSisyphusCiReasoningOnly) {
                 return;
               }
             } catch (err) {

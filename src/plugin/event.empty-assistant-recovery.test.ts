@@ -526,6 +526,72 @@ describe("createEventHandler idle empty assistant recovery", () => {
     })
   })
 
+  test("recovers and resumes when idle sisyphus CI session ends with a reasoning-only assistant turn", async () => {
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_reasoning_only_sisyphus_ci",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nRead only `.sisyphus/evidence/` and update `ci-loop-checkpoint.md` plus `repair-log.md`.",
+        }],
+      },
+      {
+        info: {
+          id: "msg_reasoning_only_sisyphus_ci",
+          role: "assistant",
+          agent: "Sisyphus (Ultraworker)",
+          finish: "other",
+        },
+        parts: [
+          {
+            type: "reasoning",
+            text: "I have the live failing set and tracker drift and can now write the evidence updates.",
+          },
+          {
+            type: "step-finish",
+            reason: "other",
+          },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionID: "ses_reasoning_only_sisyphus_ci",
+          status: { type: "idle" },
+        },
+      },
+    })
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_reasoning_only_sisyphus_ci" },
+      body: expect.objectContaining({
+        agent: "Atlas (Plan Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+        parts: [
+          expect.objectContaining({
+            text: expect.stringContaining("evidence-gated CI"),
+          }),
+        ],
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
   test("recovers and resumes when idle prometheus session ends with a raw-shape reasoning-only assistant turn", async () => {
     //#given
     const handler = createHandler([
