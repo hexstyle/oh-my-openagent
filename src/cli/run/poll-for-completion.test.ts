@@ -660,6 +660,49 @@ describe("pollForCompletion", () => {
     expect(statusCalls).toBeGreaterThanOrEqual(3)
   })
 
+  it("waits out unknown certificate verification errors before failing the run", async () => {
+    //#given - transport TLS error is recoverable and busy status appears after a short delay
+    let statusCalls = 0
+    const ctx = createMockContext({
+      statuses: {},
+    })
+    ;(ctx.client.session as any).status = mock(async () => {
+      statusCalls += 1
+      if (statusCalls < 5) {
+        return { data: {} }
+      }
+      return {
+        data: {
+          "test-session": {
+            type: statusCalls === 5 ? "busy" : "idle",
+          },
+        },
+      }
+    })
+
+    const eventState = createEventState()
+    eventState.mainSessionIdle = true
+    eventState.mainSessionError = true
+    eventState.lastError = "unknown certificate verification error"
+    eventState.errorSequence = 1
+    eventState.lastErrorTimestamp = Date.now()
+    eventState.hasReceivedMeaningfulWork = true
+    const abortController = new AbortController()
+
+    //#when
+    const result = await pollForCompletion(ctx, eventState, abortController, {
+      pollIntervalMs: 10,
+      requiredConsecutive: 1,
+      minStabilizationMs: 10,
+      delayedRetryErrorGraceMs: 60,
+    })
+
+    //#then - same session recovery should keep the run alive until busy/idle settles
+    expect(result).toBe(0)
+    expect(eventState.mainSessionError).toBe(false)
+    expect(statusCalls).toBeGreaterThanOrEqual(5)
+  })
+
   it("returns 130 when aborted", async () => {
     //#given
     const ctx = createMockContext()

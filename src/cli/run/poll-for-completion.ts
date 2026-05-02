@@ -15,6 +15,23 @@ const DEFAULT_SECONDARY_MEANINGFUL_WORK_TIMEOUT_MS = 60_000 // 60 seconds
 const DEFAULT_DELAYED_RETRY_ERROR_GRACE_MS =
   DEFAULT_CONFIG.transient_retry_window_seconds * 1000
 
+function shouldUseDelayedRetryGrace(lastError: string | null | undefined): boolean {
+  if (!lastError) {
+    return false
+  }
+
+  if (/unknown certificate verification error/i.test(lastError)) {
+    return true
+  }
+
+  const errorAction = getRuntimeFallbackAction(
+    { message: lastError },
+    DEFAULT_CONFIG.retry_on_errors,
+  )
+
+  return isSameModelRetryAction(errorAction)
+}
+
 export interface PollOptions {
   pollIntervalMs?: number
   requiredConsecutive?: number
@@ -111,11 +128,7 @@ export async function pollForCompletion(
         errorGraceStartedAt = null
         errorGraceSequence = -1
       } else {
-        const errorAction = getRuntimeFallbackAction(
-          { message: eventState.lastError ?? "" },
-          DEFAULT_CONFIG.retry_on_errors,
-        )
-        const usesRetryGrace = isSameModelRetryAction(errorAction)
+        const usesRetryGrace = shouldUseDelayedRetryGrace(eventState.lastError)
         if (usesRetryGrace) {
           if (errorGraceStartedAt === null) {
             errorGraceStartedAt = Date.now()
