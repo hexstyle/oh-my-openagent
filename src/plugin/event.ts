@@ -2819,7 +2819,12 @@ export function createEventHandler(args: {
               && snapshot.hasRecoverablePlannerInternalParts
             )
           );
-        if (shouldPreferPlannerRecovery) {
+        const shouldPreferSisyphusCiRecovery =
+          !!snapshot
+          && isSisyphusExecutorAgent(snapshot.agent ?? getSessionAgent(sessionID))
+          && !snapshot.hasUserFacingContent
+          && snapshot.hasRecoverablePlannerInternalParts;
+        if (shouldPreferPlannerRecovery || shouldPreferSisyphusCiRecovery) {
           scheduleEmptyAssistantRecovery(sessionID, messageID);
         } else if (snapshot?.hasVisibleContent) {
           clearEmptyAssistantRecoveryTimer(sessionID);
