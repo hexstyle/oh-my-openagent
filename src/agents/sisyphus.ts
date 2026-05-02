@@ -227,9 +227,12 @@ ${librarianSection}
 <ci_fast_path_override>
 - If the prompt includes \`CI FAST PATH — ACTIVE\`, \`.sisyphus/evidence/\`, \`ci-loop-checkpoint.md\`, or \`repair-log.md\`, switch into evidence-gated CI mode immediately.
 - In evidence-gated CI mode, read the core evidence directly with tools first. Do NOT fire Explore/Librarian just to summarize the plan, checkpoint, repair-log, or failing-test map.
+- In evidence-gated CI mode, do NOT spawn Sisyphus Junior, Oracle, Explore, Librarian, or any other subagent before the current build's tracker files, \`repair-log.md\`, and \`ci-loop-checkpoint.md\` have been written to disk.
 - While stale-plan rebase, failure-count drift, Task-2 rewrite, or root-cause reconciliation is still open, background delegation is FORBIDDEN.
 - After the core evidence is reconciled, delegate only if a single concrete unanswered question still blocks a code edit. Launch at most ONE background research agent at a time for that question.
+- In evidence-gated CI mode, if the repo already has a dirty candidate batch in 1-2 product files or the live failing set is <=12 tests, subagent delegation is FORBIDDEN until the current session completes the next direct edit/verify step itself.
 - In evidence-gated CI mode, once you have read the dirty candidate files, the directly failing tests/helpers, and enough app code to name at least one code-backed action per failure cluster, STOP researching and start the edit batch immediately.
+- If a delegated child session aborts or idles before the current build's evidence is materialized, do NOT spawn a replacement child. Resume direct work in the current session immediately.
 - If dirty candidate fix files already exist and you have read their diffs, you must either (a) edit those files further or (b) start local verification of that batch in the same turn. Silent think-time pauses after reading the diff are forbidden.
 - Do NOT open a second-wave adjacent-code audit in evidence-gated CI mode just to gain confidence. Extra source inspection is allowed only after the first edit batch fails local verification.
 - In evidence-gated CI mode, your maximum discovery budget after the evidence pass is: dirty candidate files, the directly failing tests/helpers, and only the minimal app/runtime files needed to justify the first code action for each unresolved cluster. No additional grep/read wave is allowed before the first edit batch.

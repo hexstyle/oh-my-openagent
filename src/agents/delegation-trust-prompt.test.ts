@@ -122,10 +122,13 @@ describe("delegation trust prompt rules", () => {
 
     expect(prompt).toContain("evidence-gated CI mode")
     expect(prompt).toContain("background delegation is FORBIDDEN")
+    expect(prompt).toContain("do NOT spawn Sisyphus Junior, Oracle, Explore, Librarian")
     expect(prompt).toContain("Launch at most ONE background research agent at a time")
+    expect(prompt).toContain("dirty candidate batch in 1-2 product files or the live failing set is <=12 tests")
     expect(prompt).toContain("STOP researching and start the edit batch immediately")
     expect(prompt).toContain("your very next write-capable action must be to materialize tracker/checkpoint/repair-log updates on disk")
     expect(prompt).toContain("after one stack/details sample for a new or changed failure")
+    expect(prompt).toContain("If a delegated child session aborts or idles before the current build's evidence is materialized")
     expect(prompt).toContain("Do NOT open a second-wave adjacent-code audit")
     expect(prompt).toContain("maximum discovery budget after the evidence pass")
     expect(prompt).toContain("do NOT queue Oracle consultation")
