@@ -141,6 +141,20 @@ function extractLatestEvidenceBuildNumber(evidenceFiles: string[]): number | nul
   return Math.max(...buildNumbers)
 }
 
+function selectCurrentEvidenceFiles(evidenceFiles: string[], latestBuildNumber: number | null): string[] {
+  const preferred = new Set<string>(["ci-loop-checkpoint.md", "repair-log.md"])
+  if (latestBuildNumber !== null) {
+    for (const file of evidenceFiles) {
+      if (file.includes(`build-${latestBuildNumber}`)) {
+        preferred.add(file)
+      }
+    }
+  }
+
+  const selected = evidenceFiles.filter((file) => preferred.has(file))
+  return selected.length > 0 ? selected : evidenceFiles
+}
+
 function detectCIFastPath(planPath: string, projectDir: string): CIFastPathResult {
   const inactive: CIFastPathResult = { active: false, block: "" }
   try {
@@ -220,12 +234,13 @@ function detectCIFastPath(planPath: string, projectDir: string): CIFastPathResul
       }
     }
 
-    const evidencePaths = evidenceFiles.map((f) => ".sisyphus/evidence/" + f).join(", ")
+    const latestEvidenceBuildNumber = extractLatestEvidenceBuildNumber(evidenceFiles)
+    const selectedEvidenceFiles = selectCurrentEvidenceFiles(evidenceFiles, latestEvidenceBuildNumber)
+    const evidencePaths = selectedEvidenceFiles.map((f) => ".sisyphus/evidence/" + f).join(", ")
     const planRelPath = planPath.startsWith(projectDir)
       ? planPath.slice(projectDir.length + 1)
       : planPath
     const planBuildNumber = extractPlanBuildNumber(planPath, content)
-    const latestEvidenceBuildNumber = extractLatestEvidenceBuildNumber(evidenceFiles)
     const planFailureTarget = extractPlanFailureTarget(content)
     const speculativeTaskTwo = hasSpeculativeTaskTwoContent(content)
 
@@ -266,7 +281,7 @@ function detectCIFastPath(planPath: string, projectDir: string): CIFastPathResul
       "## CONTEXT",
       "Read the plan file at `" + planRelPath + "` — it contains the complete root-cause analysis, fix instructions for all failure groups, and evidence paths.",
       "Read evidence files: " + evidencePaths,
-      "Read only the core CI evidence first: `AGENTS.md`, `.sisyphus/boulder.json`, active plan, `ci-loop-checkpoint.md`, `repair-log.md`, latest build analysis/failure analysis, and `.sisyphus/evidence/tests/` if that directory exists. Check the tracker directory only with `test -d` or `ls` — NEVER use a file-read tool on the directory path. If the tests directory is absent, note it once and continue. Do NOT glob historical notepads or `.sisyphus/run-continuation/` unless the core evidence is insufficient.",
+      "Read only the core CI evidence first: `AGENTS.md`, `.sisyphus/boulder.json`, active plan, `ci-loop-checkpoint.md`, `repair-log.md`, CURRENT-build analysis/failure analysis, and `.sisyphus/evidence/tests/` if that directory exists. Older `build-*.md` files are archived context only — do not read them unless the current-build files or trackers are missing required detail. Check the tracker directory only with `test -d` or `ls` — NEVER use a file-read tool on the directory path. If the tests directory is absent, note it once and continue. Do NOT glob historical notepads or `.sisyphus/run-continuation/` unless the core evidence is insufficient.",
       stalePlanInfo,
       failureDriftInfo,
       planRewriteInfo,

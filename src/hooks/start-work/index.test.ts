@@ -159,6 +159,8 @@ describe("start-work hook", () => {
       expect(text).toContain(".sisyphus/evidence/ci-loop-checkpoint.md")
       expect(text).toContain(".sisyphus/evidence/repair-log.md")
       expect(text).toContain("Read only the core CI evidence first")
+      expect(text).toContain("CURRENT-build analysis/failure analysis")
+      expect(text).toContain("Older `build-*.md` files are archived context only")
       expect(text).toContain("NEVER use a file-read tool on the directory path")
       expect(text).toContain("If the tests directory is absent, note it once and continue")
       expect(text).toContain("Do NOT glob historical notepads")
@@ -264,6 +266,44 @@ Task 2: exact code changes for 14 remaining failures.
       expect(text).toContain("checkpoint reports 15")
       expect(text).toContain("rewrite the active plan on disk")
       expect(text).toContain("before any source-code reads outside `.sisyphus/evidence/`")
+    })
+
+    test("ci fast path prefers current-build evidence files over older archived build dumps", async () => {
+      const plansDir = join(testDir, ".sisyphus", "plans")
+      const evidenceDir = join(testDir, ".sisyphus", "evidence")
+      mkdirSync(plansDir, { recursive: true })
+      mkdirSync(evidenceDir, { recursive: true })
+
+      writeFileSync(
+        join(plansDir, "ci-green-build314-fix.md"),
+        `# Plan
+
+**Skills**: \`ci-green-loop\`, \`bamboo-ci\`, \`dotnet-playwright\`
+
+## TODOs
+- [x] 1. **T1 — Diagnosis**
+- [ ] 2. **T2 — Fix ALL failures**
+`,
+      )
+      writeFileSync(join(evidenceDir, "build-315-failures.md"), "# Build 315 failures\n")
+      writeFileSync(join(evidenceDir, "build-317-analysis.md"), "# Build 317 analysis\n")
+      writeFileSync(join(evidenceDir, "ci-loop-checkpoint.md"), "Build #317\nfailed: 14\n")
+      writeFileSync(join(evidenceDir, "repair-log.md"), "# repair log\n")
+
+      const hook = createStartWorkHook(createMockPluginInput())
+      const output = {
+        message: {},
+        parts: [{ type: "text", text: "/start-work ci-green-build314-fix" }],
+      }
+
+      await hook["chat.message"](
+        { sessionID: "session-ci-fast-path-current-build-only" },
+        output,
+      )
+
+      const text = output.parts[0].text
+      expect(text).toContain(".sisyphus/evidence/build-317-analysis.md")
+      expect(text).not.toContain(".sisyphus/evidence/build-315-failures.md")
     })
 
     test("ci fast path flags speculative task-2 plans for rewrite before code edits", async () => {
