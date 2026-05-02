@@ -38,6 +38,7 @@ describe("ci green loop builtin skills", () => {
     expect(bambooCiSkill.template).toContain("Do NOT build giant one-line commands with nested quotes")
     expect(bambooCiSkill.template).toContain("FORBIDDEN:")
     expect(bambooCiSkill.template).toContain("`python3 -c '...'`")
+    expect(bambooCiSkill.template).toContain("raw `curl ... | python3`")
   })
 
   test("ci-green-loop treats Bamboo certificate errors as monitoring fallback, not push failure", () => {
