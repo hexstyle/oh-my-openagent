@@ -63,6 +63,7 @@ fetch_json() {
 
 **CRITICAL: Bamboo API responses are HUGE. ALWAYS pipe through jq/python to extract ONLY what you need. NEVER dump raw JSON into context.**
 **CRITICAL SHELL RULE: For Bamboo fetch + parse steps, prefer multi-line shell with \`python3 <<'PY'\` heredocs. Do NOT build giant one-line commands with nested quotes, f-strings, and inline Python — they frequently break under zsh quoting and waste CI cycles before evidence is even written.**
+**FORBIDDEN:** \`python3 -c '...'\` for Bamboo JSON parsing. Use heredocs only. Inline \`python -c\` is too fragile for nested quotes, f-strings, and loop bodies.
 
 Safe combined pattern:
 \`\`\`bash
