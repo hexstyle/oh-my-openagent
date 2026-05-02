@@ -170,6 +170,7 @@ describe("start-work hook", () => {
       expect(text).toContain("reconcile the conflicting hypotheses")
       expect(text).toContain("rewrite the active plan on disk")
       expect(text).toContain("before any source-code reads outside `.sisyphus/evidence/`")
+      expect(text).toContain("Do NOT burn time on repeated `wc`")
       expect(text).toContain("limit source discovery to the dirty candidate files")
       expect(text).toContain("Distinguish trigger-only builds from code-changing revisions")
       expect(text).toContain("staged-tree/symbol completeness")

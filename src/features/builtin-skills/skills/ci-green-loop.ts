@@ -244,6 +244,7 @@ LOOP:
        Verify: number of tracker files with status \`failing\` == N.
        If any test lacks a tracker → DO NOT proceed to STEP 3.
     j) Append/refresh the current iteration block in \`repair-log.md\` with: build number, revision, per-test ledger, failure list/coverage map, and investigation conclusion before editing code.
+    k) If live CI list, tracker count/status, current-build analysis, checkpoint, and repair-log already agree, do ONE compact evidence append/update and then move DIRECTLY to STEP 3. Do NOT run extra bookkeeping loops like repeated \`wc -c\`, repeated clean-tree checks, or another evidence-only pass before the first code batch.
 
   STEP 3: FIX — ALL FAILURES IN ONE PASS
 
