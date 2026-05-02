@@ -51,4 +51,20 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("Never delete them just because they exceed 10KB")
     expect(ciGreenLoopSkill.template).toContain("keep test tracker files, repair-log.md, ci-loop-checkpoint.md")
   })
+
+  test("ci-green-loop requires repo-native local test contour bootstrap before skipping verification", () => {
+    expect(ciGreenLoopSkill.template).toContain("LOCAL TEST CONTOUR READINESS (hard gate)")
+    expect(ciGreenLoopSkill.template).toContain("Search the repo for the documented bootstrap path")
+    expect(ciGreenLoopSkill.template).toContain("generated/TestAppInstances.json")
+    expect(ciGreenLoopSkill.template).toContain("OPTIEX_PLAYWRIGHT_BASE_URL")
+    expect(ciGreenLoopSkill.template).toContain("missing local test contour is SETUP WORK, not a reason to skip verification")
+    expect(ciGreenLoopSkill.template).toContain("Missing generated config/env vars\" by itself is NOT enough")
+    expect(ciGreenLoopSkill.template).toContain("repo-native bootstrap path")
+  })
+
+  test("ci-green-loop allows host-specific full-solution blockers after relevant project build passes", () => {
+    expect(ciGreenLoopSkill.template).toContain("Run the narrowest locally runnable build that covers the candidate fix batch")
+    expect(ciGreenLoopSkill.template).toContain("If the full solution build fails only because of a host-specific prerequisite unrelated to the edited batch")
+    expect(ciGreenLoopSkill.template).toContain("Do NOT pretend this is a product-code failure")
+  })
 })

@@ -291,16 +291,24 @@ LOOP:
 
     **B. Local Build Verification** (after audit passes):
 
-    i)  \`dotnet build {Solution}.sln --nologo\`
-    ii) If build fails → STOP. Fix build errors. Return to STEP 3.
+    i)  Run the narrowest locally runnable build that covers the candidate fix batch (for example the changed test project plus directly referenced helper/project slices) and print exactly what you built.
+    ii)  Then run \`dotnet build {Solution}.sln --nologo\` if the host can actually build that solution.
+    iii) If the relevant project build fails → STOP. Fix build errors. Return to STEP 3.
+    iv) If the full solution build fails only because of a host-specific prerequisite unrelated to the edited batch (for example missing .NET Framework reference assemblies on a non-Windows host), record that exact blocker in the iteration ledger, keep the relevant project build result, and continue to STEP 3.5C. Do NOT pretend this is a product-code failure.
 
     **C. Local Test Execution** (after build passes):
 
-    i)   Build the filter expression covering ALL failing tests:
+    i)   **LOCAL TEST CONTOUR READINESS (hard gate):**
+         Before running the filter, make the target test environment runnable.
+         - Search the repo for the documented bootstrap path: README, build scripts, targets, generated config files, and environment variables used by the failing test project.
+         - If the failure mentions a missing generated config or env vars (for example \`generated/TestAppInstances.json\`, \`OPTIEX_PLAYWRIGHT_BASE_URL\`, or connection-string env vars), you MUST either generate that config via the repo's own target/script or export the required env vars from an already provisioned local environment before calling the test run "infra unavailable".
+         - If the repo contains a native generation path, missing local test contour is SETUP WORK, not a reason to skip verification.
+         - Record the exact bootstrap command or env source in the current iteration block.
+    ii)  Build the filter expression covering ALL failing tests:
          \`FullyQualifiedName~Test1|FullyQualifiedName~Test2|...\`
          **CRITICAL**: The filter MUST include ALL N tests, not just 1. Print the filter before running.
-    ii)  Run: \`dotnet test --filter "{FilterExpr}" --nologo --logger "trx;LogFileName=local-verify.trx" -- RunConfiguration.ResultsDirectory=./TestResults\`
-    iii) **TRX VALIDATION (MANDATORY)**:
+    iii) Run: \`dotnet test --filter "{FilterExpr}" --nologo --logger "trx;LogFileName=local-verify.trx" -- RunConfiguration.ResultsDirectory=./TestResults\`
+    iv)  **TRX VALIDATION (MANDATORY)**:
          After test run completes, parse the TRX file:
          \`\`\`bash
          python3 -c "
@@ -323,17 +331,18 @@ LOOP:
          "
          \`\`\`
          Replace \`EXPECTED\` with the actual failing test count N.
-    iv)  **HARD CHECK: TRX total must be >= N.**
+    v)   **HARD CHECK: TRX total must be >= N.**
          If TRX total == 0 → your filter expression is WRONG. Fix it and re-run.
          If TRX total == 1 but N > 1 → your filter is matching only ONE test. Fix the filter syntax (\`|\` not \`||\`, correct escaping).
          If TRX total < N → some tests were not found. Check test names match.
-    v)   If all N tests pass locally → proceed to STEP 4.
-    vi)  If any test fails locally → diagnose and fix BEFORE pushing. Return to STEP 3.
-    vii) **IF local test infra unavailable** (no dotnet, no browser, CI-only tests):
+    vi)  If all N tests pass locally → proceed to STEP 4.
+    vii) If any test fails locally → diagnose and fix BEFORE pushing. Return to STEP 3.
+    viii) **IF local test infra unavailable** (no dotnet, no browser, CI-only tests):
          - Document: "LOCAL VERIFY SKIPPED: {reason}"
-         - This is acceptable ONLY if: (a) tests require Windows/CI-specific infrastructure that cannot run locally, AND (b) you attempted to run them and got an infra error (not a test logic error)
+         - This is acceptable ONLY if: (a) you already attempted the repo-documented bootstrap path for generated configs/env vars and still proved the host cannot run the target tests, AND (b) tests require Windows/CI-specific infrastructure that cannot run locally, or the host is missing an unrelated prerequisite outside the edited batch
          - Still MUST complete the coverage audit (step A) — that is never skippable
-    viii) Clean up: \`rm -rf TestResults/\` — do not commit test artifacts.
+         - "Missing generated config/env vars" by itself is NOT enough; first generate or source them if the repo already documents how
+    ix)  Clean up: \`rm -rf TestResults/\` — do not commit test artifacts.
 
   STEP 4: COMMIT + PUSH + RECORD
 
@@ -370,6 +379,7 @@ If >50% failures share one root cause, that IS the fix.
 - Pushing without completing the pre-push audit (STEP 3.5A)
 - Pushing without running local tests (STEP 3.5C) — unless infra is unavailable
 - Pushing when TRX shows 0 or 1 test result but N > 1 (broken filter expression)
+- Treating a missing generated test config or missing documented env vars as "infra unavailable" before attempting the repo-native bootstrap path
 - Weakening assertions, skipping/muting/removing tests
 - Idle-waiting for builds (research while CI runs)
 - Dumping raw Bamboo JSON into context (ALWAYS filter through jq/python)
