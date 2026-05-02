@@ -12,7 +12,7 @@ Plans MUST cover 100% of known failures. A plan addressing a subset is REJECTED.
 
 **Required plan structure — EXACTLY 2 TASKS:**
 1. **Task 1: Diagnosis** — fetch build SUMMARY (names + short errors only, NOT full test results), verify deployment succeeded, classify every failing test by name+error. Create per-test tracker files in \`.sisyphus/evidence/tests/\`. Skills: \`["bamboo-ci", "ci-green-loop"]\`. Category: \`quick\`.
-2. **Task 2: Fix ALL failures** — ONE comprehensive fix task covering ALL root cause groups, ALL files, ALL tests. The executor reads Task 1 evidence AND per-test tracker files, then fixes everything in a single session. For tests with prior failed attempts in tracker files, the plan MUST instruct the executor to try a DIFFERENT approach and cite what was already tried. Include \`"dotnet-playwright"\` skill. Category: \`deep\`. Ends with: pre-push audit → dotnet build → local test run → git commit → git push → verify CI picks up revision.
+2. **Task 2: Fix ALL failures** — ONE comprehensive fix task covering ALL root cause groups, ALL files, ALL tests. The executor reads Task 1 evidence AND per-test tracker files, then fixes everything in a single session. For tests with prior failed attempts in tracker files, the plan MUST instruct the executor to try a DIFFERENT approach and cite what was already tried. Include \`"dotnet-playwright"\` skill. Category: \`deep\`. Ends with: pre-push audit → dotnet build → local test run → git commit → git push → verify CI picks up revision. A Task 2 that leaves even one current failing test without a concrete fix path, blocker disposition, and tracker update is invalid and must be rewritten before execution.
 
 **Managed .sisyphus repo fast-path (STRICT):** If \`.sisyphus/evidence/ci-loop-checkpoint.md\`, \`repair-log.md\`, the latest build analysis, AND per-test tracker files already exist and agree on the latest build scope, treat them as the diagnosis source of truth. Fast-path is allowed ONLY after you re-fetch the current failing test list from CI and reconcile it one-by-one against tracker files. If \`.sisyphus/evidence/tests/\` is absent, if any current failing test lacks a tracker file, or if tracker count/status/error text disagrees with the live CI list, STOP and rebuild the per-test tracker set before editing code.
 
@@ -66,6 +66,8 @@ Every failing test gets its own tracker file at \`.sisyphus/evidence/tests/{Test
 
 Missing tracker directory is a blocker for code edits. Create it and reconcile every current failing test into a tracker before editing code.
 
+No partial-failure pushes. If the current build has N failing tests, the iteration may push only when all N have current-iteration tracker updates, a concrete fix path or blocker conclusion, and coverage in the staged diff / verification ledger.
+
 ## Iteration Ledger (MANDATORY)
 
 Append ONE block to \`.sisyphus/evidence/repair-log.md\` per loop iteration. Keep it compact and append-only.
@@ -92,6 +94,7 @@ Hard rules:
 6. Keep \`repair-log.md\` under 8KB by retaining only the last 12 iteration blocks plus one top summary.
 7. free-form narrative is forbidden in \`repair-log.md\`; every update must be a normalized iteration block plus, at most, one compact top summary.
 8. After fetching the live failing test list for the current build, you MUST write/update tracker files, \`repair-log.md\`, and \`ci-loop-checkpoint.md\` BEFORE any source-code reads outside \`.sisyphus/evidence/\`.
+9. A push is forbidden if any current failing test appears only in diagnosis text but not in the current iteration block's coverage map, per-test ledger, and pre-push audit conclusion.
 
 ### Reading Trackers Before Fixing
 BEFORE writing any code fix, you MUST:
@@ -170,6 +173,14 @@ Before your first commit, extract the Jira ticket from the branch name (\`git br
 
 ### Comprehensive Fix Mandate (HARD GATE)
 Every fix session MUST attempt to resolve ALL known failures, not just the assigned subset. If you see a failing test whose fix is obvious from the evidence, fix it — even if it wasn't "your" task. The goal is zero failures per build, not zero failures per group.
+
+### No Partial Pushes (HARD GATE)
+Do NOT push a commit that fixes only one file or one cluster unless the current failing set is fully accounted for. "Accounted for" means every current failing test has all of:
+1. a refreshed tracker for the current build,
+2. an explicit current-iteration fix approach or blocker conclusion,
+3. coverage in the staged diff or an explicit reason why no code change was needed for that test,
+4. inclusion in the local verification target set or an explicit repo-native verification blocker.
+If any current failing test misses one of those four items, continue working locally and do not push.
 
 ### Stale Plan Detection (MANDATORY — run before STEP 3)
 The plan may have been written for an OLDER build. Before applying fixes:
@@ -278,6 +289,8 @@ LOOP:
     iv)  Run: \`git diff --name-only\`
     v)   For EACH tracker file with status \`fixed-pending\`:
          - Read the tracker's "Code Files" list
+         - Verify this test appears in the current iteration ledger with an approach/result for THIS iteration
+         - Verify the staged diff or explicit blocker note covers that test for THIS iteration
          - Verify at least ONE of those files appears in \`git diff --name-only\`
          - If NONE of the test's code files were changed → you did NOT fix this test
     vi)  If any test has zero file changes → STOP. Go back to STEP 3.

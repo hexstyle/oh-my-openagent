@@ -162,7 +162,7 @@ describe("start-work hook", () => {
       expect(text).toContain("CURRENT-build analysis/failure analysis")
       expect(text).toContain("Older `build-*.md` files are archived context only")
       expect(text).toContain("NEVER use a file-read tool on the directory path")
-      expect(text).toContain("If the tests directory is absent, note it once and continue")
+      expect(text).toContain("If the tests directory is absent, that is a blocker")
       expect(text).toContain("Do NOT glob historical notepads")
       expect(text).toContain("Validate `.sisyphus/evidence/repair-log.md`")
       expect(text).toContain("`## Iteration ...` block")
@@ -179,6 +179,7 @@ describe("start-work hook", () => {
       expect(text).toContain("Update `.sisyphus/evidence/repair-log.md`")
       expect(text).toContain("Update `.sisyphus/evidence/ci-loop-checkpoint.md`")
       expect(text).toContain("tracker counts/statuses reconcile with the current failing-test count")
+      expect(text).toContain("every current failing test has a current-iteration tracker update plus concrete fix path or blocker conclusion")
       expect(output.message?.agent).toBe("Sisyphus (Ultraworker)")
     })
 
@@ -223,6 +224,7 @@ describe("start-work hook", () => {
       expect(text).toContain(".sisyphus/evidence/tests/")
       expect(text).toContain("Do NOT repeat approaches that already failed")
       expect(text).toContain("tracker counts/statuses must reconcile with the current failing-test count")
+      expect(text).toContain("current-iteration tracker update plus concrete fix path or blocker conclusion")
     })
 
     test("ci fast path flags stale plan and failure-count drift from newer evidence", async () => {

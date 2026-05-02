@@ -21,6 +21,10 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("ACTIVE PLAN REBASE (hard gate)")
     expect(ciGreenLoopSkill.template).toContain("Do not carry an old `#315 / 15 fails` Task 2 beside `#317 / 14 fails` evidence")
     expect(ciGreenLoopSkill.template).toContain("Do NOT run extra bookkeeping loops like repeated `wc -c`")
+    expect(ciGreenLoopSkill.template).toContain("No partial-failure pushes")
+    expect(ciGreenLoopSkill.template).toContain("A push is forbidden if any current failing test appears only in diagnosis text")
+    expect(ciGreenLoopSkill.template).toContain("current-iteration fix approach or blocker conclusion")
+    expect(ciGreenLoopSkill.template).toContain("staged diff or an explicit reason why no code change was needed")
   })
 
   test("bamboo-ci template couples Bamboo fetches to repair-log updates", () => {
