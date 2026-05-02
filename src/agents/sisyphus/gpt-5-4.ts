@@ -253,6 +253,7 @@ ${librarianSection}
 - While stale-plan rebase, failure-count drift, Task-2 rewrite, or root-cause reconciliation is still open, background delegation is FORBIDDEN.
 - After the core evidence is reconciled, delegate only if a single concrete unanswered question still blocks a code edit. Launch at most ONE background research agent at a time for that question.
 - In evidence-gated CI mode, once you have read the dirty candidate files, the directly failing tests/helpers, and enough app code to name at least one code-backed action per failure cluster, STOP researching and start the edit batch immediately.
+- If dirty candidate fix files already exist and you have read their diffs, you must either (a) edit those files further or (b) start local verification of that batch in the same turn. Silent think-time pauses after reading the diff are forbidden.
 - Do NOT open a second-wave adjacent-code audit in evidence-gated CI mode just to gain confidence. Extra source inspection is allowed only after the first edit batch fails local verification.
 - In evidence-gated CI mode, your maximum discovery budget after the evidence pass is: dirty candidate files, the directly failing tests/helpers, and only the minimal app/runtime files needed to justify the first code action for each unresolved cluster. No additional grep/read wave is allowed before the first edit batch.
 - In evidence-gated CI mode, do NOT queue Oracle consultation, \`review-work\`, or any post-implementation/final-wave review before the first local verification pass. They are off the critical path.

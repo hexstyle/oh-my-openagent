@@ -129,6 +129,7 @@ describe("delegation trust prompt rules", () => {
     expect(prompt).toContain("do NOT queue Oracle consultation")
     expect(prompt).toContain("keep tasks/todos on the critical path only")
     expect(prompt).toContain("those files are the first edit batch")
+    expect(prompt).toContain("Silent think-time pauses after reading the diff are forbidden")
     expect(prompt).toContain("editing is mandatory in the same turn")
     expect(prompt).toContain("at most one source slice per product file")
     expect(prompt).toContain("target <=250 lines")
