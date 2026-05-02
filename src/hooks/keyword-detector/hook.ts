@@ -21,6 +21,10 @@ function isKeywordMessageAlreadyInjected(
   return keywordMessage.trim().length > 0 && promptText.includes(keywordMessage)
 }
 
+function containsStartWorkCommand(promptText: string): boolean {
+  return /(^|\n)\s*\/start-work\b/.test(promptText)
+}
+
 export function createKeywordDetectorHook(ctx: PluginInput, _collector?: ContextCollector) {
   function getRuntimeVariant(input: { variant?: string }, message: Record<string, unknown>): string | undefined {
     if (typeof message["variant"] === "string") {
@@ -48,6 +52,13 @@ export function createKeywordDetectorHook(ctx: PluginInput, _collector?: Context
 
       if (isSystemDirective(promptText)) {
         log(`[keyword-detector] Skipping system directive message`, { sessionID: input.sessionID })
+        return
+      }
+
+      if (containsStartWorkCommand(promptText)) {
+        log(`[keyword-detector] Skipping keyword injection for /start-work command`, {
+          sessionID: input.sessionID,
+        })
         return
       }
 

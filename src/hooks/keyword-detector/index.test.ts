@@ -116,6 +116,22 @@ describe("keyword-detector message transform", () => {
     expect(textPart).toBeDefined()
     expect(textPart!.text).toBe("just a normal message")
   })
+
+  test("should skip keyword injection for raw /start-work command", async () => {
+    const collector = new ContextCollector()
+    const hook = createKeywordDetectorHook(createMockPluginInput(), collector)
+    const sessionID = "start-work-session"
+    const output = {
+      message: {} as Record<string, unknown>,
+      parts: [{ type: "text", text: "/start-work investigate ci-green-build314-fix" }],
+    }
+
+    await hook["chat.message"]({ sessionID }, output)
+
+    const textPart = output.parts.find(p => p.type === "text")
+    expect(textPart).toBeDefined()
+    expect(textPart!.text).toBe("/start-work investigate ci-green-build314-fix")
+  })
 })
 
 describe("keyword-detector session filtering", () => {
