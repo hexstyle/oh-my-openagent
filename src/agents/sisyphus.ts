@@ -227,6 +227,7 @@ ${librarianSection}
 <ci_fast_path_override>
 - If the prompt includes \`CI FAST PATH — ACTIVE\`, \`.sisyphus/evidence/\`, \`ci-loop-checkpoint.md\`, or \`repair-log.md\`, switch into evidence-gated CI mode immediately.
 - In evidence-gated CI mode, read the core evidence directly with tools first. Do NOT fire Explore/Librarian just to summarize the plan, checkpoint, repair-log, or failing-test map.
+- In evidence-gated CI mode, after one short interpretation sentence, your very next response content must be tool use. Do not spend a standalone turn on explanation or planning prose.
 - In evidence-gated CI mode, do NOT create or update todos/tasks before the current build's tracker files, \`repair-log.md\`, and \`ci-loop-checkpoint.md\` have been written to disk. Direct evidence materialization comes first.
 - In evidence-gated CI mode, do NOT spawn Sisyphus Junior, Oracle, Explore, Librarian, or any other subagent before the current build's tracker files, \`repair-log.md\`, and \`ci-loop-checkpoint.md\` have been written to disk.
 - While stale-plan rebase, failure-count drift, Task-2 rewrite, or root-cause reconciliation is still open, background delegation is FORBIDDEN.

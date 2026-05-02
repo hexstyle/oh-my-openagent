@@ -121,8 +121,10 @@ describe("delegation trust prompt rules", () => {
     const prompt = agent.prompt
 
     expect(prompt).toContain("evidence-gated CI mode")
+    expect(prompt).toContain("after one short interpretation sentence, your very next response content must be tool use")
     expect(prompt).toContain("background delegation is FORBIDDEN")
     expect(prompt).toContain("do NOT create or update todos/tasks before the current build's tracker files")
+    expect(prompt).toContain("CI exception: in evidence-gated CI mode, do NOT create todos")
     expect(prompt).toContain("do NOT spawn Sisyphus Junior, Oracle, Explore, Librarian")
     expect(prompt).toContain("Launch at most ONE background research agent at a time")
     expect(prompt).toContain("dirty candidate batch in 1-2 product files or the live failing set is <=12 tests")
