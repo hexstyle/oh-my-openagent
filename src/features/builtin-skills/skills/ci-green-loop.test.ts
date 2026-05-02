@@ -67,4 +67,11 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("If the full solution build fails only because of a host-specific prerequisite unrelated to the edited batch")
     expect(ciGreenLoopSkill.template).toContain("Do NOT pretend this is a product-code failure")
   })
+
+  test("ci-green-loop forbids silent post-push waiting and requires trigger-lag investigation", () => {
+    expect(ciGreenLoopSkill.template).toContain("do visible bounded polling of the CI summary at least every 30 seconds")
+    expect(ciGreenLoopSkill.template).toContain("If the latest plan/build is still pinned to the previous revision after 2 minutes")
+    expect(ciGreenLoopSkill.template).toContain("Silent post-push waiting is forbidden")
+    expect(ciGreenLoopSkill.template).toContain("trigger-lag investigation")
+  })
 })

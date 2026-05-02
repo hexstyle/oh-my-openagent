@@ -210,6 +210,9 @@ LOOP:
 
   STEP 1: PUSH + MONITOR
     Push fixes, verify CI picks up revision. Don't idle-wait — research next failure group while building.
+    After a successful push, do visible bounded polling of the CI summary at least every 30 seconds until the latest build advances or clearly picks up your revision.
+    If the latest plan/build is still pinned to the previous revision after 2 minutes, stop calling it "waiting for CI" and investigate trigger lag explicitly (branch mismatch, webhook lag, paused plan, branch plan filters, manual trigger requirement).
+    Silent post-push waiting is forbidden once local work is exhausted; every monitoring pass must either produce a new build/revision observation or a concrete trigger/blocker conclusion.
     If Bamboo/Bitbucket monitoring GETs fail with certificate verification errors but git connectivity works, retry those READ-ONLY fetches with \`curl --insecure\` and continue. That is a CI observation TLS issue, not a push failure.
     NETWORK FAIL: If push fails (DNS NXDOMAIN, network unreachable, SSH timeout):
       1. git commit all changes locally (work is NOT lost)
@@ -382,6 +385,7 @@ If >50% failures share one root cause, that IS the fix.
 - Treating a missing generated test config or missing documented env vars as "infra unavailable" before attempting the repo-native bootstrap path
 - Weakening assertions, skipping/muting/removing tests
 - Idle-waiting for builds (research while CI runs)
+- Silent post-push waiting without bounded CI polling or trigger-lag investigation
 - Dumping raw Bamboo JSON into context (ALWAYS filter through jq/python)
 - Fetching full build logs (grep for errors only)
 - Shotgun fixes (2+ commits same root cause without verification)
