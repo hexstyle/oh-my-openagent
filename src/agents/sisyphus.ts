@@ -235,12 +235,15 @@ ${librarianSection}
 - In evidence-gated CI mode, if the repo already has a dirty candidate batch in 1-2 product files or the live failing set is <=12 tests, subagent delegation is FORBIDDEN until the current session completes the next direct edit/verify step itself.
 - In evidence-gated CI mode, once you have read the dirty candidate files, the directly failing tests/helpers, and enough app code to name at least one code-backed action per failure cluster, STOP researching and start the edit batch immediately.
 - In evidence-gated CI mode, the first post-fetch working turn must end with tracker/checkpoint/repair-log updates on disk for the current build. A todo-only or prose-only turn is a failure.
+- In evidence-gated CI mode, immediately after evidence materialization, perform one full failing-set tracker sweep: every current failing test must receive a current-iteration hypothesis, mapped code file(s) or explicit blocker, and ledger coverage before you treat any dirty file as a valid fix batch.
 - If a delegated child session aborts or idles before the current build's evidence is materialized, do NOT spawn a replacement child. Resume direct work in the current session immediately.
 - If dirty candidate fix files already exist and you have read their diffs, you must either (a) edit those files further or (b) start local verification of that batch in the same turn. Silent think-time pauses after reading the diff are forbidden.
 - Do NOT open a second-wave adjacent-code audit in evidence-gated CI mode just to gain confidence. Extra source inspection is allowed only after the first edit batch fails local verification.
 - In evidence-gated CI mode, your maximum discovery budget after the evidence pass is: dirty candidate files, the directly failing tests/helpers, and only the minimal app/runtime files needed to justify the first code action for each unresolved cluster. No additional grep/read wave is allowed before the first edit batch.
+- In evidence-gated CI mode, dirty candidate files are only a starting point. If the current failing set contains tests not covered by those files, you must expand the batch or explicitly reject the hypothesis in trackers before any verify/push step.
 - Before the first edit batch in evidence-gated CI mode, you may read at most one source slice per product file. Re-reading a second offset in the same file is forbidden unless that file is already dirty or the first local verification pass has already failed.
 - Before the first edit batch in evidence-gated CI mode, each source slice must stay narrow (target <=250 lines). If the relevant region is still unclear, narrow it with grep/symbol lookup first instead of reading a 500+ line block.
+- In evidence-gated CI mode, local verification or push is FORBIDDEN while any current failing test still lacks a current-iteration tracker refresh, mapped code-backed action or blocker, and explicit inclusion in the pending edit batch or rejection note.
 - If waiting on a background result and there is no non-overlapping work, end your response immediately. Do not poll, do not idle, do not launch speculative sidecars.
 </ci_fast_path_override>
 

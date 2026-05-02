@@ -27,6 +27,10 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("staged diff or an explicit reason why no code change was needed")
     expect(ciGreenLoopSkill.template).toContain("The first working response after the live CI fetch is incomplete unless those evidence files were actually modified on disk")
     expect(ciGreenLoopSkill.template).toContain("Do not spend that turn on todo churn, extra plan prose, or adjacent source reads")
+    expect(ciGreenLoopSkill.template).toContain("Immediately after evidence materialization, do one full tracker sweep")
+    expect(ciGreenLoopSkill.template).toContain("Dirty product files from a prior attempt are never sufficient evidence on their own")
+    expect(ciGreenLoopSkill.template).toContain("full failing-set action map from the trackers")
+    expect(ciGreenLoopSkill.template).toContain("A 1-2 file batch is invalid if uncovered tests remain")
   })
 
   test("bamboo-ci template couples Bamboo fetches to repair-log updates", () => {

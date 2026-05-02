@@ -261,6 +261,7 @@ ${librarianSection}
 - In evidence-gated CI mode, once you have read the dirty candidate files, the directly failing tests/helpers, and enough app code to name at least one code-backed action per failure cluster, STOP researching and start the edit batch immediately.
 - In evidence-gated CI mode, once the live CI failure list has been fetched and any tracker drift is known, your very next write-capable action must be to materialize tracker/checkpoint/repair-log updates on disk for the current build. Do not spend another loop re-reading trackers or refetching Bamboo unless one still-uncovered test lacks even a short error or a single stack slice.
 - In evidence-gated CI mode, the first post-fetch working turn must end with those evidence files modified on disk. A todo-only or prose-only turn is a failure.
+- In evidence-gated CI mode, immediately after evidence materialization, perform one full failing-set tracker sweep: every current failing test must receive a current-iteration hypothesis, mapped code file(s) or explicit blocker, and ledger coverage before you treat any dirty file as a valid fix batch.
 - In evidence-gated CI mode, after one stack/details sample for a new or changed failure, silent think-time is forbidden until you either write the evidence updates or start the edit batch.
 - If a delegated child session aborts or idles before the current build's evidence is materialized, do NOT spawn a replacement child. Resume direct work in the current session immediately.
 - If dirty candidate fix files already exist and you have read their diffs, you must either (a) edit those files further or (b) start local verification of that batch in the same turn. Silent think-time pauses after reading the diff are forbidden.
@@ -269,6 +270,7 @@ ${librarianSection}
 - In evidence-gated CI mode, do NOT queue Oracle consultation, \`review-work\`, or any post-implementation/final-wave review before the first local verification pass. They are off the critical path.
 - In evidence-gated CI mode, keep tasks/todos on the critical path only: evidence rebase, evidence normalization, constrained source pass, edit batch, local verify, evidence update, commit/push.
 - If the repo already has dirty candidate fix files, those files are the first edit batch. Read their diffs first, validate or extend them, and do NOT broaden source discovery to unrelated files until each dirty-file hypothesis is either accepted into the batch or explicitly rejected.
+- In evidence-gated CI mode, dirty candidate files are only a starting point. If the current failing set contains tests not covered by those files, you must expand the batch or explicitly reject the hypothesis in trackers before any verify/push step.
 - Once the dirty candidate files plus one directly failing test/helper slice per unresolved cluster have been read, editing is mandatory in the same turn. Additional grep/read waves are forbidden unless local verification of that first batch fails.
 - Before the first edit batch in evidence-gated CI mode, you may read at most one source slice per product file. Re-reading a second offset in the same file is forbidden unless that file is already dirty or the first local verification pass has already failed.
 - Before the first edit batch in evidence-gated CI mode, each source slice must stay narrow (target <=250 lines). If the relevant region is still unclear, narrow it with grep/symbol lookup first instead of reading a 500+ line block.
@@ -276,6 +278,7 @@ ${librarianSection}
 - If three unresolved clusters have been sampled this way, you must stop reading and write the expanded edit batch immediately. Do not sample a fourth cluster before editing.
 - In evidence-gated CI mode, once three unresolved clusters have been sampled, any further \`read\`, \`grep\`, \`glob\`, Explore, or Librarian call is forbidden until you perform at least one code edit in the batch.
 - In evidence-gated CI mode, you may not take a second failing-test slice or a second helper slice for the same unresolved cluster before the first edit batch. First sample only, then edit.
+- In evidence-gated CI mode, local verification or push is FORBIDDEN while any current failing test still lacks a current-iteration tracker refresh, mapped code-backed action or blocker, and explicit inclusion in the pending edit batch or rejection note.
 - If waiting on a background result and there is no non-overlapping work, end your response immediately. Do not poll, do not idle, do not launch speculative sidecars.
 </ci_fast_path_override>
 

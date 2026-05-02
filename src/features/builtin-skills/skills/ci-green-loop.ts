@@ -96,6 +96,8 @@ Hard rules:
 8. After fetching the live failing test list for the current build, you MUST write/update tracker files, \`repair-log.md\`, and \`ci-loop-checkpoint.md\` BEFORE any source-code reads outside \`.sisyphus/evidence/\`.
 9. A push is forbidden if any current failing test appears only in diagnosis text but not in the current iteration block's coverage map, per-test ledger, and pre-push audit conclusion.
 10. The first working response after the live CI fetch is incomplete unless those evidence files were actually modified on disk for the current build. "Will update next" is invalid.
+11. Immediately after evidence materialization, do one full tracker sweep for the CURRENT failing set. Every current failing test must get a current-iteration hypothesis, mapped code file(s) or explicit blocker, and planned batch coverage before any local verification or push logic begins.
+12. Dirty product files from a prior attempt are never sufficient evidence on their own. If the current failing set includes tests not covered by those files, expand the edit batch or explicitly reject the dirty-file hypothesis per test in trackers and the iteration block before verify/push.
 
 ### Reading Trackers Before Fixing
 BEFORE writing any code fix, you MUST:
@@ -261,6 +263,7 @@ LOOP:
        If any test lacks a tracker → DO NOT proceed to STEP 3.
     j) Append/refresh the current iteration block in \`repair-log.md\` with: build number, revision, per-test ledger, failure list/coverage map, and investigation conclusion before editing code.
     k) If live CI list, tracker count/status, current-build analysis, checkpoint, and repair-log already agree, do ONE compact evidence append/update and then move DIRECTLY to STEP 3. Do NOT run extra bookkeeping loops like repeated \`wc -c\`, repeated clean-tree checks, or another evidence-only pass before the first code batch.
+    l) Before reading product code, produce a full failing-set action map from the trackers: for EACH current failing test, either (1) mapped code file(s) + concrete current-iteration fix hypothesis, or (2) explicit blocker conclusion. If even one test is missing that mapping, DO NOT continue to STEP 3.
 
   STEP 3: FIX — ALL FAILURES IN ONE PASS
 
@@ -268,6 +271,7 @@ LOOP:
        For each: check Fix History. If previous approach failed → choose DIFFERENT strategy.
     b) For each test, identify which source files need changes (from tracker's Code Files field + test source code).
        If you intend to fix multiple tests via one shared file/helper, write that mapping explicitly into each affected tracker FIRST.
+       If a previously dirty file explains only some tests, expand the batch until every remaining failing test also has a mapped file or explicit blocker. A 1-2 file batch is invalid if uncovered tests remain.
     c) Fix highest-leverage root cause first. Group tests sharing the same root cause.
     d) After ALL fixes applied, run: \`git diff --name-only\` — list ALL modified files.
     e) Run dotnet build to confirm compilation.
