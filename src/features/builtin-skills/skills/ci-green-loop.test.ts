@@ -22,4 +22,21 @@ describe("ci green loop builtin skills", () => {
     expect(bambooCiSkill.template).toContain("build number + revision")
     expect(bambooCiSkill.template).toContain("changed-files coverage")
   })
+
+  test("bamboo-ci template teaches certificate fallback for read-only monitoring", () => {
+    expect(bambooCiSkill.template).toContain("curl --insecure")
+    expect(bambooCiSkill.template).toContain("Corporate TLS is not a terminal blocker")
+    expect(bambooCiSkill.template).toContain("Do NOT stop after a successful push")
+  })
+
+  test("ci-green-loop treats Bamboo certificate errors as monitoring fallback, not push failure", () => {
+    expect(ciGreenLoopSkill.template).toContain("retry those READ-ONLY fetches with `curl --insecure`")
+    expect(ciGreenLoopSkill.template).toContain("That is a CI observation TLS issue, not a push failure")
+  })
+
+  test("ci-green-loop evidence eviction preserves repair-log and checkpoint", () => {
+    expect(ciGreenLoopSkill.template).toContain('! -name "repair-log.md" ! -name "ci-loop-checkpoint.md"')
+    expect(ciGreenLoopSkill.template).toContain("Never delete them just because they exceed 10KB")
+    expect(ciGreenLoopSkill.template).toContain("keep test tracker files, repair-log.md, ci-loop-checkpoint.md")
+  })
 })

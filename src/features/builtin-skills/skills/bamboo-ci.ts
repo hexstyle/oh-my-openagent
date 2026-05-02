@@ -14,6 +14,50 @@ Expert knowledge for interacting with Atlassian Bamboo CI from an agent context.
 2. **Revision tracking** — always correlate build results with exact git SHA
 3. **Structured analysis** — classify failures, don't just dump logs
 4. **Iterative loop** — push → monitor → analyze → fix → repeat
+5. **Corporate TLS is not a terminal blocker** — if HTTPS API fetches fail with certificate verification errors but git/Bitbucket connectivity still works, retry the SAME read-only endpoint with \`curl --insecure\` and continue the loop
+
+## TLS / Certificate Fallback
+
+If Bamboo or Bitbucket REST reads fail with messages like \`unknown certificate verification error\`,
+\`SSL certificate problem\`, or \`unable to get local issuer certificate\`:
+
+1. First retry the exact same GET with normal TLS.
+2. If it is still a certificate-chain error, retry the same READ-ONLY request with \`curl --insecure\`.
+3. Keep the insecure fallback scoped to Bamboo/Bitbucket GET requests used for CI observation.
+4. Do NOT classify this as NETWORK BLOCKED if \`git fetch\`, \`git push\`, or browser access already proves connectivity exists.
+5. Do NOT stop after a successful push just because the post-push monitor needed \`--insecure\`.
+
+Safe pattern:
+\`\`\`bash
+fetch() {
+  local url="$1"
+  curl --fail --silent --show-error "$url" 2>/tmp/curl.err \
+    || {
+      if grep -Eqi "certificate|issuer|SSL" /tmp/curl.err; then
+        curl --insecure --fail --silent --show-error "$url"
+      else
+        cat /tmp/curl.err >&2
+        return 1
+      fi
+    }
+}
+\`\`\`
+
+Use the same pattern with headers when reading JSON:
+\`\`\`bash
+fetch_json() {
+  local url="$1"
+  curl --fail --silent --show-error -H "Accept: application/json" "$url" 2>/tmp/curl.err \
+    || {
+      if grep -Eqi "certificate|issuer|SSL" /tmp/curl.err; then
+        curl --insecure --fail --silent --show-error -H "Accept: application/json" "$url"
+      else
+        cat /tmp/curl.err >&2
+        return 1
+      fi
+    }
+}
+\`\`\`
 
 ## API Patterns — TOKEN BUDGET RULES
 

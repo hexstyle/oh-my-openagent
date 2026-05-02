@@ -193,16 +193,20 @@ LOOP:
     Run this EXACT command:
     ┌──────────────────────────────────────────────────────────────────────┐
     │ find .sisyphus/evidence -type f \\( -name "*.json" -o -name "*.log" │
-    │   -o -name "*.trx" -o -name "*.xml" -o -size +10k \\) -delete 2>/dev/null; │
+    │   -o -name "*.trx" -o -name "*.xml" \\) -delete 2>/dev/null; │
+    │ find .sisyphus/evidence -type f -size +10k \\                         │
+    │   ! -name "repair-log.md" ! -name "ci-loop-checkpoint.md" -delete 2>/dev/null; │
     │ find .sisyphus/evidence -mindepth 1 -type d -empty -delete 2>/dev/null; │
     │ du -sh .sisyphus/evidence/                                         │
     └──────────────────────────────────────────────────────────────────────┘
     After running: \`du -sh\` MUST show < 500KB. If not, delete oldest .md files
-    until < 400KB (keep test tracker files, ci-loop-checkpoint.md, latest 2 build-*-analysis.md).
+    until < 400KB (keep test tracker files, repair-log.md, ci-loop-checkpoint.md, latest 2 build-*-analysis.md).
     NOTE: Do NOT delete .sisyphus/evidence/tests/ directory — those are per-test trackers.
+    NOTE: \`repair-log.md\` and \`ci-loop-checkpoint.md\` are mandatory source-of-truth files. Never delete them just because they exceed 10KB; compact or rewrite them instead.
 
   STEP 1: PUSH + MONITOR
     Push fixes, verify CI picks up revision. Don't idle-wait — research next failure group while building.
+    If Bamboo/Bitbucket monitoring GETs fail with certificate verification errors but git connectivity works, retry those READ-ONLY fetches with \`curl --insecure\` and continue. That is a CI observation TLS issue, not a push failure.
     NETWORK FAIL: If push fails (DNS NXDOMAIN, network unreachable, SSH timeout):
       1. git commit all changes locally (work is NOT lost)
       2. Save checkpoint: "NETWORK BLOCKED — N local commits ready to push"

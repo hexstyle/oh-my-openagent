@@ -2,7 +2,12 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "bun:test"
 import type { OhMyOpenCodeConfig } from "../../config"
-import { resolveRunAgent, resolveRunPromptAgent, waitForEventProcessorShutdown } from "./runner"
+import {
+  resolveRunAgent,
+  resolveRunPromptAgent,
+  shouldRecoverRunTransportError,
+  waitForEventProcessorShutdown,
+} from "./runner"
 
 const createConfig = (overrides: Partial<OhMyOpenCodeConfig> = {}): OhMyOpenCodeConfig => ({
   ...overrides,
@@ -201,5 +206,31 @@ describe("run with invalid model", () => {
       console.error = originalError
       process.exit = originalExit
     }
+  })
+})
+
+describe("shouldRecoverRunTransportError", () => {
+  it("returns true for unknown certificate verification errors", () => {
+    expect(
+      shouldRecoverRunTransportError(new Error("unknown certificate verification error")),
+    ).toBe(true)
+  })
+
+  it("returns true for ECONNRESET-wrapped API call errors", () => {
+    expect(
+      shouldRecoverRunTransportError({
+        name: "AI_APICallError",
+        cause: {
+          code: "ECONNRESET",
+          path: "https://chatgpt.com/backend-api/codex/responses",
+        },
+      }),
+    ).toBe(true)
+  })
+
+  it("returns false for quota-style terminal errors", () => {
+    expect(
+      shouldRecoverRunTransportError(new Error("out of extra usage")),
+    ).toBe(false)
   })
 })
