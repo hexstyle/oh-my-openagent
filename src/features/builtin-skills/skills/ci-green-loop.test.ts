@@ -8,12 +8,14 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("Iteration Ledger (MANDATORY)")
     expect(ciGreenLoopSkill.template).toContain("Coverage map:")
     expect(ciGreenLoopSkill.template).toContain("Code changed:")
+    expect(ciGreenLoopSkill.template).toContain("Per-test ledger:")
     expect(ciGreenLoopSkill.template).toContain("Checkpoint MUST reference repair-log")
     expect(ciGreenLoopSkill.template).toContain("free-form narrative")
     expect(ciGreenLoopSkill.template).toContain("tracker files with status `fixed-pending`")
-    expect(ciGreenLoopSkill.template).toContain("Managed .sisyphus repo exception")
-    expect(ciGreenLoopSkill.template).toContain("Missing tracker directory is not a blocker")
-    expect(ciGreenLoopSkill.template).toContain("SKIP steps (b)-(f)")
+    expect(ciGreenLoopSkill.template).toContain("Managed .sisyphus repo fast-path (STRICT)")
+    expect(ciGreenLoopSkill.template).toContain("Missing tracker directory is a blocker for code edits")
+    expect(ciGreenLoopSkill.template).toContain("If any of those checks fail, DO NOT skip steps (b)-(f)")
+    expect(ciGreenLoopSkill.template).toContain("one shared file/helper")
   })
 
   test("bamboo-ci template couples Bamboo fetches to repair-log updates", () => {
