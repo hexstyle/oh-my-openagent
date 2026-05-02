@@ -23,6 +23,8 @@ function isKeywordMessageAlreadyInjected(
 
 function containsStartWorkCommand(promptText: string): boolean {
   return /(^|\n)\s*\/start-work\b/.test(promptText)
+    || promptText.includes("# /start-work Command")
+    || promptText.includes("You are starting a Sisyphus work session.")
 }
 
 export function createKeywordDetectorHook(ctx: PluginInput, _collector?: ContextCollector) {

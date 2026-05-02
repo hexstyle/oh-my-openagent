@@ -132,6 +132,26 @@ describe("keyword-detector message transform", () => {
     expect(textPart).toBeDefined()
     expect(textPart!.text).toBe("/start-work investigate ci-green-build314-fix")
   })
+
+  test("should skip keyword injection for expanded start-work command wrapper", async () => {
+    const collector = new ContextCollector()
+    const hook = createKeywordDetectorHook(createMockPluginInput(), collector)
+    const sessionID = "expanded-start-work-session"
+    const output = {
+      message: {} as Record<string, unknown>,
+      parts: [{
+        type: "text",
+        text: "# /start-work Command\n\nYou are starting a Sisyphus work session.\n\nsearch for current build evidence",
+      }],
+    }
+
+    await hook["chat.message"]({ sessionID }, output)
+
+    const textPart = output.parts.find(p => p.type === "text")
+    expect(textPart).toBeDefined()
+    expect(textPart!.text).toContain("# /start-work Command")
+    expect(textPart!.text).not.toContain("[search-mode]")
+  })
 })
 
 describe("keyword-detector session filtering", () => {
