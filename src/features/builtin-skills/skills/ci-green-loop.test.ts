@@ -49,6 +49,7 @@ describe("ci green loop builtin skills", () => {
     expect(bambooCiSkill.template).toContain("curl --insecure")
     expect(bambooCiSkill.template).toContain("Corporate TLS is not a terminal blocker")
     expect(bambooCiSkill.template).toContain("Do NOT stop after a successful push")
+    expect(bambooCiSkill.template).toContain("`fetch_json()` is an inline helper function")
     expect(bambooCiSkill.template).toContain("JSON=\"$JSON\" python3 <<'PY'")
     expect(bambooCiSkill.template).toContain("Do NOT build giant one-line commands with nested quotes")
     expect(bambooCiSkill.template).toContain("FORBIDDEN:")

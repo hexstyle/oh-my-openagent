@@ -59,12 +59,14 @@ fetch_json() {
 }
 \`\`\`
 
+\`fetch_json()\` is an inline helper function, not a preinstalled shell command. Define it in the SAME bash block before the first \`JSON="$(fetch_json ...)"\` call.
+
 ## API Patterns — TOKEN BUDGET RULES
 
 **CRITICAL: Bamboo API responses are HUGE. ALWAYS pipe through jq/python to extract ONLY what you need. NEVER dump raw JSON into context.**
 **CRITICAL SHELL RULE: For Bamboo fetch + parse steps, prefer multi-line shell with \`python3 <<'PY'\` heredocs. Do NOT build giant one-line commands with nested quotes, f-strings, and inline Python — they frequently break under zsh quoting and waste CI cycles before evidence is even written.**
 **FORBIDDEN:** \`python3 -c '...'\` for Bamboo JSON parsing. Use heredocs only. Inline \`python -c\` is too fragile for nested quotes, f-strings, and loop bodies.
-**FORBIDDEN:** raw \`curl ... | python3\` for Bamboo JSON parsing. Use \`fetch_json\` into a shell variable, then feed that variable to a heredoc parser. This preserves the certificate fallback path and avoids empty-stdin parse failures.
+**FORBIDDEN:** raw \`curl ... | python3\` for Bamboo JSON parsing. Define \`fetch_json()\` inline, capture its output into a shell variable, then feed that variable to a heredoc parser. This preserves the certificate fallback path and avoids empty-stdin parse failures.
 
 Safe combined pattern:
 \`\`\`bash

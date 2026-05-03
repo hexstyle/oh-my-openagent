@@ -176,7 +176,7 @@ export function createToolExecuteBeforeHandler(args: {
 
     if (!lower.includes("fetch_json")) {
       throw new Error(
-        `[tool-execute-before] Refusing direct Bamboo result endpoint fetches for session ${sessionID}. Use the repo-native fetch_json helper and compact parsing instead of dumping raw Bamboo payloads.`,
+        `[tool-execute-before] Refusing direct Bamboo result endpoint fetches for session ${sessionID}. Define an inline fetch_json helper in the same bash block and use compact parsing instead of dumping raw Bamboo payloads.`,
       )
     }
   }
