@@ -248,6 +248,26 @@ describe("createSisyphusJuniorAgentWithOverrides", () => {
         expect(permission.call_omo_agent).toBe("allow")
       }
     })
+
+    test("GPT models still deny apply_patch even when override allows it", () => {
+      // given
+      const override = {
+        model: "openai/gpt-5.4",
+        permission: {
+          apply_patch: "allow",
+          read: "allow",
+        },
+      } as { model: string; permission: Record<string, string> }
+
+      // when
+      const result = createSisyphusJuniorAgentWithOverrides(
+        override as Parameters<typeof createSisyphusJuniorAgentWithOverrides>[0],
+      )
+
+      // then
+      const permission = result.permission as Record<string, string> | undefined
+      expect(permission?.apply_patch).toBe("deny")
+    })
   })
 
   describe("useTaskSystem integration", () => {
@@ -400,6 +420,16 @@ describe("createSisyphusJuniorAgentWithOverrides", () => {
       const appendIndex = result.prompt!.indexOf("CUSTOM_MARKER_FOR_TEST")
       expect(baseEndIndex).not.toBe(-1)
       expect(appendIndex).toBeGreaterThan(baseEndIndex)
+    })
+  })
+
+  describe("GPT prompt patch guidance", () => {
+    test("GPT-5.4 prompt instructs edit/write instead of apply_patch", () => {
+      const prompt = buildSisyphusJuniorPrompt("openai/gpt-5.4", false)
+
+      expect(prompt).toContain("Use `edit` and `write` for file changes")
+      expect(prompt).toContain("Do not use `apply_patch` on GPT models")
+      expect(prompt).not.toContain("Always use apply_patch for manual code edits")
     })
   })
 })

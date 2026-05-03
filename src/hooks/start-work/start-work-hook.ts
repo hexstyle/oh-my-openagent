@@ -250,7 +250,7 @@ function detectCIFastPath(planPath: string, projectDir: string): CIFastPathResul
     if (existsSync(testsDir)) {
       const trackerFiles = readdirSync(testsDir).filter((f) => f.endsWith(".md"))
       if (trackerFiles.length > 0) {
-        testTrackerInfo = "\\nRead per-test tracker files in `.sisyphus/evidence/tests/` (" + trackerFiles.length + " files) — each contains fix history for a specific test. Do NOT repeat approaches that already failed. Before pushing, tracker counts/statuses must reconcile with the current failing-test count."
+        testTrackerInfo = "\\nRead per-test tracker files in `.sisyphus/evidence/tests/` (" + trackerFiles.length + " files) — each contains fix history for a specific test. Do NOT repeat approaches that already failed. Canonical reconciliation counts only the tracker files that map one-to-one to the CURRENT live failing tests; legacy alias/build-summary notes are supplemental context and must not block the first evidence write batch or inflate the failing tracker count. Before pushing, canonical tracker counts/statuses must reconcile with the current failing-test count."
       }
     }
 
@@ -287,6 +287,13 @@ function detectCIFastPath(planPath: string, projectDir: string): CIFastPathResul
       "The checkpoint and repair-log live ONLY at `.sisyphus/evidence/ci-loop-checkpoint.md` and `.sisyphus/evidence/repair-log.md`. Never probe `.sisyphus/ci-loop-checkpoint.md` or `.sisyphus/repair-log.md`.",
       "During the evidence gate, do NOT read any `.sisyphus/*.md` path outside the active plan file and `.sisyphus/evidence/*`. If you need current-build truth, fetch it and write it back into the evidence files instead of probing alternative legacy paths.",
       "Read only the core CI evidence first: `AGENTS.md`, `.sisyphus/boulder.json`, active plan, `ci-loop-checkpoint.md`, `repair-log.md`, CURRENT-build analysis/failure analysis, and `.sisyphus/evidence/tests/`. Older `build-*.md` files are archived context only — do not read them unless the current-build files or trackers are missing required detail. Check the tracker directory only with `test -d` or `ls` — NEVER use a file-read tool on the directory path. If the tests directory is absent, that is a blocker: create/rebuild the tracker set for the current failing list before code edits or push logic. Do NOT glob historical notepads or `.sisyphus/run-continuation/` unless the core evidence is insufficient.",
+      "For tracker reconciliation, count only canonical per-test trackers that map one-to-one to the CURRENT live failing tests. Legacy alias/build-summary tracker notes may stay on disk for history, but they are supplemental context only and must not block the first evidence write batch or inflate the failing tracker count.",
+      "During CI fast-path Bamboo fetches, do NOT use `webfetch`. Use the repo-native shell `fetch_json` pattern from the Bamboo skill so certificate fallback, JSON parsing, and compact extraction stay deterministic.",
+      "Never print or save raw Bamboo JSON. Every Bamboo fetch must emit only compact extracted facts: build number, revision, failed-test count, and the current failing test names plus short errors. If a shell fetch prints a JSON document, that fetch was wrong — fix the command before continuing.",
+      "For Bamboo JSON parsing, use multi-line shell with a `fetch_json` helper plus `python3 <<'PY'` heredocs. Do NOT use `python3 -c`, do NOT pipe raw `curl` directly into Python, and do NOT dump plan-level `testResults` blobs into context.",
+      "Use the plan-level Bamboo endpoint only for summary fields like `buildNumber`, `failedTestCount`, and `vcsRevisionKey`. To enumerate failing tests, fetch the JOB1 result endpoint with `expand=testResults.failedTests.testResult` and extract names plus short errors there. The extracted failing-test list MUST contain exactly `failedTestCount` items; if it does not, your endpoint or parser is wrong and you must fix that before continuing.",
+      "Use an exact working shell shape for Bamboo parsing. Preferred pattern: `JSON=\"$(fetch_json \\\"https://.../latest.json\\\")\"` followed by `JSON=\"$JSON\" python3 <<'PY'` and `data = json.loads(os.environ['JSON'])`. If you need a temp file, invoke the parser as `python3 - \"$tmp\" <<'PY'` and read `sys.argv[1]`. Do NOT run the JSON file itself as Python code, and do not rely on heredoc + here-string combinations that can drop stdin in zsh.",
+      "For Bamboo failed tests, parse `testResults.failedTests.testResult[]` entries using `className` + `methodName` (or `testName` if present) for the test id, and `errors.error[].message` for the short error text. Do NOT treat the nested `errors` object itself as the message, and do not accept `<unknown>` names when `className`/`methodName` are present.",
       "FIRST RESPONSE CONTRACT: once the live CI failing list for the current build has been fetched, the first working response must end with updated tracker files plus updated `repair-log.md` and `ci-loop-checkpoint.md` on disk for that same build. Planning to update them later is invalid.",
       stalePlanInfo,
       failureDriftInfo,
@@ -307,7 +314,7 @@ function detectCIFastPath(planPath: string, projectDir: string): CIFastPathResul
       "4. For each failing test: check if a previous fix was attempted — if so, choose a DIFFERENT strategy",
       "5. Apply ALL fixes in one pass (every failing test must be addressed, not just some)",
       "6. Update `.sisyphus/evidence/repair-log.md` with the current iteration block: build/revision, failures covered, files changed, local verify result, push result, conclusion, next action. Distinguish trigger-only builds from code-changing revisions.",
-      "7. PRE-PUSH AUDIT: verify git diff covers ALL failing tests, tracker counts/statuses reconcile with the current failing-test count, every current failing test has a current-iteration tracker update plus concrete fix path or blocker conclusion, and the pre-push gate is satisfied: `dotnet build`, local targeted test filter, staged-tree/symbol completeness.",
+      "7. PRE-PUSH AUDIT: verify git diff covers ALL failing tests, canonical tracker counts/statuses reconcile with the current failing-test count, every current failing test has a current-iteration tracker update plus concrete fix path or blocker conclusion, and the pre-push gate is satisfied: `dotnet build`, local targeted test filter, staged-tree/symbol completeness.",
       "8. Update `.sisyphus/evidence/ci-loop-checkpoint.md` so it matches the latest repair-log conclusion, latest build/revision, trigger-only/code-changing status, and tracker counts",
       "9. Ownership is explicit: Atlas owns dispatch only; the executor owns evidence updates, verification, commit/push, and final DoD accounting.",
       "10. git add <specific files only> — NEVER git add -A",
@@ -606,8 +613,12 @@ ${worktreeBlock}
             ...((output.message["tools"] as Record<string, unknown> | undefined) ?? {}),
             task: false,
             "task_*": false,
+            skill: false,
             teammate: false,
             call_omo_agent: false,
+            todowrite: false,
+            todoread: false,
+            webfetch: false,
           }
         }
         log(`[${HOOK_NAME}] CI fast path: prompt REPLACED, agent switched to ${ciAgent} (${ciAgentDisplay})`)

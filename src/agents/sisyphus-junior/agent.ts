@@ -20,6 +20,7 @@ import {
   type PermissionValue,
 } from "../../shared/permission-compat"
 import { mergeAgentConfig } from "../builtin-agents/agent-overrides"
+import { getGptApplyPatchPermission } from "../gpt-apply-patch-guard"
 
 import { buildDefaultSisyphusJuniorPrompt } from "./default"
 import { buildGptSisyphusJuniorPrompt } from "./gpt"
@@ -102,7 +103,10 @@ export function createSisyphusJuniorAgentWithOverrides(
 
   const userPermission = (migratedOverride?.permission ?? {}) as Record<string, PermissionValue>
   const basePermission = baseRestrictions.permission
-  const merged: Record<string, PermissionValue> = { ...userPermission }
+  const merged: Record<string, PermissionValue> = {
+    ...userPermission,
+    ...getGptApplyPatchPermission(model),
+  }
   for (const tool of BLOCKED_TOOLS) {
     merged[tool] = "deny"
   }

@@ -131,6 +131,7 @@ describe("delegation trust prompt rules", () => {
     expect(prompt).toContain("STOP researching and start the edit batch immediately")
     expect(prompt).toContain("your very next write-capable action must be to materialize tracker/checkpoint/repair-log updates on disk")
     expect(prompt).toContain("A todo-only or prose-only turn is a failure")
+    expect(prompt).toContain("canonical tracker reconciliation counts only the per-test tracker files")
     expect(prompt).toContain("immediately after evidence materialization, perform one full failing-set tracker sweep")
     expect(prompt).toContain("after one stack/details sample for a new or changed failure")
     expect(prompt).toContain("If a delegated child session aborts or idles before the current build's evidence is materialized")

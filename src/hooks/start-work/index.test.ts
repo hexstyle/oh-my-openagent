@@ -197,7 +197,17 @@ describe("start-work hook", () => {
       expect(text).toContain("NEVER use a file-read tool on the directory path")
       expect(text).toContain("If the tests directory is absent, that is a blocker")
       expect(text).toContain("Do NOT glob historical notepads")
+      expect(text).toContain("do NOT use `webfetch`")
+      expect(text).toContain("Never print or save raw Bamboo JSON")
+      expect(text).toContain("Do NOT use `python3 -c`")
+      expect(text).toContain("To enumerate failing tests, fetch the JOB1 result endpoint")
+      expect(text).toContain("MUST contain exactly `failedTestCount` items")
+      expect(text).toContain("`JSON=\"$JSON\" python3 <<'PY'`")
+      expect(text).toContain("Do NOT run the JSON file itself as Python code")
+      expect(text).toContain("`className` + `methodName`")
+      expect(text).toContain("`errors.error[].message`")
       expect(text).toContain("FIRST RESPONSE CONTRACT")
+      expect(text).toContain("canonical per-test trackers that map one-to-one to the CURRENT live failing tests")
       expect(text).toContain("do NOT call `session_list`")
       expect(text).toContain("Do NOT rename the active plan file path")
       expect(text).toContain("historical plan name only")
@@ -220,13 +230,18 @@ describe("start-work hook", () => {
       expect(text).toContain("Update `.sisyphus/evidence/repair-log.md`")
       expect(text).toContain("Update `.sisyphus/evidence/ci-loop-checkpoint.md`")
       expect(text).toContain("tracker counts/statuses reconcile with the current failing-test count")
+      expect(text).toContain("Legacy alias/build-summary tracker notes may stay on disk for history")
       expect(text).toContain("every current failing test has a current-iteration tracker update plus concrete fix path or blocker conclusion")
       expect(output.message?.agent).toBe("Sisyphus (Ultraworker)")
       expect(output.message?.tools).toEqual({
         task: false,
         "task_*": false,
+        skill: false,
         teammate: false,
         call_omo_agent: false,
+        todowrite: false,
+        todoread: false,
+        webfetch: false,
       })
     })
 
@@ -270,7 +285,8 @@ describe("start-work hook", () => {
       const text = output.parts[0].text
       expect(text).toContain(".sisyphus/evidence/tests/")
       expect(text).toContain("Do NOT repeat approaches that already failed")
-      expect(text).toContain("tracker counts/statuses must reconcile with the current failing-test count")
+      expect(text).toContain("canonical tracker counts/statuses must reconcile with the current failing-test count")
+      expect(text).toContain("legacy alias/build-summary notes are supplemental context")
       expect(text).toContain("current-iteration tracker update plus concrete fix path or blocker conclusion")
     })
 
