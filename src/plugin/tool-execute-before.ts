@@ -26,6 +26,7 @@ export function createToolExecuteBeforeHandler(args: {
   const { ctx, hooks } = args
   const CI_FAST_PATH_FLAG = "ci-fast-path"
   const CI_EVIDENCE_MATERIALIZED_FLAG = "ci-evidence-materialized"
+  const CI_CLAUDE_REVIEW_PASSED_FLAG = "ci-claude-review-passed"
 
   function getStringArg(argsObject: Record<string, unknown>, keys: string[]): string | undefined {
     for (const key of keys) {
@@ -60,6 +61,64 @@ export function createToolExecuteBeforeHandler(args: {
         command.includes(".sisyphus/evidence/tests/")
         || command.includes(".sisyphus/evidence/repair-log.md")
         || command.includes(".sisyphus/evidence/ci-loop-checkpoint.md")
+      )
+    }
+
+    return false
+  }
+
+  function extractContentArg(argsObject: Record<string, unknown>, keys: string[]): string | undefined {
+    for (const key of keys) {
+      const value = argsObject[key]
+      if (typeof value === "string" && value.length > 0) {
+        return value
+      }
+    }
+
+    return undefined
+  }
+
+  function hasClaudeReviewPassMarker(text: string): boolean {
+    const normalized = text.toLowerCase()
+    return (
+      normalized.includes("claude review: pass")
+      || normalized.includes("oracle review: pass")
+      || normalized.includes("review-work: pass")
+    )
+  }
+
+  function shouldMarkClaudeReviewPassed(toolName: string, argsObject: Record<string, unknown>): boolean {
+    if (toolName === "write" || toolName === "edit") {
+      const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
+      if (
+        typeof filePath !== "string"
+        || (
+          !filePath.endsWith(".sisyphus/evidence/repair-log.md")
+          && !filePath.endsWith(".sisyphus/evidence/ci-loop-checkpoint.md")
+        )
+      ) {
+        return false
+      }
+
+      const content = extractContentArg(argsObject, [
+        "content",
+        "text",
+        "newString",
+        "newText",
+        "replacement",
+      ])
+      return typeof content === "string" && hasClaudeReviewPassMarker(content)
+    }
+
+    if (toolName === "bash") {
+      const command = getStringArg(argsObject, ["command"])
+      return (
+        typeof command === "string"
+        && (
+          command.includes(".sisyphus/evidence/repair-log.md")
+          || command.includes(".sisyphus/evidence/ci-loop-checkpoint.md")
+        )
+        && hasClaudeReviewPassMarker(command)
       )
     }
 
@@ -139,6 +198,13 @@ export function createToolExecuteBeforeHandler(args: {
       setSessionFlag(input.sessionID, CI_EVIDENCE_MATERIALIZED_FLAG)
     }
 
+    if (
+      hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
+      && shouldMarkClaudeReviewPassed(normalizedToolName, output.args)
+    ) {
+      setSessionFlag(input.sessionID, CI_CLAUDE_REVIEW_PASSED_FLAG)
+    }
+
     if (normalizedToolName === "bash") {
       const rawCommand = typeof output.args.command === "string" ? output.args.command : ""
       const normalizedCommand = rawCommand.replace(/\x00/g, "").trim()
@@ -155,6 +221,16 @@ export function createToolExecuteBeforeHandler(args: {
           sessionID: input.sessionID,
           callID: input.callID,
         })
+      }
+
+      if (
+        hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
+        && normalizedCommand.includes("git push")
+        && !hasSessionFlag(input.sessionID, CI_CLAUDE_REVIEW_PASSED_FLAG)
+      ) {
+        throw new Error(
+          `[tool-execute-before] Refusing git push for CI fast-path session ${input.sessionID} before a passing Claude review is recorded in repair-log/checkpoint evidence.`,
+        )
       }
 
       validateBambooBashCommand(normalizedCommand, input.sessionID)

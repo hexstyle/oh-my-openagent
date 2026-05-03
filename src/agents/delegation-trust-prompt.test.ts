@@ -138,6 +138,9 @@ describe("delegation trust prompt rules", () => {
     expect(prompt).toContain("Do NOT open a second-wave adjacent-code audit")
     expect(prompt).toContain("maximum discovery budget after the evidence pass")
     expect(prompt).toContain("do NOT queue Oracle consultation")
+    expect(prompt).toContain("once local verification is green for the full current failing set")
+    expect(prompt).toContain("a Claude review gate is MANDATORY before any commit or push")
+    expect(prompt).toContain("record `Claude review: PASS` in evidence")
     expect(prompt).toContain("keep tasks/todos on the critical path only")
     expect(prompt).toContain("those files are the first edit batch")
     expect(prompt).toContain("dirty candidate files are only a starting point")
@@ -150,7 +153,7 @@ describe("delegation trust prompt rules", () => {
     expect(prompt).toContain("any further `read`, `grep`, `glob`")
     expect(prompt).toContain("may not take a second failing-test slice")
     expect(prompt).toContain("local verification or push is FORBIDDEN while any current failing test still lacks")
-    expect(prompt).toContain("Oracle/post-implementation review is optional")
+    expect(prompt).toContain("a mandatory Claude review gate passed and recorded in evidence")
     expect(prompt).toContain("Do not poll, do not idle")
   })
 

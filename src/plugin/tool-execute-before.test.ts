@@ -255,6 +255,68 @@ PY`,
     ).resolves.toBeUndefined()
   })
 
+  test("blocks git push in CI fast-path before Claude review evidence is recorded", async () => {
+    const sessionID = "ses_ci_push_needs_claude_review"
+    setSessionFlag(sessionID, "ci-fast-path")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID, callID: "call_git_push_blocked" },
+        { args: { command: "git push origin HEAD" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow("before a passing Claude review is recorded")
+
+    clearSessionTools()
+  })
+
+  test("allows git push in CI fast-path after Claude review evidence is recorded", async () => {
+    const sessionID = "ses_ci_push_with_claude_review"
+    setSessionFlag(sessionID, "ci-fast-path")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "write", sessionID, callID: "call_review_pass" },
+        {
+          args: {
+            filePath: "/repo/.sisyphus/evidence/repair-log.md",
+            content: "## Iteration 9\n- Claude review: PASS\n",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).resolves.toBeUndefined()
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID, callID: "call_git_push_allowed" },
+        { args: { command: "git push origin HEAD" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
+    clearSessionTools()
+  })
+
   test("does not execute subagent question blocker hook for question tool", async () => {
     //#given
     const ctx = {

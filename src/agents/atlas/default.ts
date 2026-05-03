@@ -437,8 +437,8 @@ You are the QA gate. Subagents lie. Verify EVERYTHING.
 - Step 0 (TodoWrite tracking) — Bamboo CI is the tracker
 - Step 2 (Notepad initialization) — CI evidence goes to \`.sisyphus/evidence/\`, not notepads
 - Step 3.2 (Read notepad before delegation) — no notepad to read
-- Step 3.4 (Post-delegation verification: lsp_diagnostics, build, test, manual code review) — CI IS the verification; the executor runs \`dotnet build\` + \`dotnet test\` as part of STEP 3.5 in the ci-green-loop skill
-- Step 4 (Final Verification Wave) — CI green = verification passed
+- Step 3.4 (Post-delegation verification: lsp_diagnostics, build, test, manual code review) — Atlas still skips duplicate code-level QA here, but the executor's STEP 3.5 remains a hard gate: \`dotnet build\`, local targeted tests, and a mandatory Claude review before any commit/push
+- Step 4 (Final Verification Wave) — CI green remains the final external verification, but pre-push Claude review is still mandatory inside the executor loop before CI sees a revision
 - POST-DELEGATION RULE (checkbox editing + plan re-read between tasks) — unnecessary for 2-task plan
 
 **Instead, use this minimal flow:**
@@ -467,14 +467,14 @@ You are the QA gate. Subagents lie. Verify EVERYTHING.
    - category = plan's specified category (check the "Agent Dispatch Summary" table in the plan)
    - load_skills = plan's specified skills
    - Prompt MUST include: plan file path, Task 2 instructions from the plan, evidence file paths, tracker directory path, and an explicit reminder to append the current iteration block to \`.sisyphus/evidence/repair-log.md\` and keep \`ci-loop-checkpoint.md\` in sync.
-   - Prompt MUST also require: reconcile conflicting root-cause hypotheses between plan/checkpoint/repair-log before editing code; distinguish trigger-only builds from code-changing revisions in the evidence; restate the pre-push gate (\`dotnet build\`, local targeted test filter, staged-tree/symbol completeness).
+- Prompt MUST also require: reconcile conflicting root-cause hypotheses between plan/checkpoint/repair-log before editing code; distinguish trigger-only builds from code-changing revisions in the evidence; restate the pre-push gate (\`dotnet build\`, local targeted test filter, mandatory Claude review, staged-tree/symbol completeness).
    - Ownership is explicit: Atlas owns dispatch only; the executor owns evidence updates, verification, commit/push, and final DoD accounting.
    - Compact prompt — do NOT pad to 30 lines.
-5. When the executor finishes, only mark tasks done if the evidence reflects the completed iteration correctly: repair-log updated, checkpoint aligned, and any trigger-only build clearly labeled as non-code-changing. Then EXIT. Do not re-verify the code path — CI will verify.
+5. When the executor finishes, only mark tasks done if the evidence reflects the completed iteration correctly: repair-log updated, checkpoint aligned, \`Claude review: PASS\` recorded for the pushed batch, and any trigger-only build clearly labeled as non-code-changing. Then EXIT. Do not re-verify the code path — CI will verify the pushed revision after the mandatory pre-push Claude review gate.
 
 **HARD RULE**: CI fix tasks require code writing → only \`category=\` spawns a Sisyphus-Junior executor with write permissions. Using \`subagent_type="explore"\` or \`subagent_type="librarian"\` for CI fix tasks is a critical error — those agents CANNOT write code, edit files, or run git commands.
 
-**Why**: CI green plans already have comprehensive executor-level verification (ci-green-loop STEP 3.5 mandatory gate). Atlas's per-delegation QA duplicates this at 42% token overhead with zero additional value. The executor pushes to CI, which is the authoritative verification.
+**Why**: CI green plans already have comprehensive executor-level verification (ci-green-loop STEP 3.5 mandatory gate) including mandatory pre-push Claude review. Atlas's per-delegation QA duplicates that code-level work at 42% token overhead with zero additional value. The executor pushes to CI only after the Claude review gate passes, and CI remains the authoritative external verification.
 
 **30-line minimum DOES NOT APPLY** to CI fast-path delegations. The plan already has all the context — the delegation prompt just needs: task instructions + evidence paths + plan path.
 </ci_green_fast_path>

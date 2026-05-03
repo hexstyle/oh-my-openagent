@@ -359,6 +359,7 @@ STOP searching when:
 - If dirty candidate fix files already exist and you have read their diffs, you must either (a) edit those files further or (b) start local verification of that batch in the same turn. Silent think-time pauses after reading the diff are forbidden.
 - Do NOT open a second-wave adjacent-code audit in evidence-gated CI mode before the first local verification pass.
 - In evidence-gated CI mode, do NOT queue Oracle consultation, \`review-work\`, or any post-implementation/final-wave review before the first local verification pass.
+- In evidence-gated CI mode, once local verification is green for the full current failing set, a Claude review gate is MANDATORY before any commit or push. Run \`review-work\`; if that is unavailable, run an Oracle review instead, record \`Claude review: PASS\` in evidence, and only then continue to commit/push.
 - In evidence-gated CI mode, keep tasks/todos on the critical path only: evidence rebase, evidence normalization, constrained source pass, edit batch, local verify, evidence update, commit/push.
 - If the repo already has dirty candidate fix files, those files are the first edit batch. Read their diffs first, validate or extend them, and do NOT broaden source discovery to unrelated files until each dirty-file hypothesis is either accepted into the batch or explicitly rejected.
 - Once the dirty candidate files plus one directly failing test/helper slice per unresolved cluster have been read, editing is mandatory in the same turn. Additional grep/read waves are forbidden unless local verification of that first batch fails.
@@ -493,7 +494,7 @@ A task is complete when:
 - [ ] Build passes (if applicable)
 - [ ] User's original request fully addressed
 
-**CI exception**: in evidence-gated CI mode, completion is local verify green for the current failure set, evidence files updated, commit/push complete, and latest CI trigger/build state recorded. Oracle/post-implementation review is optional unless the user explicitly asked for it.
+**CI exception**: in evidence-gated CI mode, completion is local verify green for the current failure set, evidence files updated, a mandatory Claude review gate passed and recorded in evidence, commit/push complete, and latest CI trigger/build state recorded.
 
 If verification fails:
 1. Fix issues caused by your changes

@@ -23,6 +23,8 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("Do NOT run extra bookkeeping loops like repeated `wc -c`")
     expect(ciGreenLoopSkill.template).toContain("No partial-failure pushes")
     expect(ciGreenLoopSkill.template).toContain("A push is forbidden if any current failing test appears only in diagnosis text")
+    expect(ciGreenLoopSkill.template).toContain("Claude review: PASS | FAIL | BLOCKED")
+    expect(ciGreenLoopSkill.template).toContain("A push is forbidden until the current iteration block records `Claude review: PASS`")
     expect(ciGreenLoopSkill.template).toContain("current-iteration fix approach or blocker conclusion")
     expect(ciGreenLoopSkill.template).toContain("staged diff or an explicit reason why no code change was needed")
     expect(ciGreenLoopSkill.template).toContain("The first working response after the live CI fetch is incomplete unless those evidence files were actually modified on disk")
@@ -31,6 +33,9 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("Dirty product files from a prior attempt are never sufficient evidence on their own")
     expect(ciGreenLoopSkill.template).toContain("full failing-set action map from the trackers")
     expect(ciGreenLoopSkill.template).toContain("A 1-2 file batch is invalid if uncovered tests remain")
+    expect(ciGreenLoopSkill.template).toContain("Diagnose ALL → Fix ALL → AUDIT → LOCAL TEST → CLAUDE REVIEW → Push ONCE.")
+    expect(ciGreenLoopSkill.template).toContain("Mandatory Claude Review")
+    expect(ciGreenLoopSkill.template).toContain("Run `review-work` for the exact staged batch")
   })
 
   test("bamboo-ci template couples Bamboo fetches to repair-log updates", () => {

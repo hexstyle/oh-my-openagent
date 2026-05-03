@@ -12,7 +12,7 @@ Plans MUST cover 100% of known failures. A plan addressing a subset is REJECTED.
 
 **Required plan structure — EXACTLY 2 TASKS:**
 1. **Task 1: Diagnosis** — fetch build SUMMARY (names + short errors only, NOT full test results), verify deployment succeeded, classify every failing test by name+error. Create per-test tracker files in \`.sisyphus/evidence/tests/\`. Skills: \`["bamboo-ci", "ci-green-loop"]\`. Category: \`quick\`.
-2. **Task 2: Fix ALL failures** — ONE comprehensive fix task covering ALL root cause groups, ALL files, ALL tests. The executor reads Task 1 evidence AND per-test tracker files, then fixes everything in a single session. For tests with prior failed attempts in tracker files, the plan MUST instruct the executor to try a DIFFERENT approach and cite what was already tried. Include \`"dotnet-playwright"\` skill. Category: \`deep\`. Ends with: pre-push audit → dotnet build → local test run → git commit → git push → verify CI picks up revision. A Task 2 that leaves even one current failing test without a concrete fix path, blocker disposition, and tracker update is invalid and must be rewritten before execution.
+2. **Task 2: Fix ALL failures** — ONE comprehensive fix task covering ALL root cause groups, ALL files, ALL tests. The executor reads Task 1 evidence AND per-test tracker files, then fixes everything in a single session. For tests with prior failed attempts in tracker files, the plan MUST instruct the executor to try a DIFFERENT approach and cite what was already tried. Include \`"dotnet-playwright"\` skill. Category: \`deep\`. Ends with: pre-push audit → dotnet build → local test run → mandatory Claude review → git commit → git push → verify CI picks up revision. A Task 2 that leaves even one current failing test without a concrete fix path, blocker disposition, tracker update, or recorded Claude review outcome is invalid and must be rewritten before execution.
 
 **Managed .sisyphus repo fast-path (STRICT):** If \`.sisyphus/evidence/ci-loop-checkpoint.md\`, \`repair-log.md\`, the latest build analysis, AND per-test tracker files already exist and agree on the latest build scope, treat them as the diagnosis source of truth. Fast-path is allowed ONLY after you re-fetch the current failing test list from CI and reconcile it one-by-one against tracker files. If \`.sisyphus/evidence/tests/\` is absent, if any current failing test lacks a tracker file, or if tracker count/status/error text disagrees with the live CI list, STOP and rebuild the per-test tracker set before editing code.
 
@@ -80,6 +80,7 @@ Required block format:
 - Coverage map: {group -> tests}
 - Code changed: {test/group -> files}
 - Local verify: PASS | FAIL | SKIPPED ({reason})
+- Claude review: PASS | FAIL | BLOCKED ({reason})
 - Push/CI status: pushed {sha8} | network blocked | waiting for build #{N}
 - Conclusion: {what actually improved / regressed / stayed blocked}
 - Next action: {single next step}
@@ -98,6 +99,7 @@ Hard rules:
 10. The first working response after the live CI fetch is incomplete unless those evidence files were actually modified on disk for the current build. "Will update next" is invalid.
 11. Immediately after evidence materialization, do one full tracker sweep for the CURRENT failing set. Every current failing test must get a current-iteration hypothesis, mapped code file(s) or explicit blocker, and planned batch coverage before any local verification or push logic begins.
 12. Dirty product files from a prior attempt are never sufficient evidence on their own. If the current failing set includes tests not covered by those files, expand the edit batch or explicitly reject the dirty-file hypothesis per test in trackers and the iteration block before verify/push.
+13. A push is forbidden until the current iteration block records \`Claude review: PASS\` for the exact batch being pushed. \`FAIL\` or \`BLOCKED\` means return to STEP 3; do not commit/push.
 
 ### Reading Trackers Before Fixing
 BEFORE writing any code fix, you MUST:
@@ -172,7 +174,7 @@ Target: ≤15 min. Hard limit: 20 min. Eliminate idle waits, parallelize shards,
 Before your first commit, extract the Jira ticket from the branch name (\`git branch --show-current\`, e.g. \`bugfix/CMS-1765-playwright\` → \`CMS-1765\`). EVERY commit message MUST start with that ticket ID. Format: \`{TICKET} {type}({scope}): {description}\`. Example: \`CMS-1765 fix(playwright): stabilize grid filter\`. Bitbucket pre-receive hooks REJECT pushes containing commits without the Jira prefix — one bad commit blocks the entire push and wastes a CI iteration.
 
 ### Batch Strategy
-**Diagnose ALL → Fix ALL → AUDIT → LOCAL TEST → Push ONCE.** One session, one commit, one push.
+**Diagnose ALL → Fix ALL → AUDIT → LOCAL TEST → CLAUDE REVIEW → Push ONCE.** One session, one commit, one push.
 
 ### Comprehensive Fix Mandate (HARD GATE)
 Every fix session MUST attempt to resolve ALL known failures, not just the assigned subset. If you see a failing test whose fix is obvious from the evidence, fix it — even if it wasn't "your" task. The goal is zero failures per build, not zero failures per group.
@@ -183,7 +185,8 @@ Do NOT push a commit that fixes only one file or one cluster unless the current 
 2. an explicit current-iteration fix approach or blocker conclusion,
 3. coverage in the staged diff or an explicit reason why no code change was needed for that test,
 4. inclusion in the local verification target set or an explicit repo-native verification blocker.
-If any current failing test misses one of those four items, continue working locally and do not push.
+5. a passing Claude review recorded for the current batch in \`repair-log.md\` / checkpoint evidence.
+If any current failing test misses one of those five items, continue working locally and do not push.
 
 ### Stale Plan Detection (MANDATORY — run before STEP 3)
 The plan may have been written for an OLDER build. Before applying fixes:
@@ -278,7 +281,7 @@ LOOP:
     f) Update each tracker: add Fix History row with build number, approach, files changed.
        Set status to \`fixed-pending\`.
 
-  STEP 3.5: PRE-PUSH AUDIT + LOCAL TEST (MANDATORY HARD GATE — blocks push)
+  STEP 3.5: PRE-PUSH AUDIT + LOCAL TEST + CLAUDE REVIEW (MANDATORY HARD GATE — blocks push)
 
     ┌─────────────────────────────────────────────────────────────────────┐
     │ THIS STEP IS NOT OPTIONAL. SKIPPING IT = WASTING A CI CYCLE.      │
@@ -357,7 +360,7 @@ LOOP:
          If TRX total == 0 → your filter expression is WRONG. Fix it and re-run.
          If TRX total == 1 but N > 1 → your filter is matching only ONE test. Fix the filter syntax (\`|\` not \`||\`, correct escaping).
          If TRX total < N → some tests were not found. Check test names match.
-    vi)  If all N tests pass locally → proceed to STEP 4.
+    vi)  If all N tests pass locally → proceed to STEP 3.5D.
     vii) If any test fails locally → diagnose and fix BEFORE pushing. Return to STEP 3.
     viii) **IF local test infra unavailable** (no dotnet, no browser, CI-only tests):
          - Document: "LOCAL VERIFY SKIPPED: {reason}"
@@ -365,6 +368,14 @@ LOOP:
          - Still MUST complete the coverage audit (step A) — that is never skippable
          - "Missing generated config/env vars" by itself is NOT enough; first generate or source them if the repo already documents how
     ix)  Clean up: \`rm -rf TestResults/\` — do not commit test artifacts.
+
+    **D. Mandatory Claude Review** (after local verification passes):
+
+    i)   Run \`review-work\` for the exact staged batch. If \`review-work\` is unavailable, run an Oracle review instead.
+    ii)  The review prompt must verify: current failing-set coverage, changed-file correctness, pre-push audit completeness, and local verification evidence.
+    iii) If the Claude review finds a defect, record \`Claude review: FAIL ({reason})\` in the current iteration block and return to STEP 3.
+    iv)  If the Claude review cannot run because of provider/runtime issues, record \`Claude review: BLOCKED ({reason})\`, do NOT push, and resolve the review blocker first.
+    v)   Only when the review passes, record \`Claude review: PASS\` in the current iteration block and \`ci-loop-checkpoint.md\`.
 
   STEP 4: COMMIT + PUSH + RECORD
 

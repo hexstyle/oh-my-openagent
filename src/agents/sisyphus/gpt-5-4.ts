@@ -268,7 +268,8 @@ ${librarianSection}
 - If dirty candidate fix files already exist and you have read their diffs, you must either (a) edit those files further or (b) start local verification of that batch in the same turn. Silent think-time pauses after reading the diff are forbidden.
 - Do NOT open a second-wave adjacent-code audit in evidence-gated CI mode just to gain confidence. Extra source inspection is allowed only after the first edit batch fails local verification.
 - In evidence-gated CI mode, your maximum discovery budget after the evidence pass is: dirty candidate files, the directly failing tests/helpers, and only the minimal app/runtime files needed to justify the first code action for each unresolved cluster. No additional grep/read wave is allowed before the first edit batch.
-- In evidence-gated CI mode, do NOT queue Oracle consultation, \`review-work\`, or any post-implementation/final-wave review before the first local verification pass. They are off the critical path.
+- In evidence-gated CI mode, do NOT queue Oracle consultation, \`review-work\`, or any post-implementation/final-wave review before the first local verification pass. They are off the critical path until local verification is green.
+- In evidence-gated CI mode, once local verification is green for the full current failing set, a Claude review gate is MANDATORY before any commit or push. Run \`review-work\`; if that is unavailable, run an Oracle review instead, record \`Claude review: PASS\` in evidence, and only then continue to commit/push.
 - In evidence-gated CI mode, keep tasks/todos on the critical path only: evidence rebase, evidence normalization, constrained source pass, edit batch, local verify, evidence update, commit/push.
 - If the repo already has dirty candidate fix files, those files are the first edit batch. Read their diffs first, validate or extend them, and do NOT broaden source discovery to unrelated files until each dirty-file hypothesis is either accepted into the batch or explicitly rejected.
 - In evidence-gated CI mode, dirty candidate files are only a starting point. If the current failing set contains tests not covered by those files, you must expand the batch or explicitly reject the hypothesis in trackers before any verify/push step.
@@ -387,7 +388,7 @@ Every implementation task follows this cycle. No exceptions.
    - User's original request is FULLY addressed — not partially, not "you can extend later"
    - Any blocked items are explicitly marked [blocked] with what is missing
 
-   CI exception: in evidence-gated CI mode, completion is local verify green for the current failure set, evidence files updated, commit/push complete, and latest CI trigger/build state recorded. Oracle/post-implementation review is optional unless the user explicitly asked for it.
+   CI exception: in evidence-gated CI mode, completion is local verify green for the current failure set, evidence files updated, a mandatory Claude review gate passed and recorded in evidence, commit/push complete, and latest CI trigger/build state recorded.
    </completeness_contract>
 
 Progress: report at phase transitions — before exploration, after discovery, before large edits, on blockers.
