@@ -1,5 +1,6 @@
 import type { PluginContext } from "./types"
 import { randomUUID } from "node:crypto"
+import { existsSync, statSync } from "node:fs"
 
 import { getMainSessionID } from "../features/claude-code-session-state"
 import { clearBoulderState } from "../features/boulder-state"
@@ -43,6 +44,33 @@ export function createToolExecuteBeforeHandler(args: {
     if (toolName !== "read") return false
     const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
     return typeof filePath === "string" && filePath.includes(".sisyphus/evidence/tests/")
+  }
+
+  function isDirectoryReadAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
+    if (toolName !== "read") return false
+    const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
+    if (typeof filePath !== "string" || !existsSync(filePath)) {
+      return false
+    }
+
+    try {
+      return statSync(filePath).isDirectory()
+    } catch {
+      return false
+    }
+  }
+
+  function isLegacyEvidenceAliasReadAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
+    if (toolName !== "read") return false
+    const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
+    if (typeof filePath !== "string") {
+      return false
+    }
+
+    return (
+      filePath.endsWith(".sisyphus/ci-loop-checkpoint.md")
+      || filePath.endsWith(".sisyphus/repair-log.md")
+    )
   }
 
   function isEvidenceWriteAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
@@ -146,9 +174,9 @@ export function createToolExecuteBeforeHandler(args: {
       )
     }
 
-    if (lower.includes("curl") && !lower.includes("fetch_json")) {
+    if (!lower.includes("fetch_json")) {
       throw new Error(
-        `[tool-execute-before] Refusing direct curl to Bamboo result endpoints for session ${sessionID}. Use the repo-native fetch_json helper and compact parsing instead of dumping raw Bamboo payloads.`,
+        `[tool-execute-before] Refusing direct Bamboo result endpoint fetches for session ${sessionID}. Use the repo-native fetch_json helper and compact parsing instead of dumping raw Bamboo payloads.`,
       )
     }
   }
@@ -188,6 +216,21 @@ export function createToolExecuteBeforeHandler(args: {
     ) {
       throw new Error(
         `[tool-execute-before] Tracker evidence rereads are blocked for CI fast-path session ${input.sessionID} after evidence materialization. Move to code edits, verification, or a fresh CI fetch.`,
+      )
+    }
+
+    if (isDirectoryReadAttempt(normalizedToolName, output.args)) {
+      throw new Error(
+        `[tool-execute-before] Refusing read on a directory for session ${input.sessionID}. Use glob, ls, or a file path instead.`,
+      )
+    }
+
+    if (
+      hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
+      && isLegacyEvidenceAliasReadAttempt(normalizedToolName, output.args)
+    ) {
+      throw new Error(
+        `[tool-execute-before] Refusing legacy .sisyphus evidence alias read for session ${input.sessionID}. Read canonical .sisyphus/evidence/ci-loop-checkpoint.md or .sisyphus/evidence/repair-log.md instead.`,
       )
     }
 

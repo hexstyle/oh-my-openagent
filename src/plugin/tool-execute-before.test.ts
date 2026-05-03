@@ -154,6 +154,51 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("blocks read on directory paths", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "read", sessionID: "ses_dir_read", callID: "call_dir_read" },
+        { args: { filePath: "." } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow("Refusing read on a directory")
+  })
+
+  test("blocks legacy evidence alias reads in CI fast-path", async () => {
+    const sessionID = "ses_ci_legacy_alias"
+    setSessionFlag(sessionID, "ci-fast-path")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_legacy_alias" },
+        { args: { filePath: "/repo/.sisyphus/ci-loop-checkpoint.md" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow("Refusing legacy .sisyphus evidence alias read")
+
+    clearSessionTools()
+  })
+
   test("blocks direct curl to Bamboo result endpoints", async () => {
     const handler = createToolExecuteBeforeHandler({
       ctx: {
@@ -175,7 +220,34 @@ describe("createToolExecuteBeforeHandler", () => {
           } as Record<string, unknown>,
         },
       ),
-    ).rejects.toThrow("Refusing direct curl to Bamboo result endpoints")
+    ).rejects.toThrow("Refusing direct Bamboo result endpoint fetches")
+  })
+
+  test("blocks direct python Bamboo result endpoint fetches without fetch_json", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID: "ses_bamboo_raw_python", callID: "call_bamboo_raw_python" },
+        {
+          args: {
+            command: `python3 - <<'PY'
+import urllib.request
+print(urllib.request.urlopen("https://bamboo.suek.ru/rest/api/latest/result/EUROPT-DBWDICN0-332.json").read())
+PY`,
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("Refusing direct Bamboo result endpoint fetches")
   })
 
   test("blocks Bamboo browse-page scrapes", async () => {
