@@ -1,5 +1,12 @@
 import { describe, test, expect, beforeEach } from "bun:test"
-import { setSessionTools, getSessionTools, clearSessionTools } from "./session-tools-store"
+import {
+  setSessionTools,
+  getSessionTools,
+  clearSessionTools,
+  isSessionToolDisabled,
+  setSessionFlag,
+  hasSessionFlag,
+} from "./session-tools-store"
 
 describe("session-tools-store", () => {
   beforeEach(() => {
@@ -68,5 +75,33 @@ describe("session-tools-store", () => {
 
     //#then
     expect(getSessionTools(sessionID)).toEqual({ question: false })
+  })
+
+  test("matches wildcard tool disables case-insensitively", () => {
+    //#given
+    const sessionID = "ses_wildcard"
+    setSessionTools(sessionID, { "task_*": false })
+
+    //#when / #then
+    expect(isSessionToolDisabled(sessionID, "task_background")).toBe(true)
+    expect(isSessionToolDisabled(sessionID, "TASK_sync")).toBe(true)
+    expect(isSessionToolDisabled(sessionID, "task")).toBe(false)
+  })
+
+  test("stores and clears session flags with tool state", () => {
+    //#given
+    const sessionID = "ses_flags"
+
+    //#when
+    setSessionFlag(sessionID, "ci-fast-path")
+
+    //#then
+    expect(hasSessionFlag(sessionID, "ci-fast-path")).toBe(true)
+
+    //#when
+    clearSessionTools()
+
+    //#then
+    expect(hasSessionFlag(sessionID, "ci-fast-path")).toBe(false)
   })
 })

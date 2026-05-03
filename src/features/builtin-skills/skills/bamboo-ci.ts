@@ -69,9 +69,9 @@ fetch_json() {
 Safe combined pattern:
 \`\`\`bash
 JSON="$(fetch_json "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}/latest.json")"
-python3 <<'PY' <<<"$JSON"
-import json, sys
-d = json.load(sys.stdin)
+JSON="$JSON" python3 <<'PY'
+import json, os
+d = json.loads(os.environ["JSON"])
 print(f"Build: #{d['buildNumber']}")
 print(f"State: {d['state']}")
 print(f"Revision: {d.get('vcsRevisionKey', 'unknown')}")
@@ -81,9 +81,9 @@ PY
 ### Fetch Latest Build Result (summary only — ~200 bytes)
 \`\`\`bash
 JSON="$(fetch_json "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}/latest.json")"
-python3 <<'PY' <<<"$JSON"
-import json, sys
-d = json.load(sys.stdin)
+JSON="$JSON" python3 <<'PY'
+import json, os
+d = json.loads(os.environ["JSON"])
 print(f"Build: #{d['buildNumber']}")
 print(f"State: {d['state']}")
 print(f"Duration: {d.get('buildDurationInSeconds', '?')}s")
@@ -100,9 +100,9 @@ PY
 \`\`\`bash
 # CORRECT — job-level endpoint with JSON header
 JSON="$(fetch_json "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-JOB1-{N}.json?expand=testResults.failedTests.testResult")"
-python3 <<'PY' <<<"$JSON"
-import json, sys
-d = json.load(sys.stdin)
+JSON="$JSON" python3 <<'PY'
+import json, os
+d = json.loads(os.environ["JSON"])
 tests = d.get("testResults", {}).get("failedTests", {}).get("testResult", [])
 print(f"Total failing: {len(tests)}")
 for t in tests:
@@ -121,9 +121,9 @@ PY
 ### Fetch ONE Test's Full Error (Step 2 — only when diagnosing a specific test)
 \`\`\`bash
 JSON="$(fetch_json "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}-JOB1-{N}.json?expand=testResults.failedTests.testResult")"
-python3 <<'PY' <<<"$JSON"
-import json, sys
-d = json.load(sys.stdin)
+JSON="$JSON" python3 <<'PY'
+import json, os
+d = json.loads(os.environ["JSON"])
 for t in d.get("testResults", {}).get("failedTests", {}).get("testResult", []):
     if "{TEST_METHOD}" in t.get("methodName", ""):
         for e in t.get("errors", {}).get("error", []):
@@ -141,9 +141,9 @@ curl -s "https://{BAMBOO_HOST}/download/{PLAN_KEY}-JOB1/build_logs/{PLAN_KEY}-JO
 ### List Recent Builds (summary table — ~500 bytes for 5 builds)
 \`\`\`bash
 JSON="$(fetch_json "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}.json?max-result=5&expand=results.result")"
-python3 <<'PY' <<<"$JSON"
-import json, sys
-for r in json.load(sys.stdin).get("results", {}).get("result", []):
+JSON="$JSON" python3 <<'PY'
+import json, os
+for r in json.loads(os.environ["JSON"]).get("results", {}).get("result", []):
     print(f"#{r['buildNumber']} {r['state']} {r.get('successfulTestCount', 0)}p/{r.get('failedTestCount', 0)}f {str(r.get('vcsRevisionKey', ''))[:8]}")
 PY
 \`\`\`
@@ -162,12 +162,26 @@ If anonymous POST returns 401, do NOT ask for credentials immediately. Instead:
 **Critical**: Always verify the build ran your latest commit:
 \`\`\`bash
 LOCAL_SHA=$(git rev-parse HEAD)
-BAMBOO_SHA=$(curl -s "...latest.json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('vcsRevisionKey',''))")
+BAMBOO_JSON="$(fetch_json "https://{BAMBOO_HOST}/rest/api/latest/result/{PLAN_KEY}/latest.json")"
+BAMBOO_SHA=$(JSON="$BAMBOO_JSON" python3 <<'PY'
+import json, os
+print(json.loads(os.environ["JSON"]).get("vcsRevisionKey", ""))
+PY
+)
 if [ "$LOCAL_SHA" != "$BAMBOO_SHA" ]; then
   echo "WARNING: Bamboo built stale revision $BAMBOO_SHA, not current HEAD $LOCAL_SHA"
 fi
 \`\`\`
 If stale: push a new commit or empty commit to force a new build.
+
+## Post-Push Monitoring Contract
+
+After every push:
+1. Poll the branch recent-results feed and the numbered build for your pushed revision.
+2. Use \`latest.json\` only as a convenience summary; do NOT rely on it alone during trigger lag or overlapping builds.
+3. Treat queue/concurrency responses as hints only. A \`400 maximum number of concurrent builds allowed\` does NOT prove that no newer build exists.
+4. If the numbered build is known, monitor that exact build until terminal state.
+5. If no numbered build appears yet, keep checking recent results every 30 seconds until the pushed revision surfaces or trigger lag is proven.
 
 ## Evidence Format — MAX 3KB per build file
 

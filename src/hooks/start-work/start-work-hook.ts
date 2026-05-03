@@ -13,6 +13,7 @@ import {
 } from "../../features/boulder-state"
 import { log } from "../../shared/logger"
 import { getAgentDisplayName } from "../../shared/agent-display-names"
+import { setSessionFlag } from "../../shared/session-tools-store"
 import { getSessionAgent, isAgentRegistered, updateSessionAgent } from "../../features/claude-code-session-state"
 import { detectWorktreePath } from "./worktree-detector"
 import { parseUserRequest } from "./parse-user-request"
@@ -316,6 +317,7 @@ function detectCIFastPath(planPath: string, projectDir: string): CIFastPathResul
       "6. Update `.sisyphus/evidence/repair-log.md` with the current iteration block: build/revision, failures covered, files changed, local verify result, push result, conclusion, next action. Distinguish trigger-only builds from code-changing revisions.",
       "7. PRE-PUSH AUDIT: verify git diff covers ALL failing tests, canonical tracker counts/statuses reconcile with the current failing-test count, every current failing test has a current-iteration tracker update plus concrete fix path or blocker conclusion, and the pre-push gate is satisfied: `dotnet build`, local targeted test filter, staged-tree/symbol completeness.",
       "8. Update `.sisyphus/evidence/ci-loop-checkpoint.md` so it matches the latest repair-log conclusion, latest build/revision, trigger-only/code-changing status, and tracker counts",
+      "8.5 POST-PUSH MONITOR: after push, monitor the numbered build created for that revision plus the branch recent-results feed. Do NOT rely on `latest.json` alone during trigger lag or overlapping builds, and do not trust queue/concurrency responses as proof that no newer build exists.",
       "9. Ownership is explicit: Atlas owns dispatch only; the executor owns evidence updates, verification, commit/push, and final DoD accounting.",
       "10. git add <specific files only> — NEVER git add -A",
       "11. git commit and git push to trigger CI",
@@ -621,6 +623,7 @@ ${worktreeBlock}
             webfetch: false,
           }
         }
+        setSessionFlag(sessionId, "ci-fast-path")
         log(`[${HOOK_NAME}] CI fast path: prompt REPLACED, agent switched to ${ciAgent} (${ciAgentDisplay})`)
       } else {
         output.parts[idx].text += `\n\n---\n${contextInfo}`

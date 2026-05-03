@@ -2,7 +2,11 @@ const { describe, expect, test } = require("bun:test")
 const { createToolExecuteBeforeHandler } = require("./tool-execute-before")
 const { createToolRegistry } = require("./tool-registry")
 const { builtinTools } = require("../tools")
-const { clearSessionTools, setSessionTools } = require("../shared/session-tools-store")
+const {
+  clearSessionTools,
+  setSessionTools,
+  setSessionFlag,
+} = require("../shared/session-tools-store")
 
 describe("createToolExecuteBeforeHandler", () => {
   test("blocks task when session tools explicitly disable it", async () => {
@@ -98,6 +102,56 @@ describe("createToolExecuteBeforeHandler", () => {
         { args: {} as Record<string, unknown> },
       ),
     ).rejects.toThrow('Refusing empty bash command for session ses_empty_bash')
+  })
+
+  test("blocks tracker rereads after CI evidence materialization", async () => {
+    const sessionID = "ses_ci_tracker_lock"
+    setSessionFlag(sessionID, "ci-evidence-materialized")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_read_tracker" },
+        { args: { filePath: "/repo/.sisyphus/evidence/tests/Scenario.md" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow("Tracker evidence rereads are blocked")
+
+    clearSessionTools()
+  })
+
+  test("allows non-tracker reads after CI evidence materialization", async () => {
+    const sessionID = "ses_ci_non_tracker_read"
+    setSessionFlag(sessionID, "ci-evidence-materialized")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_read_code" },
+        { args: { filePath: "/repo/src/app.ts" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
+    clearSessionTools()
   })
 
   test("does not execute subagent question blocker hook for question tool", async () => {

@@ -4,7 +4,11 @@ import { randomUUID } from "node:crypto"
 import { getMainSessionID } from "../features/claude-code-session-state"
 import { clearBoulderState } from "../features/boulder-state"
 import { log } from "../shared"
-import { isSessionToolDisabled } from "../shared/session-tools-store"
+import {
+  hasSessionFlag,
+  isSessionToolDisabled,
+  setSessionFlag,
+} from "../shared/session-tools-store"
 import { resolveSessionAgent } from "./session-agent-resolver"
 import { parseRalphLoopArguments } from "../hooks/ralph-loop/command-arguments"
 import { ULTRAWORK_VERIFICATION_PROMISE } from "../hooks/ralph-loop/constants"
@@ -20,6 +24,47 @@ export function createToolExecuteBeforeHandler(args: {
   output: { args: Record<string, unknown> },
 ) => Promise<void> {
   const { ctx, hooks } = args
+  const CI_FAST_PATH_FLAG = "ci-fast-path"
+  const CI_EVIDENCE_MATERIALIZED_FLAG = "ci-evidence-materialized"
+
+  function getStringArg(argsObject: Record<string, unknown>, keys: string[]): string | undefined {
+    for (const key of keys) {
+      const value = argsObject[key]
+      if (typeof value === "string" && value.trim().length > 0) {
+        return value
+      }
+    }
+
+    return undefined
+  }
+
+  function isTrackerReadAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
+    if (toolName !== "read") return false
+    const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
+    return typeof filePath === "string" && filePath.includes(".sisyphus/evidence/tests/")
+  }
+
+  function isEvidenceWriteAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
+    if (toolName === "write" || toolName === "edit") {
+      const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
+      return typeof filePath === "string" && (
+        filePath.includes(".sisyphus/evidence/tests/")
+        || filePath.endsWith(".sisyphus/evidence/repair-log.md")
+        || filePath.endsWith(".sisyphus/evidence/ci-loop-checkpoint.md")
+      )
+    }
+
+    if (toolName === "bash") {
+      const command = getStringArg(argsObject, ["command"])
+      return typeof command === "string" && (
+        command.includes(".sisyphus/evidence/tests/")
+        || command.includes(".sisyphus/evidence/repair-log.md")
+        || command.includes(".sisyphus/evidence/ci-loop-checkpoint.md")
+      )
+    }
+
+    return false
+  }
 
   function buildUltraworkOracleVerificationPrompt(prompt: string, originalTask: string, verificationAttemptId: string): string {
     const verificationPrompt = [
@@ -48,7 +93,25 @@ export function createToolExecuteBeforeHandler(args: {
       )
     }
 
-    if (input.tool.toLowerCase() === "bash") {
+    const normalizedToolName = input.tool.toLowerCase()
+
+    if (
+      hasSessionFlag(input.sessionID, CI_EVIDENCE_MATERIALIZED_FLAG)
+      && isTrackerReadAttempt(normalizedToolName, output.args)
+    ) {
+      throw new Error(
+        `[tool-execute-before] Tracker evidence rereads are blocked for CI fast-path session ${input.sessionID} after evidence materialization. Move to code edits, verification, or a fresh CI fetch.`,
+      )
+    }
+
+    if (
+      hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
+      && isEvidenceWriteAttempt(normalizedToolName, output.args)
+    ) {
+      setSessionFlag(input.sessionID, CI_EVIDENCE_MATERIALIZED_FLAG)
+    }
+
+    if (normalizedToolName === "bash") {
       const rawCommand = typeof output.args.command === "string" ? output.args.command : ""
       const normalizedCommand = rawCommand.replace(/\x00/g, "").trim()
 
@@ -82,7 +145,6 @@ export function createToolExecuteBeforeHandler(args: {
     await hooks.sisyphusJuniorNotepad?.["tool.execute.before"]?.(input, output)
     await hooks.atlasHook?.["tool.execute.before"]?.(input, output)
 
-    const normalizedToolName = input.tool.toLowerCase()
     if (
       normalizedToolName === "question"
       || normalizedToolName === "ask_user_question"

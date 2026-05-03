@@ -44,11 +44,18 @@ describe("ci green loop builtin skills", () => {
     expect(bambooCiSkill.template).toContain("curl --insecure")
     expect(bambooCiSkill.template).toContain("Corporate TLS is not a terminal blocker")
     expect(bambooCiSkill.template).toContain("Do NOT stop after a successful push")
-    expect(bambooCiSkill.template).toContain("python3 <<'PY'")
+    expect(bambooCiSkill.template).toContain("JSON=\"$JSON\" python3 <<'PY'")
     expect(bambooCiSkill.template).toContain("Do NOT build giant one-line commands with nested quotes")
     expect(bambooCiSkill.template).toContain("FORBIDDEN:")
     expect(bambooCiSkill.template).toContain("`python3 -c '...'`")
     expect(bambooCiSkill.template).toContain("raw `curl ... | python3`")
+  })
+
+  test("bamboo-ci template requires numbered-build monitoring instead of latest-only polling", () => {
+    expect(bambooCiSkill.template).toContain("Poll the branch recent-results feed and the numbered build")
+    expect(bambooCiSkill.template).toContain("do NOT rely on it alone")
+    expect(bambooCiSkill.template).toContain("A `400 maximum number of concurrent builds allowed` does NOT prove")
+    expect(bambooCiSkill.template).toContain("monitor that exact build until terminal state")
   })
 
   test("ci-green-loop treats Bamboo certificate errors as monitoring fallback, not push failure", () => {

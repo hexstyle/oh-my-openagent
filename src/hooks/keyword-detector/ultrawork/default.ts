@@ -163,8 +163,10 @@ task(category="visual-engineering", load_skills=["frontend-ui-ux"])
 task(category="ultrabrain", load_skills=["typescript-programmer"])
 
 // Quick fixes
-task(category="quick", load_skills=["git-master"])
+task(category="quick", load_skills=[])
 \`\`\`
+
+For CI-fix sessions, do NOT auto-load \`git-master\` during execution. CI work must converge on one unified fix batch and one final push after the full failing set is covered.
 
 **YOU SHOULD ONLY DO IT YOURSELF WHEN:**
 - Task is trivially simple (1-2 lines, obvious change)

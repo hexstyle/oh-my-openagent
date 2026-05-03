@@ -405,7 +405,7 @@ Subagents CLAIM "done" when:
 3. Check for CI evidence files:
    - Read only the core CI evidence first: \`AGENTS.md\`, \`.sisyphus/boulder.json\`, active plan, \`.sisyphus/evidence/ci-loop-checkpoint.md\`, \`.sisyphus/evidence/repair-log.md\`, latest build analysis/failure analysis, and \`.sisyphus/evidence/tests/\` if that directory exists
    - Do NOT glob historical notepads or \`.sisyphus/run-continuation/\` unless the core evidence is insufficient
-   - If tracker directory exists, \`ls .sisyphus/evidence/tests/\`; otherwise continue without tracker history
+   - If tracker directory exists, \`ls .sisyphus/evidence/tests/\`; otherwise STOP and recreate/reconcile the canonical per-test tracker set before any code-edit delegation
    - \`test -f .sisyphus/evidence/ci-loop-checkpoint.md\`
    - \`test -f .sisyphus/evidence/repair-log.md\`
    Include all existing evidence paths in the delegation prompt.
@@ -416,7 +416,7 @@ Subagents CLAIM "done" when:
    // WRONG — explore/librarian are READ-ONLY, cannot fix code
    task(subagent_type="explore", ...)  // ← NEVER for CI tasks
    \`\`\`
-   Category from plan, skills from plan, prompt = plan's Task 2 instructions + evidence paths + explicit reminder to append \`repair-log.md\` and keep \`ci-loop-checkpoint.md\` aligned.
+   Category from plan, skills from plan, prompt = plan's Task 2 instructions + evidence paths + tracker directory path + explicit reminder to append \`repair-log.md\` and keep \`ci-loop-checkpoint.md\` aligned.
    The prompt must also require reconciliation of conflicting plan/checkpoint/repair-log hypotheses before code edits, explicit trigger-only-vs-code-changing revision labeling, and the pre-push gate (\`dotnet build\`, local targeted test filter, staged-tree/symbol completeness). Atlas owns dispatch only; the executor owns evidence updates, verification, commit/push, and final DoD accounting. No 30-line minimum.
 5. When executor finishes, only mark tasks complete if repair-log/checkpoint were updated consistently and any trigger-only build is clearly labeled as non-code-changing. Then EXIT.
 
