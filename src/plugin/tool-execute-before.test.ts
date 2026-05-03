@@ -367,6 +367,78 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("blocks Playwright project dotnet test without provisioned contour env or generated instance source", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID: "ses_playwright_missing_contour", callID: "call_playwright_missing_contour" },
+        {
+          args: {
+            command: "/opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --filter '(FullyQualifiedName~Foo)'",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("Refusing Playwright test run")
+  })
+
+  test("allows Playwright project dotnet test when provisioned contour env is exported inline", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID: "ses_playwright_inline_env", callID: "call_playwright_inline_env" },
+        {
+          args: {
+            command: "export OPTIEX_PLAYWRIGHT_BASE_URL=http://localhost:5055 OPTIEX_PLAYWRIGHT_CONF_CONNECTION_STRING='Data Source=localhost' && /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).resolves.toBeUndefined()
+  })
+
+  test("allows Playwright project dotnet test when generated TestAppInstances source is referenced", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID: "ses_playwright_generated_source", callID: "call_playwright_generated_source" },
+        {
+          args: {
+            command: "test -f Optimizer.WebSiteTests/generated/TestAppInstances.json && /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).resolves.toBeUndefined()
+  })
+
   test("blocks direct curl to Bamboo result endpoints", async () => {
     const handler = createToolExecuteBeforeHandler({
       ctx: {

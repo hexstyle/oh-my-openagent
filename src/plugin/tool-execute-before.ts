@@ -267,6 +267,29 @@ export function createToolExecuteBeforeHandler(args: {
     }
   }
 
+  function validateLocalContourBashCommand(command: string, sessionID: string): void {
+    const lower = command.toLowerCase()
+    const isPlaywrightProjectTest =
+      /\bdotnet test\b/i.test(command)
+      && lower.includes("optimizer.playwrighttests/optimizer.playwrighttests.csproj")
+
+    if (!isPlaywrightProjectTest) {
+      return
+    }
+
+    const hasProvisionedEnvInline =
+      lower.includes("optiex_playwright_base_url")
+      && lower.includes("optiex_playwright_conf_connection_string")
+
+    const hasGeneratedInstancePath = lower.includes("generated/testappinstances.json")
+
+    if (!hasProvisionedEnvInline && !hasGeneratedInstancePath) {
+      throw new Error(
+        `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without local contour source. Re-export provisioned OPTIEX_PLAYWRIGHT_* env vars in the same bash command or generate/source Optimizer.WebSiteTests/generated/TestAppInstances.json first.`,
+      )
+    }
+  }
+
   function buildUltraworkOracleVerificationPrompt(prompt: string, originalTask: string, verificationAttemptId: string): string {
     const verificationPrompt = [
       "You are verifying the active ULTRAWORK loop result for this session.",
@@ -393,6 +416,7 @@ export function createToolExecuteBeforeHandler(args: {
       }
 
       validateBambooBashCommand(normalizedCommand, input.sessionID)
+      validateLocalContourBashCommand(normalizedCommand, input.sessionID)
     }
 
     await hooks.writeExistingFileGuard?.["tool.execute.before"]?.(input, output)
