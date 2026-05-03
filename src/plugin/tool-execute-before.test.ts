@@ -154,6 +154,107 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("blocks direct curl to Bamboo result endpoints", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID: "ses_bamboo_raw_curl", callID: "call_bamboo_raw_curl" },
+        {
+          args: {
+            command: 'curl -fsSL "https://bamboo.suek.ru/rest/api/latest/result/EUROPT-DBWDICN0/latest.json"',
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("Refusing direct curl to Bamboo result endpoints")
+  })
+
+  test("blocks Bamboo browse-page scrapes", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID: "ses_bamboo_html_scrape", callID: "call_bamboo_html_scrape" },
+        {
+          args: {
+            command: 'curl -fsSL "https://bamboo.suek.ru/browse/EUROPT-DBWDICN0-332"',
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("Refusing Bamboo HTML scrape")
+  })
+
+  test("blocks Bamboo all-tests expansion", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID: "ses_bamboo_all_tests", callID: "call_bamboo_all_tests" },
+        {
+          args: {
+            command: 'fetch_json "https://bamboo.suek.ru/rest/api/latest/result/EUROPT-DBWDICN0-332?expand=testResults.allTests"',
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("Refusing Bamboo all-tests expansion")
+  })
+
+  test("allows Bamboo fetch_json commands with compact parsing", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID: "ses_bamboo_fetch_json", callID: "call_bamboo_fetch_json" },
+        {
+          args: {
+            command: `fetch_json "https://bamboo.suek.ru/rest/api/latest/result/EUROPT-DBWDICN0/latest.json"
+JSON="$(fetch_json "https://bamboo.suek.ru/rest/api/latest/result/EUROPT-DBWDICN0/latest.json")"
+JSON="$JSON" python3 <<'PY'
+import json, os
+print(json.loads(os.environ["JSON"]).get("buildNumber"))
+PY`,
+          } as Record<string, unknown>,
+        },
+      ),
+    ).resolves.toBeUndefined()
+  })
+
   test("does not execute subagent question blocker hook for question tool", async () => {
     //#given
     const ctx = {

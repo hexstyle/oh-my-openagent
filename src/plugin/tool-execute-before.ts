@@ -66,6 +66,34 @@ export function createToolExecuteBeforeHandler(args: {
     return false
   }
 
+  function validateBambooBashCommand(command: string, sessionID: string): void {
+    const lower = command.toLowerCase()
+    const hitsBambooResultRest = lower.includes("bamboo.suek.ru/rest/api/latest/result")
+    const hitsBambooBrowsePage = lower.includes("bamboo.suek.ru/browse/")
+
+    if (hitsBambooBrowsePage) {
+      throw new Error(
+        `[tool-execute-before] Refusing Bamboo HTML scrape for session ${sessionID}. Use Bamboo REST JSON endpoints plus filtered parsing instead of /browse/ pages.`,
+      )
+    }
+
+    if (!hitsBambooResultRest) {
+      return
+    }
+
+    if (lower.includes("expand=testresults.alltests")) {
+      throw new Error(
+        `[tool-execute-before] Refusing Bamboo all-tests expansion for session ${sessionID}. Fetch summary fields from the plan endpoint and failing tests from the JOB1 failed-tests endpoint only.`,
+      )
+    }
+
+    if (lower.includes("curl") && !lower.includes("fetch_json")) {
+      throw new Error(
+        `[tool-execute-before] Refusing direct curl to Bamboo result endpoints for session ${sessionID}. Use the repo-native fetch_json helper and compact parsing instead of dumping raw Bamboo payloads.`,
+      )
+    }
+  }
+
   function buildUltraworkOracleVerificationPrompt(prompt: string, originalTask: string, verificationAttemptId: string): string {
     const verificationPrompt = [
       "You are verifying the active ULTRAWORK loop result for this session.",
@@ -128,6 +156,8 @@ export function createToolExecuteBeforeHandler(args: {
           callID: input.callID,
         })
       }
+
+      validateBambooBashCommand(normalizedCommand, input.sessionID)
     }
 
     await hooks.writeExistingFileGuard?.["tool.execute.before"]?.(input, output)
