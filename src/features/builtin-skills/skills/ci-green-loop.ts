@@ -329,6 +329,7 @@ LOOP:
          - If the failure mentions a missing generated config or env vars (for example \`generated/TestAppInstances.json\`, \`OPTIEX_PLAYWRIGHT_BASE_URL\`, or connection-string env vars), you MUST either generate that config via the repo's own target/script or export the required env vars from an already provisioned local environment before calling the test run "infra unavailable".
          - If the repo contains a native generation path, missing local test contour is SETUP WORK, not a reason to skip verification.
          - If a previous iteration already provisioned a runnable local contour, every later verify rerun MUST re-export the same required env vars / generated-config path in the same shell command that launches \`dotnet test\`. Losing previously provisioned \`OPTIEX_PLAYWRIGHT_*\` / connection-string env is a harness regression, not a new product failure.
+         - If the exact working contour values are already present in the prompt, checkpoint, repair-log, tracker notes, or a prior successful bootstrap command, you MUST reuse those values directly for the rerun. Do NOT spend another loop rediscovering or reverse-engineering the same env contract from the repo.
          - Record the exact bootstrap command or env source in the current iteration block.
     ii)  Build the filter expression covering ALL failing tests:
          \`FullyQualifiedName~Test1|FullyQualifiedName~Test2|...\`

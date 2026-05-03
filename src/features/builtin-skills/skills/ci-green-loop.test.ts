@@ -85,6 +85,8 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("repo-native bootstrap path")
     expect(ciGreenLoopSkill.template).toContain("every later verify rerun MUST re-export the same required env vars")
     expect(ciGreenLoopSkill.template).toContain("Losing previously provisioned `OPTIEX_PLAYWRIGHT_*`")
+    expect(ciGreenLoopSkill.template).toContain("you MUST reuse those values directly for the rerun")
+    expect(ciGreenLoopSkill.template).toContain("Do NOT spend another loop rediscovering or reverse-engineering the same env contract")
   })
 
   test("ci-green-loop allows host-specific full-solution blockers after relevant project build passes", () => {
