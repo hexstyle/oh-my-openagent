@@ -5605,6 +5605,92 @@ describe("createEventHandler - pending empty planning tool recovery", () => {
 		expect(promptBody?.parts?.[0]?.text).toContain("resume interrupted plan generation now")
 	})
 
+	it("recovers an idle Prometheus tool-only turn after a completed task call without user-facing text", async () => {
+		//#given
+		const sessionID = "ses_planner_tool_only_turn"
+		const promptAsyncCalls: Array<Record<string, unknown>> = []
+		const eventHandler = createEventHandler({
+			ctx: {
+				directory: "/tmp",
+				client: {
+					session: {
+						messages: async () => ({
+							data: [
+								{
+									info: {
+										id: "msg_user_tool_only_turn",
+										role: "user",
+										agent: "Prometheus (Plan Builder)",
+										model: { providerID: "openai", modelID: "gpt-5.4" },
+									},
+									parts: [{ type: "text", text: "Continue coordinating the plan after background agent updates." }],
+								},
+								{
+									info: {
+										id: "msg_assistant_tool_only_turn",
+										role: "assistant",
+										agent: "Prometheus (Plan Builder)",
+										finish: "tool-calls",
+									},
+									parts: [
+										{ type: "step-start" },
+										{ type: "reasoning", text: "" },
+										{
+											type: "tool",
+											tool: "task",
+											state: {
+												status: "completed",
+												input: { description: "Retry approval workflow" },
+												output: "Background task launched.\n\nBackground Task ID: bg_retry_approval\nDescription: Retry approval workflow",
+											},
+										},
+										{ type: "step-finish", reason: "tool-calls" },
+									],
+								},
+							],
+						}),
+						promptAsync: async (input: Record<string, unknown>) => {
+							promptAsyncCalls.push(input)
+							return {}
+						},
+					},
+				},
+			} as any,
+			pluginConfig: {
+				experimental: { auto_resume: true },
+			} as any,
+			firstMessageVariantGate: {
+				markSessionCreated: () => {},
+				clear: () => {},
+			},
+			managers: {
+				tmuxSessionManager: {
+					onSessionCreated: async () => {},
+					onSessionDeleted: async () => {},
+				},
+			} as any,
+			hooks: {
+				stopContinuationGuard: { isStopped: () => false },
+			} as any,
+		})
+
+		//#when
+		await eventHandler({
+			event: {
+				type: "session.status",
+				properties: {
+					sessionID,
+					status: { type: "idle" },
+				},
+			},
+		} as any)
+
+		//#then
+		expect(promptAsyncCalls).toHaveLength(1)
+		const promptBody = promptAsyncCalls[0]?.body as { parts?: Array<{ text?: string }> } | undefined
+		expect(promptBody?.parts?.[0]?.text).toContain("continue plan generation after the tool call now")
+	})
+
 	it("recovers a delayed empty Prometheus write call from cached part updates when session.messages is unavailable", async () => {
 		//#given
 		jest.useFakeTimers()

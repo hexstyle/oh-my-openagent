@@ -215,6 +215,16 @@ const PROMETHEUS_INTERRUPTED_VISIBLE_TURN_RECOVERY_TEXT = [
   "Only stop after the final plan file exists, has populated ## TODOs, and you provide a concise user-facing summary.",
   PROMETHEUS_FINAL_ARTIFACT_RECOVERY_TEXT,
 ].join("\n");
+const PROMETHEUS_TOOL_ONLY_TURN_RECOVERY_TEXT = [
+  "[session recovered - continue plan generation after the tool call now]",
+  "Your previous Prometheus turn ended on a tool-only step before the next planning action ran.",
+  "Do not stop after reviewing the prior tool result.",
+  "Immediately continue from that exact state and perform the next concrete action needed to finish plan generation.",
+  "If background research is still needed, launch only the missing research task and continue coordinating from the latest results.",
+  "If enough evidence already exists, write or update the final .sisyphus/plans/*.md artifact now.",
+  "Only stop after the final plan artifact exists and you provide a concise user-facing summary.",
+  PROMETHEUS_FINAL_ARTIFACT_RECOVERY_TEXT,
+].join("\n");
 const SISYPHUS_CI_REASONING_ONLY_RECOVERY_TEXT = [
   "[session recovered - continue evidence-gated CI now]",
   "You are in evidence-gated CI mode.",
@@ -230,6 +240,7 @@ const recoveredPendingEmptyToolMessageBySession = new Map<string, string>();
 const recoveredPlannerReasoningOnlyMessageBySession = new Map<string, string>();
 const recoveredSisyphusCiReasoningOnlyMessageBySession = new Map<string, string>();
 const recoveredInterruptedPlannerVisibleMessageBySession = new Map<string, string>();
+const recoveredPlannerToolOnlyMessageBySession = new Map<string, string>();
 const recoveredProviderBlockedErrorMessageBySession = new Map<string, string>();
 const prometheusProviderBlockedRetryStateBySession = new Map<string, {
   providerID: string;
@@ -578,6 +589,64 @@ function isInterruptedRecoverablePrometheusToolPart(
   }
 
   return part.state?.status === "error";
+}
+
+function hasNonEmptyUserFacingTextPart(parts: RecoveryMessagePart[] | undefined): boolean {
+  return Array.isArray(parts) && parts.some((part) => (
+    part?.type === "text"
+    && typeof part.text === "string"
+    && part.text.trim().length > 0
+  ));
+}
+
+function isRecoverablePrometheusToolOnlyTurn(
+  message: RecoveryMessage | undefined,
+): boolean {
+  if (!message || getMessageRole(message) !== "assistant") return false;
+  if (!isPrometheusPlannerAgent(getMessageAgent(message))) return false;
+  const finish = isRecord(message.info) && typeof message.info.finish === "string"
+    ? message.info.finish
+    : undefined;
+  if (finish !== "tool-calls") return false;
+  if (getMessageError(message)) return false;
+
+  const parts = message.parts;
+  if (!Array.isArray(parts) || parts.length === 0) return false;
+  if (hasNonEmptyUserFacingTextPart(parts)) return false;
+  if (findRecoverablePendingPrometheusTool(parts)) return false;
+
+  let sawCompletedTool = false;
+  for (const part of parts) {
+    const type = part?.type;
+    if (!type) return false;
+    if (type === "tool") {
+      const status = part.state?.status;
+      if (status !== "completed") {
+        return false;
+      }
+      sawCompletedTool = true;
+      continue;
+    }
+
+    if (
+      type === "reasoning"
+      || type === "thinking"
+      || type === "redacted_thinking"
+      || type === "step-start"
+      || type === "step-finish"
+      || type === "meta"
+      || type === "compaction"
+      || type === "patch"
+      || type === "tool_result"
+      || type === "tool_use"
+    ) {
+      continue;
+    }
+
+    return false;
+  }
+
+  return sawCompletedTool;
 }
 
 function upsertAssistantRecoverySnapshot(
@@ -1399,6 +1468,87 @@ async function maybeRecoverPrometheusInterruptedVisibleAssistantMessage(
       source,
       messageID: lastMessageID,
       agent: lastMessageAgent,
+    });
+  }
+
+  return resumed;
+}
+
+async function maybeRecoverPrometheusToolOnlyAssistantTurn(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "session.status.idle",
+): Promise<boolean> {
+  if (hasActivePrometheusProviderBlockedRetryWindow(sessionID)) {
+    log("[event] planner tool-only recovery skipped: provider-blocked retry window active", {
+      sessionID,
+      source,
+    });
+    return false;
+  }
+
+  const session = ctx.client["session"] as {
+    messages?: (args: { path: { id: string } }) => Promise<unknown>;
+  } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    log("[event] planner tool-only recovery skipped: session.messages unavailable", { sessionID, source });
+    return false;
+  }
+
+  let response: unknown;
+  try {
+    response = await readMessages({
+      path: { id: sessionID },
+    });
+  } catch (error) {
+    log("[event] planner tool-only recovery skipped: session.messages failed", {
+      sessionID,
+      source,
+      error,
+    });
+    return false;
+  }
+
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = getMessageID(lastMessage);
+
+  if (!lastMessageID) return false;
+  if (expectedMessageID && lastMessageID !== expectedMessageID) return false;
+  if (!isRecoverablePrometheusToolOnlyTurn(lastMessage)) return false;
+
+  const lastRecoveredMessageID = recoveredPlannerToolOnlyMessageBySession.get(sessionID);
+  if (lastRecoveredMessageID === lastMessageID) {
+    log("[event] planner tool-only recovery skipped: message already recovered", {
+      sessionID,
+      source,
+      lastMessageID,
+    });
+    return false;
+  }
+
+  const lastUser = findLastUserMessage(messages as never);
+  const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+  resumeConfig.directory = ctx.directory;
+  resumeConfig.continuationText = PROMETHEUS_TOOL_ONLY_TURN_RECOVERY_TEXT;
+  const resumed = await resumeRecoveredPrometheusSession(
+    ctx,
+    sessionID,
+    PROMETHEUS_TOOL_ONLY_TURN_RECOVERY_TEXT,
+    resumeConfig,
+    session as RecoveryResumeSessionApi | undefined,
+  );
+
+  if (resumed) {
+    recoveredPlannerToolOnlyMessageBySession.set(sessionID, lastMessageID);
+    log("[event] recovered idle Prometheus tool-only turn", {
+      sessionID,
+      source,
+      messageID: lastMessageID,
     });
   }
 
@@ -2482,6 +2632,16 @@ export function createEventHandler(args: {
       source,
     );
     if (recoveredInterruptedVisible) {
+      return true;
+    }
+
+    const recoveredToolOnlyTurn = await maybeRecoverPrometheusToolOnlyAssistantTurn(
+      pluginContext,
+      sessionID,
+      undefined,
+      source,
+    );
+    if (recoveredToolOnlyTurn) {
       return true;
     }
 
