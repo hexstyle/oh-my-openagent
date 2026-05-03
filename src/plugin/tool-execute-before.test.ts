@@ -55,6 +55,51 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("blocks todowrite case-insensitively when session tools disable the lowercase name", async () => {
+    const sessionID = "ses_ci_block_todowrite"
+    setSessionTools(sessionID, { todowrite: false })
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "TodoWrite", sessionID, callID: "call_todowrite" },
+        { args: { todos: [] } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow(`Tool "TodoWrite" is disabled for session ${sessionID}`)
+
+    clearSessionTools()
+  })
+
+  test("blocks empty bash commands before execution", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID: "ses_empty_bash", callID: "call_empty_bash" },
+        { args: {} as Record<string, unknown> },
+      ),
+    ).rejects.toThrow('Refusing empty bash command for session ses_empty_bash')
+  })
+
   test("does not execute subagent question blocker hook for question tool", async () => {
     //#given
     const ctx = {

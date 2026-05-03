@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto"
 import { getMainSessionID } from "../features/claude-code-session-state"
 import { clearBoulderState } from "../features/boulder-state"
 import { log } from "../shared"
-import { getSessionTools } from "../shared/session-tools-store"
+import { isSessionToolDisabled } from "../shared/session-tools-store"
 import { resolveSessionAgent } from "./session-agent-resolver"
 import { parseRalphLoopArguments } from "../hooks/ralph-loop/command-arguments"
 import { ULTRAWORK_VERIFICATION_PROMISE } from "../hooks/ralph-loop/constants"
@@ -42,16 +42,24 @@ export function createToolExecuteBeforeHandler(args: {
   }
 
   return async (input, output): Promise<void> => {
-    const sessionTools = getSessionTools(input.sessionID)
-    if (sessionTools?.[input.tool] === false || sessionTools?.[`${input.tool}_*`] === false) {
+    if (isSessionToolDisabled(input.sessionID, input.tool)) {
       throw new Error(
         `[tool-execute-before] Tool "${input.tool}" is disabled for session ${input.sessionID}.`
       )
     }
 
-    if (input.tool.toLowerCase() === "bash" && typeof output.args.command === "string") {
-      if (output.args.command.includes("\x00")) {
-        output.args.command = output.args.command.replace(/\x00/g, "")
+    if (input.tool.toLowerCase() === "bash") {
+      const rawCommand = typeof output.args.command === "string" ? output.args.command : ""
+      const normalizedCommand = rawCommand.replace(/\x00/g, "").trim()
+
+      if (!normalizedCommand) {
+        throw new Error(
+          `[tool-execute-before] Refusing empty bash command for session ${input.sessionID}.`,
+        )
+      }
+
+      if (rawCommand.includes("\x00")) {
+        output.args.command = rawCommand.replace(/\x00/g, "")
         log("[tool-execute-before] Stripped null bytes from bash command", {
           sessionID: input.sessionID,
           callID: input.callID,
