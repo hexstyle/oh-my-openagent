@@ -289,6 +289,84 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("blocks evidence-only git diff reflection after dirty-batch inspection and before forward progress", async () => {
+    const sessionID = "ses_ci_evidence_diff_reflection"
+    setSessionFlag(sessionID, "ci-evidence-core-read")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID, callID: "call_evidence_diff_reflection" },
+        { args: { command: "git diff -- .sisyphus/evidence/ci-loop-checkpoint.md .sisyphus/evidence/repair-log.md" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow("Evidence reflection loops are blocked")
+
+    clearSessionTools()
+  })
+
+  test("blocks opencode tool-output reflection after dirty-batch inspection and before forward progress", async () => {
+    const sessionID = "ses_ci_tool_output_reflection"
+    setSessionFlag(sessionID, "ci-evidence-core-read")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_tool_output_reflection" },
+        { args: { filePath: "/Users/me/.local/share/opencode/tool-output/tool_deadbeef" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow("Evidence reflection loops are blocked")
+
+    clearSessionTools()
+  })
+
+  test("allows product-code git diff after dirty-batch inspection and before forward progress", async () => {
+    const sessionID = "ses_ci_product_diff_allowed"
+    setSessionFlag(sessionID, "ci-evidence-core-read")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID, callID: "call_product_diff_allowed" },
+        { args: { command: "git diff -- Optimizer.PlaywrightTests/ScenarioE2ETests.cs" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
+    clearSessionTools()
+  })
+
   test("blocks direct curl to Bamboo result endpoints", async () => {
     const handler = createToolExecuteBeforeHandler({
       ctx: {

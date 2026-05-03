@@ -101,6 +101,35 @@ export function createToolExecuteBeforeHandler(args: {
     return /\bgit status\b|\bgit diff\b/i.test(command)
   }
 
+  function isEvidenceReflectionAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
+    if (toolName === "read") {
+      const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
+      return typeof filePath === "string" && /\/tool-output\/tool_[^/]+$/i.test(filePath)
+    }
+
+    if (toolName !== "bash") {
+      return false
+    }
+
+    const command = getStringArg(argsObject, ["command"])
+    if (typeof command !== "string") {
+      return false
+    }
+
+    const lower = command.toLowerCase()
+    const isEvidenceDiff =
+      /\bgit diff\b/i.test(command)
+      && (
+        lower.includes(".sisyphus/evidence/")
+        || lower.includes(".sisyphus/plans/ci-green-build")
+      )
+    const isToolOutputReflection =
+      lower.includes("/tool-output/tool_")
+      || lower.includes("../.local/share/opencode/tool-output")
+
+    return isEvidenceDiff || isToolOutputReflection
+  }
+
   function isForwardProgressAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
     if (toolName === "write" || toolName === "edit") {
       return true
@@ -284,6 +313,17 @@ export function createToolExecuteBeforeHandler(args: {
     ) {
       throw new Error(
         `[tool-execute-before] Core CI evidence rereads are blocked for session ${input.sessionID} after dirty-batch inspection. Move to runtime bootstrap, verification, review, or edits before reopening checkpoint/repair-log/build-analysis/plan files.`,
+      )
+    }
+
+    if (
+      hasSessionFlag(input.sessionID, CI_EVIDENCE_CORE_READ_FLAG)
+      && hasSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
+      && !hasSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
+      && isEvidenceReflectionAttempt(normalizedToolName, output.args)
+    ) {
+      throw new Error(
+        `[tool-execute-before] Evidence reflection loops are blocked for session ${input.sessionID} after dirty-batch inspection. Stop rereading evidence diffs/tool-output and move to a real write, edit, build, test, review, commit, or push step.`,
       )
     }
 
