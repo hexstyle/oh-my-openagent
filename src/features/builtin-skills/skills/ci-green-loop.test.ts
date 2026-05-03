@@ -83,6 +83,8 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("missing local test contour is SETUP WORK, not a reason to skip verification")
     expect(ciGreenLoopSkill.template).toContain("Missing generated config/env vars\" by itself is NOT enough")
     expect(ciGreenLoopSkill.template).toContain("repo-native bootstrap path")
+    expect(ciGreenLoopSkill.template).toContain("every later verify rerun MUST re-export the same required env vars")
+    expect(ciGreenLoopSkill.template).toContain("Losing previously provisioned `OPTIEX_PLAYWRIGHT_*`")
   })
 
   test("ci-green-loop allows host-specific full-solution blockers after relevant project build passes", () => {
