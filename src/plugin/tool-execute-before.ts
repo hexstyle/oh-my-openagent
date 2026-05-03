@@ -179,6 +179,18 @@ export function createToolExecuteBeforeHandler(args: {
         `[tool-execute-before] Refusing direct Bamboo result endpoint fetches for session ${sessionID}. Define an inline fetch_json helper in the same bash block and use compact parsing instead of dumping raw Bamboo payloads.`,
       )
     }
+
+    const hasCompactParser =
+      lower.includes("python3 <<'py'")
+      || lower.includes("python3 <<\"py\"")
+      || lower.includes("jq ")
+      || lower.includes("\njq")
+
+    if (!hasCompactParser) {
+      throw new Error(
+        `[tool-execute-before] Refusing raw Bamboo JSON stdout for session ${sessionID}. After fetch_json, extract only compact fields with jq or a python3 heredoc before printing anything.`,
+      )
+    }
   }
 
   function buildUltraworkOracleVerificationPrompt(prompt: string, originalTask: string, verificationAttemptId: string): string {

@@ -250,6 +250,31 @@ PY`,
     ).rejects.toThrow("Refusing direct Bamboo result endpoint fetches")
   })
 
+  test("blocks raw Bamboo JSON stdout even when fetch_json is defined", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID: "ses_bamboo_raw_stdout", callID: "call_bamboo_raw_stdout" },
+        {
+          args: {
+            command: `fetch_json(){ curl -fsSL "$1"; }
+fetch_json "https://bamboo.suek.ru/rest/api/latest/result/EUROPT-DBWDICN0/latest.json"`,
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("Refusing raw Bamboo JSON stdout")
+  })
+
   test("blocks Bamboo browse-page scrapes", async () => {
     const handler = createToolExecuteBeforeHandler({
       ctx: {
