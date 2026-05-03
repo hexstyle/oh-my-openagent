@@ -176,7 +176,6 @@ describe("createToolExecuteBeforeHandler", () => {
 
   test("blocks legacy evidence alias reads in CI fast-path", async () => {
     const sessionID = "ses_ci_legacy_alias"
-    setSessionFlag(sessionID, "ci-fast-path")
 
     const handler = createToolExecuteBeforeHandler({
       ctx: {
@@ -195,6 +194,97 @@ describe("createToolExecuteBeforeHandler", () => {
         { args: { filePath: "/repo/.sisyphus/ci-loop-checkpoint.md" } as Record<string, unknown> },
       ),
     ).rejects.toThrow("Refusing legacy .sisyphus evidence alias read")
+
+    clearSessionTools()
+  })
+
+  test("blocks core evidence rereads after dirty-batch inspection and before forward progress", async () => {
+    const sessionID = "ses_ci_core_reread_lock"
+    setSessionFlag(sessionID, "ci-evidence-core-read")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_core_reread" },
+        { args: { filePath: "/repo/.sisyphus/evidence/repair-log.md" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow("Core CI evidence rereads are blocked")
+
+    clearSessionTools()
+  })
+
+  test("allows core evidence rereads after forward progress is recorded", async () => {
+    const sessionID = "ses_ci_core_reread_after_progress"
+    setSessionFlag(sessionID, "ci-evidence-core-read")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+    setSessionFlag(sessionID, "ci-forward-progress")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_core_reread_after_progress" },
+        { args: { filePath: "/repo/.sisyphus/evidence/repair-log.md" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
+    clearSessionTools()
+  })
+
+  test("records dirty-batch inspection and then blocks a repeated core evidence read", async () => {
+    const sessionID = "ses_ci_dirty_then_reread"
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_initial_core_read" },
+        { args: { filePath: "/repo/.sisyphus/evidence/ci-loop-checkpoint.md" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID, callID: "call_dirty_batch_inspect" },
+        { args: { command: "git status --short && git diff -- Optimizer.PlaywrightTests" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_blocked_core_reread" },
+        { args: { filePath: "/repo/.sisyphus/evidence/build-332-analysis.md" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow("Core CI evidence rereads are blocked")
 
     clearSessionTools()
   })

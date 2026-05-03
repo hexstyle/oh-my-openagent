@@ -28,6 +28,9 @@ export function createToolExecuteBeforeHandler(args: {
   const CI_FAST_PATH_FLAG = "ci-fast-path"
   const CI_EVIDENCE_MATERIALIZED_FLAG = "ci-evidence-materialized"
   const CI_CLAUDE_REVIEW_PASSED_FLAG = "ci-claude-review-passed"
+  const CI_EVIDENCE_CORE_READ_FLAG = "ci-evidence-core-read"
+  const CI_DIRTY_BATCH_INSPECTED_FLAG = "ci-dirty-batch-inspected"
+  const CI_FORWARD_PROGRESS_FLAG = "ci-forward-progress"
 
   function getStringArg(argsObject: Record<string, unknown>, keys: string[]): string | undefined {
     for (const key of keys) {
@@ -44,6 +47,21 @@ export function createToolExecuteBeforeHandler(args: {
     if (toolName !== "read") return false
     const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
     return typeof filePath === "string" && filePath.includes(".sisyphus/evidence/tests/")
+  }
+
+  function isCoreEvidenceReadAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
+    if (toolName !== "read") return false
+    const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
+    if (typeof filePath !== "string") {
+      return false
+    }
+
+    return (
+      filePath.includes(".sisyphus/evidence/repair-log.md")
+      || filePath.includes(".sisyphus/evidence/ci-loop-checkpoint.md")
+      || /\.sisyphus\/evidence\/build-\d+.*\.md$/i.test(filePath)
+      || /\.sisyphus\/plans\/ci-green-build\d+.*\.md$/i.test(filePath)
+    )
   }
 
   function isDirectoryReadAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
@@ -71,6 +89,33 @@ export function createToolExecuteBeforeHandler(args: {
       filePath.endsWith(".sisyphus/ci-loop-checkpoint.md")
       || filePath.endsWith(".sisyphus/repair-log.md")
     )
+  }
+
+  function isDirtyBatchInspectionAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
+    if (toolName !== "bash") return false
+    const command = getStringArg(argsObject, ["command"])
+    if (typeof command !== "string") {
+      return false
+    }
+
+    return /\bgit status\b|\bgit diff\b/i.test(command)
+  }
+
+  function isForwardProgressAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
+    if (toolName === "write" || toolName === "edit") {
+      return true
+    }
+
+    if (toolName === "bash") {
+      const command = getStringArg(argsObject, ["command"])
+      if (typeof command !== "string") {
+        return false
+      }
+
+      return /\bdotnet build\b|\bdotnet test\b|\bgit commit\b|\bgit push\b|\breview-work\b/i.test(command)
+    }
+
+    return toolName === "review-work" || toolName === "review_work"
   }
 
   function isEvidenceWriteAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
@@ -231,19 +276,31 @@ export function createToolExecuteBeforeHandler(args: {
       )
     }
 
+    if (
+      hasSessionFlag(input.sessionID, CI_EVIDENCE_CORE_READ_FLAG)
+      && hasSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
+      && !hasSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
+      && isCoreEvidenceReadAttempt(normalizedToolName, output.args)
+    ) {
+      throw new Error(
+        `[tool-execute-before] Core CI evidence rereads are blocked for session ${input.sessionID} after dirty-batch inspection. Move to runtime bootstrap, verification, review, or edits before reopening checkpoint/repair-log/build-analysis/plan files.`,
+      )
+    }
+
     if (isDirectoryReadAttempt(normalizedToolName, output.args)) {
       throw new Error(
         `[tool-execute-before] Refusing read on a directory for session ${input.sessionID}. Use glob, ls, or a file path instead.`,
       )
     }
 
-    if (
-      hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
-      && isLegacyEvidenceAliasReadAttempt(normalizedToolName, output.args)
-    ) {
+    if (isLegacyEvidenceAliasReadAttempt(normalizedToolName, output.args)) {
       throw new Error(
         `[tool-execute-before] Refusing legacy .sisyphus evidence alias read for session ${input.sessionID}. Read canonical .sisyphus/evidence/ci-loop-checkpoint.md or .sisyphus/evidence/repair-log.md instead.`,
       )
+    }
+
+    if (isCoreEvidenceReadAttempt(normalizedToolName, output.args)) {
+      setSessionFlag(input.sessionID, CI_EVIDENCE_CORE_READ_FLAG)
     }
 
     if (
@@ -254,10 +311,17 @@ export function createToolExecuteBeforeHandler(args: {
     }
 
     if (
-      hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
-      && shouldMarkClaudeReviewPassed(normalizedToolName, output.args)
+      shouldMarkClaudeReviewPassed(normalizedToolName, output.args)
     ) {
       setSessionFlag(input.sessionID, CI_CLAUDE_REVIEW_PASSED_FLAG)
+    }
+
+    if (isDirtyBatchInspectionAttempt(normalizedToolName, output.args)) {
+      setSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
+    }
+
+    if (isForwardProgressAttempt(normalizedToolName, output.args)) {
+      setSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
     }
 
     if (normalizedToolName === "bash") {
