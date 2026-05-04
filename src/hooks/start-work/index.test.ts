@@ -212,6 +212,7 @@ describe("start-work hook", () => {
       expect(text).toContain("FIRST RESPONSE CONTRACT")
       expect(text).toContain("canonical per-test trackers that map one-to-one to the CURRENT live failing tests")
       expect(text).toContain("do NOT call `session_list`")
+      expect(text).toContain("do NOT use `session_search`")
       expect(text).toContain("Do NOT rename the active plan file path")
       expect(text).toContain("historical plan name only")
       expect(text).toContain("current/latest Bamboo build for this branch")
@@ -245,6 +246,7 @@ describe("start-work hook", () => {
         skill: false,
         teammate: false,
         call_omo_agent: false,
+        session_search: false,
         todowrite: false,
         todoread: false,
         webfetch: false,
