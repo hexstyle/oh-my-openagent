@@ -274,6 +274,7 @@ export function createToolExecuteBeforeHandler(args: {
       }
 
       const normalized = command.toLowerCase()
+      const redirectsIntoEvidencePath = />{1,2}\s*["']?[^"'\n]*\.sisyphus\/evidence\//i.test(command)
       const hasWriteSignal =
         normalized.includes("tee ")
         || normalized.includes("tee\t")
@@ -285,10 +286,10 @@ export function createToolExecuteBeforeHandler(args: {
         || normalized.includes("sed -i")
         || normalized.includes("mv ")
         || normalized.includes("cp ")
-        || /(^|[;&(]\s*)printf\b/i.test(command)
-        || /(^|[;&(]\s*)echo\b/i.test(command)
+        || (/(^|[;&(]\s*)printf\b/i.test(command) && redirectsIntoEvidencePath)
+        || (/(^|[;&(]\s*)echo\b/i.test(command) && redirectsIntoEvidencePath)
         || /(^|[;&(]\s*)cat\b[\s\S]*?>{1,2}/i.test(command)
-        || />{1,2}\s*["']?[^"'\n]*\.sisyphus\/evidence\//i.test(command)
+        || redirectsIntoEvidencePath
 
       return hasWriteSignal
     }

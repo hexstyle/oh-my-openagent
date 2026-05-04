@@ -397,6 +397,20 @@ describe("createToolExecuteBeforeHandler", () => {
       ),
     ).resolves.toBeUndefined()
 
+    await expect(
+      handler(
+        { tool: "bash", sessionID, callID: "call_evidence_ls_with_echo_separator" },
+        { args: { command: "ls .sisyphus/evidence/ 2>/dev/null && echo '---' && ls .sisyphus/evidence/tests/ 2>/dev/null" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_tracker_after_ls_with_echo_separator" },
+        { args: { filePath: "/repo/.sisyphus/evidence/tests/ScenarioWithEchoSeparator.md" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
     clearSessionTools()
   })
 
