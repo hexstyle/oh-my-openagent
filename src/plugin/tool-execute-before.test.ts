@@ -552,6 +552,30 @@ describe("createToolExecuteBeforeHandler", () => {
     ).resolves.toBeUndefined()
   })
 
+  test("allows Playwright project dotnet test when rerun coverage accounting is expressed via rerun_expected_tests", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID: "ses_playwright_rerun_expected_tests", callID: "call_playwright_rerun_expected_tests" },
+        {
+          args: {
+            command: "export OPTIEX_PLAYWRIGHT_BASE_URL=http://localhost:5055 OPTIEX_PLAYWRIGHT_CONF_CONNECTION_STRING='Data Source=localhost' OPTIEX_PLAYWRIGHT_DATA_CONNECTION_STRING='Data Source=localhost' RERUN_EXPECTED_TESTS=8 RESULTS_DIR='Optimizer.PlaywrightTests/TestResults/iterationX' TRX_NAME='iterationX.trx' RERUN_TRX_PATH=\"$RESULTS_DIR/$TRX_NAME\" && echo 'RERUN_PRECHECK start' && pgrep -fal 'Optimizer.PlaywrightTests.*testhost.dll|playwright/package/cli.js run-driver|headless_shell' || true && pkill -f 'Optimizer.PlaywrightTests.*testhost.dll|playwright/package/cli.js run-driver|headless_shell.*playwright_chromiumdev_profile' || true && python3 - <<'PY'\nimport xml.etree.ElementTree as ET\nprint('RERUN_START')\nprint('UnitTestResult parse ready')\nprint('RERUN_END')\nprint('RERUN_HEARTBEAT bootstrap')\nprint('RERUN_EXPECTED_TESTS=' + '8')\nPY\n&& (while kill -0 \"$TEST_PID\" 2>/dev/null; do echo \"RERUN_HEARTBEAT waiting for trx\"; sleep 30; done) & TEST_PID=$! && python3 - <<'PY'\nimport subprocess\nprint('timeout=900')\nprint('python3 timeout wrapper ready')\nPY\n&& /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --logger \"trx;LogFileName=$TRX_NAME\" --results-directory \"$RESULTS_DIR\" && python3 - <<'PY'\nimport os, xml.etree.ElementTree as ET\nprint('UnitTestResult parse ready for', os.environ.get('RERUN_TRX_PATH', ''))\nPY",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).resolves.toBeUndefined()
+  })
+
   test("blocks Playwright project dotnet test without bounded rerun markers and hard timeout wrapper", async () => {
     const handler = createToolExecuteBeforeHandler({
       ctx: {

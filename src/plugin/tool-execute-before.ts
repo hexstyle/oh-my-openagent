@@ -339,6 +339,8 @@ export function createToolExecuteBeforeHandler(args: {
     const hasExpectedCoverageCount =
       /\bexpected(?:_test_count|_count)?=/.test(lower)
       || lower.includes("expected_test_count")
+      || lower.includes("rerun_expected_tests=")
+      || lower.includes("rerun_expected_tests")
     const hasTrxCoverageParse =
       lower.includes("xml.etree.elementtree")
       && lower.includes("unittestresult")
