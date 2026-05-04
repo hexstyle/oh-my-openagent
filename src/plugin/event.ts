@@ -244,12 +244,22 @@ const SISYPHUS_CI_REASONING_ONLY_RECOVERY_TEXT = [
   "3. Otherwise, run the next constrained local verification step for that same unified batch.",
   "Do not emit another prose-only or reasoning-only turn before a tool call.",
 ].join("\n");
+const SISYPHUS_CI_INTERRUPTED_VISIBLE_TURN_RECOVERY_TEXT = [
+  "[session recovered - resume the active evidence-gated CI verify chain now]",
+  "Your previous Sisyphus CI turn ended after visible progress but before the next concrete tool step completed.",
+  "Do not restart discovery or reread already-validated evidence.",
+  "Resume from the exact current CI state and perform the next missing concrete tool action now.",
+  "If you were entering the bounded local verify wave, relaunch or resume that verify wave immediately with the same contour and current dirty batch.",
+  "If that verify wave already produced artifacts, continue from those artifacts instead of burning another redundant discovery pass.",
+  "Do not emit another prose-only assistant turn before the next tool call.",
+].join("\n");
 const recoveredEmptyAssistantMessageBySession = new Map<string, string>();
 const recoveredPendingEmptyToolMessageBySession = new Map<string, string>();
 const recoveredPendingEmptySisyphusToolMessageBySession = new Map<string, string>();
 const recoveredPlannerReasoningOnlyMessageBySession = new Map<string, string>();
 const recoveredSisyphusCiReasoningOnlyMessageBySession = new Map<string, string>();
 const recoveredInterruptedPlannerVisibleMessageBySession = new Map<string, string>();
+const recoveredInterruptedSisyphusCiVisibleMessageBySession = new Map<string, string>();
 const recoveredPlannerToolOnlyMessageBySession = new Map<string, string>();
 const recoveredProviderBlockedErrorMessageBySession = new Map<string, string>();
 const prometheusProviderBlockedRetryStateBySession = new Map<string, {
@@ -304,6 +314,7 @@ export function _resetEventRecoveryStateForTesting(): void {
   recoveredPlannerReasoningOnlyMessageBySession.clear();
   recoveredSisyphusCiReasoningOnlyMessageBySession.clear();
   recoveredInterruptedPlannerVisibleMessageBySession.clear();
+  recoveredInterruptedSisyphusCiVisibleMessageBySession.clear();
   recoveredProviderBlockedErrorMessageBySession.clear();
   prometheusProviderBlockedRetryStateBySession.clear();
   recentRecoverablePrometheusSnapshotBySession.clear();
@@ -1819,6 +1830,96 @@ async function maybeRecoverPrometheusToolOnlyAssistantTurn(
   return resumed;
 }
 
+async function maybeRecoverSisyphusCiInterruptedVisibleAssistantMessage(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "session.status.idle",
+): Promise<boolean> {
+  const session = ctx.client["session"] as {
+    messages?: (args: { path: { id: string } }) => Promise<unknown>;
+  } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    log("[event] sisyphus CI interrupted-visible recovery skipped: session.messages unavailable", { sessionID, source });
+    return false;
+  }
+
+  let response: unknown;
+  try {
+    response = await readMessages({
+      path: { id: sessionID },
+    });
+  } catch (error) {
+    log("[event] sisyphus CI interrupted-visible recovery skipped: session.messages failed", {
+      sessionID,
+      source,
+      error,
+    });
+    return false;
+  }
+
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = getMessageID(lastMessage);
+  const lastMessageAgent = getMessageAgent(lastMessage);
+  const lastMessageFinish = isRecord(lastMessage?.info) && typeof lastMessage.info.finish === "string"
+    ? lastMessage.info.finish
+    : undefined;
+
+  if (!lastMessageID) return false;
+  if (expectedMessageID && lastMessageID !== expectedMessageID) return false;
+  if (getMessageRole(lastMessage) !== "assistant") return false;
+  if (getMessageError(lastMessage)) return false;
+  if (!isSisyphusExecutorAgent(lastMessageAgent)) return false;
+  if (lastMessageFinish !== "other") return false;
+  if (!assistantMessageHasUserFacingContent(lastMessage.parts)) return false;
+
+  const lastEvidenceGatedUser = findLastUserMessageMatching(
+    messages as RecoveryMessage[],
+    (message) => messageIndicatesEvidenceGatedCi(message),
+  );
+  const lastUser = lastEvidenceGatedUser ?? findLastUserMessage(messages as never);
+  if (!messageIndicatesEvidenceGatedCi(lastUser as RecoveryMessage | undefined)) {
+    return false;
+  }
+
+  const lastRecoveredMessageID = recoveredInterruptedSisyphusCiVisibleMessageBySession.get(sessionID);
+  if (lastRecoveredMessageID === lastMessageID) {
+    log("[event] sisyphus CI interrupted-visible recovery skipped: message already recovered", {
+      sessionID,
+      source,
+      lastMessageID,
+    });
+    return false;
+  }
+
+  const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+  resumeConfig.directory = ctx.directory;
+  resumeConfig.continuationText = SISYPHUS_CI_INTERRUPTED_VISIBLE_TURN_RECOVERY_TEXT;
+  const resumed = await resumeRecoveredPrometheusSession(
+    ctx,
+    sessionID,
+    SISYPHUS_CI_INTERRUPTED_VISIBLE_TURN_RECOVERY_TEXT,
+    resumeConfig,
+    session as RecoveryResumeSessionApi | undefined,
+  );
+
+  if (resumed) {
+    recoveredInterruptedSisyphusCiVisibleMessageBySession.set(sessionID, lastMessageID);
+    log("[event] recovered idle interrupted Sisyphus CI visible turn", {
+      sessionID,
+      source,
+      messageID: lastMessageID,
+      agent: lastMessageAgent,
+    });
+  }
+
+  return resumed;
+}
+
 async function maybeRecoverPrometheusProviderBlockedTurn(
   ctx: { client: Record<string, unknown>; directory: string },
   sessionID: string,
@@ -3083,6 +3184,16 @@ export function createEventHandler(args: {
       { abortBeforeResume: true },
     );
     if (recoveredSisyphusCiReasoningOnly) {
+      return true;
+    }
+
+    const recoveredSisyphusInterruptedVisible = await maybeRecoverSisyphusCiInterruptedVisibleAssistantMessage(
+      pluginContext,
+      sessionID,
+      undefined,
+      source,
+    );
+    if (recoveredSisyphusInterruptedVisible) {
       return true;
     }
 

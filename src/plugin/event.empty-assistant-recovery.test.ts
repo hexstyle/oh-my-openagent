@@ -959,6 +959,71 @@ describe("createEventHandler idle empty assistant recovery", () => {
     })
   })
 
+  test("recovers sisyphus CI interrupted visible turns and resumes the verify chain", async () => {
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_sisyphus_ci_interrupted_visible",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nCurrent build evidence is on disk; continue the unified edit batch and bounded rerun.",
+        }],
+      },
+      {
+        info: {
+          id: "msg_sisyphus_ci_interrupted_visible",
+          role: "assistant",
+          agent: "Sisyphus (Ultraworker)",
+          finish: "other",
+        },
+        parts: [
+          {
+            type: "step-start",
+          },
+          {
+            type: "text",
+            text: "Discovery is closed: the dirty five-file batch is LSP-clean and still maps one-to-one onto the four live runtime clusters, so I’m spending the single verify wave on the current batch exactly as requested.",
+          },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionID: "ses_sisyphus_ci_interrupted_visible",
+          status: { type: "idle" },
+        },
+      },
+    })
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_sisyphus_ci_interrupted_visible" },
+      body: expect.objectContaining({
+        agent: "Atlas (Plan Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining("resume the active evidence-gated CI verify chain now"),
+          }),
+        ]),
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
   test("recovers delayed sisyphus CI reasoning-only turns even after an internal compaction user message", async () => {
     jest.useFakeTimers()
 
