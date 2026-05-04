@@ -293,6 +293,12 @@ export function createToolExecuteBeforeHandler(args: {
     const hasTrxLogger = lower.includes("trx;logfilename=")
     const hasVisibleStartMarker = lower.includes("rerun_start")
     const hasVisibleEndMarker = lower.includes("rerun_end")
+    const hasExpectedCoverageCount =
+      /\bexpected(?:_test_count|_count)?=/.test(lower)
+      || lower.includes("expected_test_count")
+    const hasTrxCoverageParse =
+      lower.includes("xml.etree.elementtree")
+      && lower.includes("unittestresult")
     const hasHardTimeoutWrapper =
       (lower.includes("perl -e") && lower.includes("alarm"))
       || /\b(gtimeout|timeout)\b/.test(lower)
@@ -307,6 +313,12 @@ export function createToolExecuteBeforeHandler(args: {
     if (!hasHardTimeoutWrapper) {
       throw new Error(
         `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without a hard timeout wrapper. Use perl alarm, timeout/gtimeout, or a python subprocess timeout in the same bash command.`,
+      )
+    }
+
+    if (!hasExpectedCoverageCount || !hasTrxCoverageParse) {
+      throw new Error(
+        `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without explicit rerun coverage accounting. Declare the expected failing-set count in the same bash command and parse UnitTestResult entries from the TRX before treating the rerun as complete.`,
       )
     }
   }

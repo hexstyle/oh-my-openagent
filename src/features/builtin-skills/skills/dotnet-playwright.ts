@@ -136,6 +136,8 @@ Playwright can look "busy" while the test is actually waiting on the wrong thing
   - the filtered test count or named failing-set coverage
   - a visible start marker before \`dotnet test\`
   - a visible terminal marker after \`dotnet test\`
+- The same bash command must also declare the expected test count for that rerun and parse the resulting TRX \`UnitTestResult\` entries before treating the verify step as complete.
+- A rerun is incomplete if the TRX shows fewer results than the intended failing-set coverage, even if the command itself exited 0.
 - If a rerun lives materially longer than the last comparable local baseline and still has no TRX file or no new result artifacts, treat that as a hang signal, not as "still probably running normally".
 - In that case, capture the hang as evidence, name the most likely stuck awaited surface, and continue diagnosis from that fact.
 - Do not silently burn more time on an unobservable rerun.

@@ -113,6 +113,38 @@ describe("session-recovery resume", () => {
     expect(promptBody?.tools).toEqual({ write: true, read: true })
   })
 
+  test("resumeSession retries with the runtime agent key when the display-name agent is not resolvable", async () => {
+    // given
+    const promptAsyncCalls: Array<Record<string, unknown>> = []
+    const client = {
+      session: {
+        promptAsync: async (input: Record<string, unknown>) => {
+          promptAsyncCalls.push(input)
+          const promptBody = input.body as { agent?: string } | undefined
+          if (promptBody?.agent === "Prometheus (Plan Builder)") {
+            throw new Error('default agent "Prometheus (Plan Builder)" not found')
+          }
+          return {}
+        },
+      },
+    }
+
+    // when
+    const ok = await resumeSession(client as never, {
+      sessionID: "ses_resume_agent_key_retry",
+      directory: "/tmp/agent-key-retry",
+      agent: "Prometheus (Plan Builder)",
+      model: { providerID: "anthropic", modelID: "claude-opus-4-6" },
+      tools: { write: true, read: true },
+    })
+
+    // then
+    expect(ok).toBe(true)
+    expect(promptAsyncCalls).toHaveLength(2)
+    expect((promptAsyncCalls[0]?.body as { agent?: string } | undefined)?.agent).toBe("Prometheus (Plan Builder)")
+    expect((promptAsyncCalls[1]?.body as { agent?: string } | undefined)?.agent).toBe("prometheus")
+  })
+
   test("resumeSession retries promptAsync while the session is still busy after abort", async () => {
     // given
     const promptAsyncCalls: Array<Record<string, unknown>> = []

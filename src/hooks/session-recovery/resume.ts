@@ -1,7 +1,7 @@
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 import type { MessageData, ResumeConfig } from "./types"
 import { createInternalAgentTextPart, resolveInheritedPromptTools } from "../../shared"
-import { normalizeAgentForSessionPrompt } from "../../shared/agent-display-names"
+import { normalizeAgentForExecution, normalizeAgentForSessionPrompt } from "../../shared/agent-display-names"
 import {
   getMessageAgent,
   getMessageModel,
@@ -25,6 +25,10 @@ type ResumePromptInput = {
   query?: { directory: string }
 }
 type ResumePromptFn = (input: ResumePromptInput) => Promise<unknown>
+type ResumePromptAttemptResult = {
+  ok: boolean
+  lastError?: unknown
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -82,28 +86,78 @@ function isRetryableResumeError(error: unknown): boolean {
   )
 }
 
+function isAgentResolutionResumeError(error: unknown): boolean {
+  const message = extractResumeErrorMessage(error)
+  if (!message) {
+    return false
+  }
+
+  return /(?:default\s+)?agent .*not found/i.test(message)
+}
+
+function buildResumePromptInput(
+  config: ResumeConfig,
+  agentOverride?: string,
+): ResumePromptInput {
+  const inheritedTools = resolveInheritedPromptTools(config.sessionID, config.tools)
+
+  return {
+    path: { id: config.sessionID },
+    body: {
+      parts: [createInternalAgentTextPart(config.continuationText ?? RECOVERY_RESUME_TEXT)],
+      ...(agentOverride ? { agent: agentOverride } : {}),
+      model: config.model,
+      ...(inheritedTools ? { tools: inheritedTools } : {}),
+    },
+    ...(config.directory ? { query: { directory: config.directory } } : {}),
+  }
+}
+
+function buildResumePromptInputs(config: ResumeConfig): ResumePromptInput[] {
+  const variants = new Set<string>()
+  const promptAgent = normalizeAgentForSessionPrompt(config.agent) ?? config.agent
+  const executionAgent = normalizeAgentForExecution(config.agent)
+  const trimmedAgent = typeof config.agent === "string" ? config.agent.trim() : undefined
+
+  if (typeof promptAgent === "string" && promptAgent.trim().length > 0) {
+    variants.add(promptAgent.trim())
+  }
+  if (typeof executionAgent === "string" && executionAgent.trim().length > 0) {
+    variants.add(executionAgent.trim())
+  }
+  if (typeof trimmedAgent === "string" && trimmedAgent.length > 0) {
+    variants.add(trimmedAgent)
+  }
+
+  return [...variants].map((agent) => buildResumePromptInput(config, agent))
+}
+
 async function tryResumePrompt(
   fn: ResumePromptFn | undefined,
   promptInput: ResumePromptInput,
-): Promise<boolean> {
+): Promise<ResumePromptAttemptResult> {
   if (typeof fn !== "function") {
-    return false
+    return { ok: false }
   }
 
   for (let attempt = 1; attempt <= RESUME_RETRY_ATTEMPTS; attempt += 1) {
     try {
       await fn(promptInput)
-      return true
+      return { ok: true }
     } catch (error) {
+      if (isAgentResolutionResumeError(error)) {
+        return { ok: false, lastError: error }
+      }
+
       if (!isRetryableResumeError(error) || attempt === RESUME_RETRY_ATTEMPTS) {
-        break
+        return { ok: false, lastError: error }
       }
 
       await sleep(RESUME_RETRY_DELAY_MS)
     }
   }
 
-  return false
+  return { ok: false }
 }
 
 export function findLastUserMessage(messages: MessageData[]): MessageData | undefined {
@@ -125,29 +179,27 @@ export function extractResumeConfig(userMessage: MessageData | undefined, sessio
 }
 
 export async function resumeSession(client: Client, config: ResumeConfig): Promise<boolean> {
-  const inheritedTools = resolveInheritedPromptTools(config.sessionID, config.tools)
-  const promptInput: ResumePromptInput = {
-    path: { id: config.sessionID },
-    body: {
-      parts: [createInternalAgentTextPart(config.continuationText ?? RECOVERY_RESUME_TEXT)],
-      agent: normalizeAgentForSessionPrompt(config.agent) ?? config.agent,
-      model: config.model,
-      ...(inheritedTools ? { tools: inheritedTools } : {}),
-    },
-    ...(config.directory ? { query: { directory: config.directory } } : {}),
-  }
-
   const session = client.session as {
-    promptAsync?: (input: typeof promptInput) => Promise<unknown>
-    prompt?: (input: typeof promptInput) => Promise<unknown>
+    promptAsync?: (input: ResumePromptInput) => Promise<unknown>
+    prompt?: (input: ResumePromptInput) => Promise<unknown>
   }
 
-  if (await tryResumePrompt(session.promptAsync, promptInput)) {
-    return true
-  }
+  for (const promptInput of buildResumePromptInputs(config)) {
+    const promptAsyncResult = await tryResumePrompt(session.promptAsync, promptInput)
+    if (promptAsyncResult.ok) {
+      return true
+    }
 
-  if (await tryResumePrompt(session.prompt, promptInput)) {
-    return true
+    if (!isAgentResolutionResumeError(promptAsyncResult.lastError)) {
+      const promptResult = await tryResumePrompt(session.prompt, promptInput)
+      if (promptResult.ok) {
+        return true
+      }
+
+      if (!isAgentResolutionResumeError(promptResult.lastError)) {
+        break
+      }
+    }
   }
 
   return false

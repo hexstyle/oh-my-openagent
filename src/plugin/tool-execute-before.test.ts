@@ -408,7 +408,7 @@ describe("createToolExecuteBeforeHandler", () => {
         { tool: "bash", sessionID: "ses_playwright_inline_env", callID: "call_playwright_inline_env" },
         {
           args: {
-            command: "export OPTIEX_PLAYWRIGHT_BASE_URL=http://localhost:5055 OPTIEX_PLAYWRIGHT_CONF_CONNECTION_STRING='Data Source=localhost' && RESULTS_DIR='Optimizer.PlaywrightTests/TestResults/iterationX' && TRX_NAME='iterationX.trx' && python3 -c \"print('RERUN_START'); print('RERUN_END')\" && perl -e 'alarm shift; exec @ARGV' 900 /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --logger \"trx;LogFileName=$TRX_NAME\" --results-directory \"$RESULTS_DIR\"",
+            command: "export OPTIEX_PLAYWRIGHT_BASE_URL=http://localhost:5055 OPTIEX_PLAYWRIGHT_CONF_CONNECTION_STRING='Data Source=localhost' && EXPECTED_TEST_COUNT=8 && RESULTS_DIR='Optimizer.PlaywrightTests/TestResults/iterationX' && TRX_NAME='iterationX.trx' && python3 - <<'PY'\nimport xml.etree.ElementTree as ET\nprint('RERUN_START')\nprint('TRX parser ready for UnitTestResult coverage checks')\nprint('RERUN_END')\nPY\n&& perl -e 'alarm shift; exec @ARGV' 900 /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --logger \"trx;LogFileName=$TRX_NAME\" --results-directory \"$RESULTS_DIR\"",
           } as Record<string, unknown>,
         },
       ),
@@ -432,7 +432,7 @@ describe("createToolExecuteBeforeHandler", () => {
         { tool: "bash", sessionID: "ses_playwright_generated_source", callID: "call_playwright_generated_source" },
         {
           args: {
-            command: "test -f Optimizer.WebSiteTests/generated/TestAppInstances.json && RESULTS_DIR='Optimizer.PlaywrightTests/TestResults/iterationX' && TRX_NAME='iterationX.trx' && python3 -c \"print('RERUN_START'); print('RERUN_END')\" && perl -e 'alarm shift; exec @ARGV' 900 /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --logger \"trx;LogFileName=$TRX_NAME\" --results-directory \"$RESULTS_DIR\"",
+            command: "test -f Optimizer.WebSiteTests/generated/TestAppInstances.json && EXPECTED=8 && RESULTS_DIR='Optimizer.PlaywrightTests/TestResults/iterationX' && TRX_NAME='iterationX.trx' && python3 - <<'PY'\nimport xml.etree.ElementTree as ET\nprint('RERUN_START')\nprint('UnitTestResult parse ready')\nprint('RERUN_END')\nPY\n&& perl -e 'alarm shift; exec @ARGV' 900 /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --logger \"trx;LogFileName=$TRX_NAME\" --results-directory \"$RESULTS_DIR\"",
           } as Record<string, unknown>,
         },
       ),
@@ -480,11 +480,35 @@ describe("createToolExecuteBeforeHandler", () => {
         { tool: "bash", sessionID: "ses_playwright_no_timeout", callID: "call_playwright_no_timeout" },
         {
           args: {
-            command: "export OPTIEX_PLAYWRIGHT_BASE_URL=http://localhost:5055 OPTIEX_PLAYWRIGHT_CONF_CONNECTION_STRING='Data Source=localhost' && RESULTS_DIR='Optimizer.PlaywrightTests/TestResults/iterationX' && TRX_NAME='iterationX.trx' && python3 -c \"print('RERUN_START'); print('RERUN_END')\" && /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --logger \"trx;LogFileName=$TRX_NAME\" --results-directory \"$RESULTS_DIR\"",
+            command: "export OPTIEX_PLAYWRIGHT_BASE_URL=http://localhost:5055 OPTIEX_PLAYWRIGHT_CONF_CONNECTION_STRING='Data Source=localhost' && EXPECTED=8 && RESULTS_DIR='Optimizer.PlaywrightTests/TestResults/iterationX' && TRX_NAME='iterationX.trx' && python3 - <<'PY'\nimport xml.etree.ElementTree as ET\nprint('RERUN_START')\nprint('UnitTestResult parse ready')\nprint('RERUN_END')\nPY\n&& /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --logger \"trx;LogFileName=$TRX_NAME\" --results-directory \"$RESULTS_DIR\"",
           } as Record<string, unknown>,
         },
       ),
     ).rejects.toThrow("without a hard timeout wrapper")
+  })
+
+  test("blocks Playwright project dotnet test without explicit expected-count and TRX coverage parse", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID: "ses_playwright_no_coverage_accounting", callID: "call_playwright_no_coverage_accounting" },
+        {
+          args: {
+            command: "export OPTIEX_PLAYWRIGHT_BASE_URL=http://localhost:5055 OPTIEX_PLAYWRIGHT_CONF_CONNECTION_STRING='Data Source=localhost' && RESULTS_DIR='Optimizer.PlaywrightTests/TestResults/iterationX' && TRX_NAME='iterationX.trx' && python3 -c \"print('RERUN_START'); print('RERUN_END')\" && perl -e 'alarm shift; exec @ARGV' 900 /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --logger \"trx;LogFileName=$TRX_NAME\" --results-directory \"$RESULTS_DIR\"",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("without explicit rerun coverage accounting")
   })
 
   test("blocks direct curl to Bamboo result endpoints", async () => {
