@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach, vi, mock } from "bun:test"
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { OhMyOpenCodeConfig } from "../../config"
@@ -11,6 +11,7 @@ import {
   prepareIsolatedRunDataHome,
   resolveRunAgent,
   resolveRunPromptAgent,
+  shouldResumePollingAfterPromptFailure,
   shouldRecoverRunTransportError,
   shouldUseIsolatedRunDataHome,
   waitForEventProcessorShutdown,
@@ -328,5 +329,44 @@ describe("run isolated data home", () => {
     }
 
     expect(process.env.XDG_DATA_HOME).toBe(fakePreferredDataHome)
+  })
+})
+
+describe("shouldResumePollingAfterPromptFailure", () => {
+  it("resumes polling when promptAsync aborts after the session already armed recovery", async () => {
+    // given
+    const ctx = {
+      client: {
+        session: {
+          status: vi.fn(async () => ({
+            data: {
+              "ses_test": { type: "busy" },
+            },
+          })),
+          todo: vi.fn(async () => ({ data: [] })),
+          children: vi.fn(async () => ({ data: [] })),
+          messages: vi.fn(async () => ({ data: [] })),
+        },
+      },
+      sessionID: "ses_test",
+      directory: "/tmp/test",
+      abortController: new AbortController(),
+    } as any
+
+    // when
+    const result = await shouldResumePollingAfterPromptFailure(
+      ctx,
+      {
+        hasReceivedMeaningfulWork: false,
+        currentTool: null,
+        pendingSameModelRecovery: true,
+        mainSessionError: false,
+      },
+      new Error("Aborted"),
+      { attempts: 1, delayMs: 1 },
+    )
+
+    // then
+    expect(result).toBe(true)
   })
 })

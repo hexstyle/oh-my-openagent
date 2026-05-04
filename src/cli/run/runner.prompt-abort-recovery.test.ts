@@ -1,43 +1,53 @@
 import { afterEach, describe, expect, it, mock } from "bun:test"
 
-async function* createEmptyEventStream(): AsyncIterable<unknown> {}
-
-describe("run telemetry isolation", () => {
+describe("run prompt abort recovery", () => {
   afterEach(() => {
     mock.restore()
   })
 
-  it("does not crash CLI run when telemetry throws", async () => {
+  it("continues into polling when promptAsync aborts after the launched turn is still busy", async () => {
     // given
+    const promptAsync = mock(async () => {
+      throw new Error("Aborted")
+    })
+    const pollForCompletion = mock(async () => 0)
+    const cleanup = mock(() => {})
+
     mock.module("../../plugin-config", () => ({
       loadPluginConfig: mock(() => ({})),
     }))
     mock.module("./agent-resolver", () => ({
-      resolveRunAgent: mock(() => "Sisyphus - Ultraworker"),
-      resolveRunPromptAgent: mock(() => "Sisyphus - Ultraworker"),
+      resolveRunAgent: mock(() => "Sisyphus (Ultraworker)"),
+      resolveRunPromptAgent: mock(() => "Sisyphus (Ultraworker)"),
     }))
     mock.module("./server-connection", () => ({
       createServerConnection: mock(async () => ({
         client: {
           event: {
-            subscribe: mock(async () => ({ stream: createEmptyEventStream() })),
+            subscribe: mock(async () => ({
+              stream: (async function* () {})(),
+            })),
           },
           session: {
-            promptAsync: mock(async () => undefined),
+            promptAsync,
+            status: mock(async () => ({
+              data: {
+                ses_test: { type: "busy" },
+              },
+            })),
+            todo: mock(async () => ({ data: [] })),
+            children: mock(async () => ({ data: [] })),
+            messages: mock(async () => ({ data: [] })),
           },
         },
-        cleanup: mock(() => {}),
+        cleanup,
       })),
     }))
     mock.module("./session-resolver", () => ({
       resolveSession: mock(async () => "ses_test"),
     }))
     mock.module("./json-output", () => ({
-      createJsonOutputManager: mock(() => ({
-        redirectToStderr: mock(() => {}),
-        restore: mock(() => {}),
-        emitResult: mock(() => {}),
-      })),
+      createJsonOutputManager: mock(() => null),
     }))
     mock.module("./on-complete-hook", () => ({
       executeOnCompleteHook: mock(async () => {}),
@@ -46,7 +56,7 @@ describe("run telemetry isolation", () => {
       resolveRunModel: mock(() => null),
     }))
     mock.module("./poll-for-completion", () => ({
-      pollForCompletion: mock(async () => 0),
+      pollForCompletion,
     }))
     mock.module("./agent-profile-colors", () => ({
       loadAgentProfileColors: mock(async () => ({})),
@@ -60,26 +70,16 @@ describe("run telemetry isolation", () => {
         restore: mock(() => {}),
       })),
     }))
-    mock.module("../../shared/posthog", () => ({
-      createCliPostHog: mock(() => ({
-        trackActive: () => {
-          throw new Error("telemetry failed")
-        },
-        capture: mock(() => {}),
-        captureException: mock(() => {}),
-        shutdown: mock(async () => {
-          throw new Error("shutdown failed")
-        }),
-      })),
-      getPostHogDistinctId: mock(() => "run-distinct-id"),
-    }))
 
-    const { run } = await import(`./runner?telemetry=${Date.now()}-${Math.random()}`)
+    const { run } = await import(`./runner?prompt-abort-recovery=${Date.now()}-${Math.random()}`)
 
     // when
     const result = await run({ message: "test" })
 
     // then
     expect(result).toBe(0)
+    expect(promptAsync).toHaveBeenCalledTimes(1)
+    expect(pollForCompletion).toHaveBeenCalledTimes(1)
+    expect(cleanup).toHaveBeenCalled()
   })
 })

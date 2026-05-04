@@ -19,6 +19,8 @@ import { CONTINUATION_PROMPT, DEFAULT_CONFIG as RUNTIME_FALLBACK_DEFAULT_CONFIG 
 import { getRuntimeFallbackAction, isSameModelRetryAction } from "../../hooks/runtime-fallback/fallback-policy"
 import { createInternalAgentTextPart } from "../../shared/internal-initiator-marker"
 import { getPreferredDataDir } from "../../shared/data-path"
+import { checkCompletionConditions } from "./completion"
+import { normalizeSDKResponse } from "../../shared"
 
 export { resolveRunAgent, resolveRunPromptAgent }
 
@@ -122,6 +124,93 @@ export async function waitForEventProcessorShutdown(
   void completed
 }
 
+async function getRunSessionStatus(
+  ctx: RunContext,
+): Promise<"idle" | "busy" | "retry" | null> {
+  try {
+    const statusesRes = await ctx.client.session.status({
+      query: { directory: ctx.directory },
+    })
+    const statuses = normalizeSDKResponse(
+      statusesRes,
+      {} as Record<string, { type?: string }>
+    )
+    const status = statuses[ctx.sessionID]?.type
+    if (status === "idle" || status === "busy" || status === "retry") {
+      return status
+    }
+  } catch {
+  }
+
+  return null
+}
+
+function isPromptAbortRecoveryCandidate(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  if (error.name === "AbortError" || error.name === "MessageAbortedError") {
+    return true
+  }
+
+  return /\baborted\b/i.test(serializeError(error))
+}
+
+export async function shouldResumePollingAfterPromptFailure(
+  ctx: RunContext,
+  eventState: {
+    hasReceivedMeaningfulWork: boolean
+    currentTool: string | null
+    pendingSameModelRecovery: boolean
+    mainSessionError: boolean
+  },
+  error: unknown,
+  options: {
+    attempts?: number
+    delayMs?: number
+  } = {},
+): Promise<boolean> {
+  if (!isPromptAbortRecoveryCandidate(error)) {
+    return false
+  }
+
+  const attempts = options.attempts ?? 6
+  const delayMs = options.delayMs ?? 500
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (
+      eventState.currentTool !== null
+      || eventState.pendingSameModelRecovery
+      || eventState.mainSessionError
+    ) {
+      return true
+    }
+
+    const status = await getRunSessionStatus(ctx)
+    if (status === "busy" || status === "retry") {
+      return true
+    }
+
+    if (eventState.hasReceivedMeaningfulWork) {
+      const settled = await checkCompletionConditions(ctx)
+      if (!settled) {
+        return true
+      }
+    }
+
+    if (attempt + 1 < attempts) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
+    }
+  }
+
+  // If promptAsync reached an abort-style failure, the server often already has
+  // a live session turn (or a recovery prompt_async) in flight. Returning to
+  // the poller is safer than terminating the direct run client here, because
+  // completion/recovery logic can still prove the session idle or failed later.
+  return true
+}
+
 export async function run(options: RunOptions): Promise<number> {
   process.env.OPENCODE_CLI_RUN_MODE = "true"
   process.env.OPENCODE_CLIENT = "run"
@@ -222,6 +311,17 @@ export async function run(options: RunOptions): Promise<number> {
           exitCode = await pollForCompletion(ctx, eventState, abortController)
           break
         } catch (err) {
+          const shouldResumePolling = await shouldResumePollingAfterPromptFailure(
+            ctx,
+            eventState,
+            err,
+          )
+          if (shouldResumePolling) {
+            promptDelivered = true
+            exitCode = await pollForCompletion(ctx, eventState, abortController)
+            break
+          }
+
           const recoveryPolicy = getRunTransportRecoveryPolicy(err)
           if (
             transportRecoveryAttempts >= recoveryPolicy.maxAttempts
