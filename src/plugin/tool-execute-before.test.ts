@@ -473,6 +473,107 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("blocks post-dirty-batch exploration after the narrow source-pass budget is exhausted", async () => {
+    const sessionID = "ses_ci_exploration_budget"
+    setSessionFlag(sessionID, "ci-fast-path")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    for (let index = 0; index < 12; index += 1) {
+      await expect(
+        handler(
+          { tool: "grep", sessionID, callID: `call_ci_exploration_${index}` },
+          {
+            args: {
+              pattern: "FillDialogInputAsync",
+              path: "Optimizer.PlaywrightTests",
+            } as Record<string, unknown>,
+          },
+        ),
+      ).resolves.toBeUndefined()
+    }
+
+    await expect(
+      handler(
+        { tool: "glob", sessionID, callID: "call_ci_exploration_over_budget" },
+        {
+          args: {
+            pattern: "**/PlaywrightAppTestBase.cs",
+            path: ".",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("Post-dirty-batch exploration budget is exhausted")
+
+    clearSessionTools()
+  })
+
+  test("clears the post-dirty-batch exploration budget after forward progress", async () => {
+    const sessionID = "ses_ci_exploration_budget_reset"
+    setSessionFlag(sessionID, "ci-fast-path")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    for (let index = 0; index < 12; index += 1) {
+      await expect(
+        handler(
+          { tool: "grep", sessionID, callID: `call_ci_budget_reset_${index}` },
+          {
+            args: {
+              pattern: "FillDialogInputAsync",
+              path: "Optimizer.PlaywrightTests",
+            } as Record<string, unknown>,
+          },
+        ),
+      ).resolves.toBeUndefined()
+    }
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID, callID: "call_ci_budget_forward_progress" },
+        {
+          args: {
+            command: "dotnet build Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).resolves.toBeUndefined()
+
+    await expect(
+      handler(
+        { tool: "glob", sessionID, callID: "call_ci_budget_after_progress" },
+        {
+          args: {
+            pattern: "**/PlaywrightAppTestBase.cs",
+            path: ".",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).resolves.toBeUndefined()
+
+    clearSessionTools()
+  })
+
   test("blocks evidence-only git diff reflection after dirty-batch inspection and before forward progress", async () => {
     const sessionID = "ses_ci_evidence_diff_reflection"
     setSessionFlag(sessionID, "ci-evidence-core-read")

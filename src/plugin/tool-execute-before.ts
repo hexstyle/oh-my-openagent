@@ -36,6 +36,7 @@ export function createToolExecuteBeforeHandler(args: {
   const CI_FORWARD_PROGRESS_FLAG = "ci-forward-progress"
   const CI_PLAYWRIGHT_PREFLIGHT_READY_FLAG = "ci-playwright-preflight-ready"
   const dirtyBatchCodeReadCounts = new Map<string, Map<string, number>>()
+  const postDirtyBatchExplorationCounts = new Map<string, number>()
 
   function getStringArg(argsObject: Record<string, unknown>, keys: string[]): string | undefined {
     for (const key of keys) {
@@ -584,6 +585,31 @@ export function createToolExecuteBeforeHandler(args: {
     dirtyBatchCodeReadCounts.delete(sessionID)
   }
 
+  function trackPostDirtyBatchExploration(sessionID: string): number {
+    const nextCount = (postDirtyBatchExplorationCounts.get(sessionID) ?? 0) + 1
+    postDirtyBatchExplorationCounts.set(sessionID, nextCount)
+    return nextCount
+  }
+
+  function clearPostDirtyBatchExploration(sessionID: string): void {
+    postDirtyBatchExplorationCounts.delete(sessionID)
+  }
+
+  function isPostDirtyBatchExplorationAttempt(
+    toolName: string,
+    argsObject: Record<string, unknown>,
+  ): boolean {
+    if (toolName === "read") {
+      return getCodeReadPath(toolName, argsObject) !== undefined
+    }
+
+    return (
+      toolName === "grep"
+      || toolName === "glob"
+      || toolName === "lsp_diagnostics"
+    )
+  }
+
   function trackDirtyBatchCodeRead(sessionID: string, filePath: string): number {
     const sessionCounts = dirtyBatchCodeReadCounts.get(sessionID) ?? new Map<string, number>()
     const nextCount = (sessionCounts.get(filePath) ?? 0) + 1
@@ -710,6 +736,7 @@ export function createToolExecuteBeforeHandler(args: {
     if (isForwardProgressAttempt(normalizedToolName, output.args)) {
       setSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
       clearDirtyBatchReadCounts(input.sessionID)
+      clearPostDirtyBatchExploration(input.sessionID)
     }
 
     const codeReadPath = getCodeReadPath(normalizedToolName, output.args)
@@ -723,6 +750,20 @@ export function createToolExecuteBeforeHandler(args: {
       if (readCount > 4) {
         throw new Error(
           `[tool-execute-before] Repeated dirty-batch code rereads are blocked for CI fast-path session ${input.sessionID}. ${codeReadPath} has already been read ${readCount - 1} times since the current dirty-batch inspection. Move to an edit, bounded rerun, build/test step, or evidence update instead of rereading the same file again.`,
+        )
+      }
+    }
+
+    if (
+      hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
+      && hasSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
+      && !hasSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
+      && isPostDirtyBatchExplorationAttempt(normalizedToolName, output.args)
+    ) {
+      const explorationCount = trackPostDirtyBatchExploration(input.sessionID)
+      if (explorationCount > 12) {
+        throw new Error(
+          `[tool-execute-before] Post-dirty-batch exploration budget is exhausted for CI fast-path session ${input.sessionID}. ${normalizedToolName} would be exploration step ${explorationCount} since the current dirty-batch inspection. Move to an edit, bounded rerun, build/test step, Claude review, or evidence write instead of continuing source-pass exploration.`,
         )
       }
     }
