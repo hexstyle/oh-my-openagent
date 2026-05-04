@@ -536,6 +536,29 @@ export function createToolExecuteBeforeHandler(args: {
     }
   }
 
+  function validateShellToolMimicCommand(command: string, sessionID: string): void {
+    const normalized = command.replace(/\s+/g, " ").trim()
+    if (!normalized) {
+      return
+    }
+
+    const lower = normalized.toLowerCase()
+    const shellToolMimics = [
+      "task",
+      "teammate",
+      "call_omo_agent",
+      "review-work",
+    ]
+
+    for (const name of shellToolMimics) {
+      if (lower === name || lower.startsWith(`${name} `) || lower.startsWith(`${name}(`)) {
+        throw new Error(
+          `[tool-execute-before] Refusing shell command "${name}" for session ${sessionID}. ${name} must be invoked as an OpenCode tool call, not as a bash command.`,
+        )
+      }
+    }
+  }
+
   function buildUltraworkOracleVerificationPrompt(prompt: string, originalTask: string, verificationAttemptId: string): string {
     const verificationPrompt = [
       "You are verifying the active ULTRAWORK loop result for this session.",
@@ -808,6 +831,7 @@ export function createToolExecuteBeforeHandler(args: {
 
       validateBambooBashCommand(normalizedCommand, input.sessionID)
       validateLocalContourBashCommand(normalizedCommand, input.sessionID)
+      validateShellToolMimicCommand(normalizedCommand, input.sessionID)
     }
 
     await hooks.writeExistingFileGuard?.["tool.execute.before"]?.(input, output)

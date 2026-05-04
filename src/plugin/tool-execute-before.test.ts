@@ -208,6 +208,27 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("blocks shell attempts to invoke task as a bash command", async () => {
+    const sessionID = "ses_shell_task_mimic"
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID, callID: "call_shell_task" },
+        { args: { command: "task category=\"deep\" prompt='fix it'" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow('Refusing shell command "task"')
+  })
+
   test("allows non-tracker reads after CI evidence materialization", async () => {
     const sessionID = "ses_ci_non_tracker_read"
     setSessionFlag(sessionID, "ci-evidence-materialized")
