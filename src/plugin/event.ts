@@ -2438,6 +2438,172 @@ async function maybeRecoverPrometheusAbortedToolWrapper(
   return false;
 }
 
+async function maybeRecoverSisyphusCiAbortedToolWrapper(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "message.updated.error",
+  eventError?: unknown,
+): Promise<boolean> {
+  const cachedSnapshot = getAssistantRecoverySnapshot(sessionID, expectedMessageID);
+  const cachedAgent = cachedSnapshot?.agent ?? getSessionAgent(sessionID);
+  const tryCachedSnapshotRecovery = async (reason: string): Promise<boolean> => {
+    if (!cachedSnapshot) {
+      return false;
+    }
+
+    return resumeCachedPendingSisyphusToolRecovery(
+      ctx,
+      sessionID,
+      `${source}:${reason}`,
+      cachedSnapshot,
+      cachedAgent,
+      "cached aborted-tool wrapper for Sisyphus CI tool call",
+    );
+  };
+
+  const session = ctx.client["session"] as {
+    messages?: (args: { path: { id: string } }) => Promise<unknown>;
+    abort?: (args: { path: { id: string } }) => Promise<unknown>;
+    promptAsync?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+    prompt?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+  } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    log("[event] sisyphus CI aborted-tool wrapper recovery skipped: session.messages unavailable", { sessionID, source });
+    return tryCachedSnapshotRecovery("session-messages-unavailable");
+  }
+
+  let response: unknown;
+  try {
+    response = await readMessages({
+      path: { id: sessionID },
+    });
+  } catch (error) {
+    log("[event] sisyphus CI aborted-tool wrapper recovery skipped: session.messages failed", {
+      sessionID,
+      source,
+      error,
+    });
+    return tryCachedSnapshotRecovery("session-messages-failed");
+  }
+
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = getMessageID(lastMessage);
+  const lastMessageError = getMessageError(lastMessage);
+  const wrapperError = lastMessageError ?? eventError;
+  const wrapperErrorName = extractErrorName(wrapperError);
+  const wrapperErrorText = extractErrorMessage(wrapperError).toLowerCase();
+
+  if (!lastMessageID) {
+    return tryCachedSnapshotRecovery("missing-latest-message");
+  }
+  if (expectedMessageID && lastMessageID !== expectedMessageID) {
+    const recoveredFromRace = await tryCachedSnapshotRecovery("pending-persisted-error");
+    if (recoveredFromRace) {
+      return true;
+    }
+    return false;
+  }
+  if (getMessageRole(lastMessage) !== "assistant") return false;
+  if (
+    wrapperErrorName !== "MessageAbortedError"
+    && !wrapperErrorText.includes("aborted")
+  ) {
+    return false;
+  }
+
+  if (await tryCachedSnapshotRecovery("persisted-error")) {
+    return true;
+  }
+
+  const lastEvidenceGatedUser = findLastUserMessageMatching(
+    messages as RecoveryMessage[],
+    (message) => messageIndicatesEvidenceGatedCi(message),
+  );
+  const lastUser = lastEvidenceGatedUser ?? findLastUserMessage(messages as never);
+  if (!messageIndicatesEvidenceGatedCi(lastUser as RecoveryMessage | undefined)) {
+    return false;
+  }
+
+  const recoverCandidate = async (
+    candidate: RecoveryMessage,
+    candidateID: string,
+    errorMessageID: string,
+  ): Promise<boolean> => {
+    const candidateAgent = getMessageAgent(candidate);
+    if (!isSisyphusExecutorAgent(candidateAgent)) {
+      return false;
+    }
+
+    const pendingTool = findRecoverablePendingSisyphusCiTool(candidate.parts);
+    if (!pendingTool) {
+      return false;
+    }
+
+    const lastRecoveredMessageID = recoveredPendingEmptySisyphusToolMessageBySession.get(sessionID);
+    if (lastRecoveredMessageID === candidateID) {
+      log("[event] sisyphus CI aborted-tool wrapper recovery skipped: prior broken tool already recovered", {
+        sessionID,
+        source,
+        candidateID,
+      });
+      return false;
+    }
+
+    const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+    resumeConfig.directory = ctx.directory;
+    resumeConfig.continuationText = SISYPHUS_CI_EMPTY_TOOL_RECOVERY_TEXT;
+    const resumed = await resumeRecoveredPrometheusSession(
+      ctx,
+      sessionID,
+      SISYPHUS_CI_EMPTY_TOOL_RECOVERY_TEXT,
+      resumeConfig,
+      session as RecoveryResumeSessionApi | undefined,
+    );
+
+    if (resumed) {
+      recoveredPendingEmptySisyphusToolMessageBySession.set(sessionID, candidateID);
+      log("[event] recovered aborted-tool wrapper for Sisyphus CI tool call", {
+        sessionID,
+        source,
+        candidateID,
+        errorMessageID,
+        tool: pendingTool.tool,
+      });
+      return true;
+    }
+
+    return false;
+  };
+
+  for (let index = messages.length - 2; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    const candidateID = getMessageID(candidate);
+    if (!candidateID || getMessageRole(candidate) !== "assistant") {
+      continue;
+    }
+
+    const recovered = await recoverCandidate(candidate, candidateID, lastMessageID);
+    if (recovered) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function applyUserConfiguredFallbackChain(
   sessionID: string,
   agentName: string,
@@ -2889,6 +3055,16 @@ export function createEventHandler(args: {
       return true;
     }
 
+    const recoveredSisyphusAbortedWrapper = await maybeRecoverSisyphusCiAbortedToolWrapper(
+      pluginContext,
+      sessionID,
+      undefined,
+      source,
+    );
+    if (recoveredSisyphusAbortedWrapper) {
+      return true;
+    }
+
     const recoveredPlannerReasoningOnly = await maybeRecoverPrometheusReasoningOnlyAssistantMessage(
       pluginContext,
       sessionID,
@@ -3075,11 +3251,23 @@ export function createEventHandler(args: {
       ) {
         clearEmptyAssistantRecoveryTimer(sessionID);
         clearAbortedToolRecoveryTimer(sessionID);
-        if (isRuntimeFallbackEnabled) {
-          return;
-        }
 
         try {
+          const recoveredSisyphusAbortedWrapper = await maybeRecoverSisyphusCiAbortedToolWrapper(
+            pluginContext,
+            sessionID,
+            assistantMessageID,
+            "message.updated.error",
+            assistantError,
+          );
+          if (recoveredSisyphusAbortedWrapper) {
+            return;
+          }
+
+          if (isRuntimeFallbackEnabled) {
+            return;
+          }
+
           const recoveredAbortedWrapper = await maybeRecoverPrometheusAbortedToolWrapper(
             pluginContext,
             sessionID,
@@ -3405,8 +3593,22 @@ export function createEventHandler(args: {
           args.pluginConfig.experimental?.auto_resume
           && sessionID
           && !hooks.stopContinuationGuard?.isStopped(sessionID)
-          && !isRuntimeFallbackEnabled
         ) {
+          const recoveredSisyphusAbortedWrapper = await maybeRecoverSisyphusCiAbortedToolWrapper(
+            pluginContext,
+            sessionID,
+            (props?.messageID as string | undefined) ?? (props?.messageId as string | undefined),
+            "session.error",
+            error,
+          );
+          if (recoveredSisyphusAbortedWrapper) {
+            return;
+          }
+
+          if (isRuntimeFallbackEnabled) {
+            return;
+          }
+
           const recoveredAbortedWrapper = await maybeRecoverPrometheusAbortedToolWrapper(
             pluginContext,
             sessionID,

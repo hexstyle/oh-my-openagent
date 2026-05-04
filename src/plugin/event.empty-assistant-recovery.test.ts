@@ -868,6 +868,97 @@ describe("createEventHandler idle empty assistant recovery", () => {
     })
   })
 
+  test("recovers sisyphus CI aborted tool wrappers and resumes the bounded rerun chain", async () => {
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_sisyphus_ci_aborted_wrapper",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nCurrent build evidence is on disk; continue the unified edit batch and bounded rerun.",
+        }],
+      },
+      {
+        info: {
+          id: "msg_pending_bash_sisyphus_ci_aborted_wrapper",
+          role: "assistant",
+          agent: "Sisyphus (Ultraworker)",
+          finish: "tool-calls",
+        },
+        parts: [
+          {
+            type: "step-start",
+          },
+          {
+            type: "reasoning",
+            text: "I should now run the bounded verify wrapper for the current unified batch.",
+          },
+          {
+            type: "tool",
+            tool: "bash",
+            raw: "",
+            state: { status: "pending", input: {} },
+          },
+        ],
+      },
+      {
+        info: {
+          id: "msg_aborted_wrapper_sisyphus_ci",
+          role: "assistant",
+          agent: "Sisyphus (Ultraworker)",
+          error: {
+            name: "MessageAbortedError",
+            message: "Aborted",
+          },
+        },
+        parts: [],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_aborted_wrapper_sisyphus_ci",
+            sessionID: "ses_aborted_wrapper_sisyphus_ci",
+            role: "assistant",
+            agent: "Sisyphus (Ultraworker)",
+            error: {
+              name: "MessageAbortedError",
+              message: "Aborted",
+            },
+          },
+        },
+      },
+    } as const)
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_aborted_wrapper_sisyphus_ci" },
+      body: expect.objectContaining({
+        agent: "Atlas (Plan Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining("previous CI tool call was emitted without the required arguments"),
+          }),
+        ]),
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
   test("recovers delayed sisyphus CI reasoning-only turns even after an internal compaction user message", async () => {
     jest.useFakeTimers()
 
