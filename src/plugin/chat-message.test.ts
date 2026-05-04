@@ -227,8 +227,6 @@ describe("createChatMessageHandler - start-work integration", () => {
 
     expect(hasSessionFlag("session-direct-ci-evidence", "ci-fast-path")).toBe(true)
     expect(getSessionTools("session-direct-ci-evidence")).toEqual({
-      task: false,
-      "task_*": false,
       skill: false,
       skill_mcp: false,
       teammate: false,

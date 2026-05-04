@@ -72,8 +72,6 @@ function applyDirectCiEvidenceModeRestrictions(
   const tools = (output.message["tools"] as Record<string, unknown> | undefined) ?? {}
   output.message["tools"] = {
     ...tools,
-    task: false,
-    "task_*": false,
     skill: false,
     skill_mcp: false,
     teammate: false,
