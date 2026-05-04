@@ -389,6 +389,49 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("blocks a second canonical planner bootstrap pass before task delegation", async () => {
+    const sessionID = "ses_ci_planner_bootstrap_reread"
+    setSessionFlag(sessionID, "ci-fast-path")
+    setSessionFlag(sessionID, "ci-evidence-core-read")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    const allowedBootstrapReads = [
+      "/repo/.sisyphus/boulder.json",
+      "/repo/.sisyphus/plans/ci-green-build332-fix.md",
+      "/repo/.sisyphus/evidence/ci-loop-checkpoint.md",
+      "/repo/.sisyphus/evidence/repair-log.md",
+      "/repo/.sisyphus/evidence/build-332-analysis.md",
+    ]
+
+    for (const [index, filePath] of allowedBootstrapReads.entries()) {
+      await expect(
+        handler(
+          { tool: "read", sessionID, callID: `call_bootstrap_read_${index}` },
+          { args: { filePath } as Record<string, unknown> },
+        ),
+      ).resolves.toBeUndefined()
+    }
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_bootstrap_read_repeat" },
+        { args: { filePath: "/repo/.sisyphus/boulder.json" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow("Core CI evidence rereads are blocked")
+
+    clearSessionTools()
+  })
+
   test("marks dirty-batch inspection on first product-code read after core evidence pass in ci fast-path", async () => {
     const sessionID = "ses_ci_dirty_batch_from_code_read"
     setSessionFlag(sessionID, "ci-fast-path")

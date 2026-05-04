@@ -36,8 +36,10 @@ export function createToolExecuteBeforeHandler(args: {
   const CI_FORWARD_PROGRESS_FLAG = "ci-forward-progress"
   const CI_PLAYWRIGHT_PREFLIGHT_READY_FLAG = "ci-playwright-preflight-ready"
   const POST_DIRTY_BATCH_EXPLORATION_BUDGET = 6
+  const PLANNER_BOOTSTRAP_EVIDENCE_READ_BUDGET = 5
   const dirtyBatchCodeReadCounts = new Map<string, Map<string, number>>()
   const postDirtyBatchExplorationCounts = new Map<string, number>()
+  const plannerBootstrapEvidenceReadCounts = new Map<string, number>()
 
   function getStringArg(argsObject: Record<string, unknown>, keys: string[]): string | undefined {
     for (const key of keys) {
@@ -83,6 +85,16 @@ export function createToolExecuteBeforeHandler(args: {
       || /\.sisyphus\/evidence\/build-\d+.*\.md$/i.test(filePath)
       || /\.sisyphus\/plans\/ci-green-build\d+.*\.md$/i.test(filePath)
     )
+  }
+
+  function isPlannerBootstrapEvidenceReadAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
+    if (isCoreEvidenceReadAttempt(toolName, argsObject)) {
+      return true
+    }
+
+    if (toolName !== "read") return false
+    const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
+    return typeof filePath === "string" && filePath.includes(".sisyphus/boulder.json")
   }
 
   function isDirectoryReadAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
@@ -620,6 +632,16 @@ export function createToolExecuteBeforeHandler(args: {
     postDirtyBatchExplorationCounts.delete(sessionID)
   }
 
+  function clearPlannerBootstrapEvidenceReads(sessionID: string): void {
+    plannerBootstrapEvidenceReadCounts.delete(sessionID)
+  }
+
+  function trackPlannerBootstrapEvidenceRead(sessionID: string): number {
+    const nextCount = (plannerBootstrapEvidenceReadCounts.get(sessionID) ?? 0) + 1
+    plannerBootstrapEvidenceReadCounts.set(sessionID, nextCount)
+    return nextCount
+  }
+
   function isPostDirtyBatchExplorationAttempt(
     toolName: string,
     argsObject: Record<string, unknown>,
@@ -673,8 +695,26 @@ export function createToolExecuteBeforeHandler(args: {
       throw new Error(blockedCiFastPathToolMessage)
     }
 
+    if (normalizedToolName === "task") {
+      clearPlannerBootstrapEvidenceReads(input.sessionID)
+    }
+
     if (isStandalonePlaywrightPreflightAttempt(normalizedToolName, output.args)) {
       setSessionFlag(input.sessionID, CI_PLAYWRIGHT_PREFLIGHT_READY_FLAG)
+    }
+
+    if (
+      hasSessionFlag(input.sessionID, CI_EVIDENCE_CORE_READ_FLAG)
+      && !hasSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
+      && !hasSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
+      && isPlannerBootstrapEvidenceReadAttempt(normalizedToolName, output.args)
+    ) {
+      const plannerBootstrapReadCount = trackPlannerBootstrapEvidenceRead(input.sessionID)
+      if (plannerBootstrapReadCount > PLANNER_BOOTSTRAP_EVIDENCE_READ_BUDGET) {
+        throw new Error(
+          `[tool-execute-before] Core CI evidence rereads are blocked for session ${input.sessionID} after the canonical planner bootstrap pass. Emit the task delegation or continue the active executor handoff instead of rereading boulder/plan/checkpoint/repair-log/build-analysis again.`,
+        )
+      }
     }
 
     if (
@@ -773,12 +813,14 @@ export function createToolExecuteBeforeHandler(args: {
 
     if (isDirtyBatchInspectionAttempt(normalizedToolName, output.args)) {
       setSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
+      clearPlannerBootstrapEvidenceReads(input.sessionID)
     }
 
     if (isForwardProgressAttempt(normalizedToolName, output.args)) {
       setSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
       clearDirtyBatchReadCounts(input.sessionID)
       clearPostDirtyBatchExploration(input.sessionID)
+      clearPlannerBootstrapEvidenceReads(input.sessionID)
     }
 
     const codeReadPath = getCodeReadPath(normalizedToolName, output.args)
@@ -789,6 +831,7 @@ export function createToolExecuteBeforeHandler(args: {
       && !hasSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
     ) {
       setSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
+      clearPlannerBootstrapEvidenceReads(input.sessionID)
     }
 
     if (
