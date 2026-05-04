@@ -87,6 +87,82 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("blocks task in ci fast-path before forward progress", async () => {
+    const sessionID = "ses_ci_task_before_progress"
+    setSessionFlag(sessionID, "ci-fast-path")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "task", sessionID, callID: "call_task_before_progress" },
+        { args: { prompt: "consult oracle" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow('Tool "task" is blocked for CI fast-path session')
+
+    clearSessionTools()
+  })
+
+  test("allows task in ci fast-path after forward progress", async () => {
+    const sessionID = "ses_ci_task_after_progress"
+    setSessionFlag(sessionID, "ci-fast-path")
+    setSessionFlag(sessionID, "ci-forward-progress")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "task", sessionID, callID: "call_task_after_progress" },
+        { args: { prompt: "claude review" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
+    clearSessionTools()
+  })
+
+  test("blocks skill in ci fast-path even without stored session tools", async () => {
+    const sessionID = "ses_ci_skill_block"
+    setSessionFlag(sessionID, "ci-fast-path")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "skill", sessionID, callID: "call_skill_block" },
+        { args: { name: "/review-work" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow('Tool "skill" is blocked for CI fast-path session')
+
+    clearSessionTools()
+  })
+
   test("blocks empty bash commands before execution", async () => {
     const handler = createToolExecuteBeforeHandler({
       ctx: {

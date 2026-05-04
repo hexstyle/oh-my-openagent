@@ -514,6 +514,32 @@ export function createToolExecuteBeforeHandler(args: {
     return `${prompt ? `${prompt}\n\n` : ""}${verificationPrompt}`
   }
 
+  function getBlockedCiFastPathToolMessage(sessionID: string, toolName: string): string | undefined {
+    if (!hasSessionFlag(sessionID, CI_FAST_PATH_FLAG)) {
+      return undefined
+    }
+
+    const alwaysBlockedTools = new Set([
+      "call_omo_agent",
+      "session_search",
+      "skill",
+      "skill_mcp",
+      "todoread",
+      "todowrite",
+      "webfetch",
+    ])
+    if (alwaysBlockedTools.has(toolName)) {
+      return `[tool-execute-before] Tool "${toolName}" is blocked for CI fast-path session ${sessionID}. Stay on canonical evidence, source slices, bounded verify, mandatory Claude review, and push; do not detour through ${toolName}.`
+    }
+
+    const preProgressBlockedTools = new Set(["task", "teammate"])
+    if (preProgressBlockedTools.has(toolName) && !hasSessionFlag(sessionID, CI_FORWARD_PROGRESS_FLAG)) {
+      return `[tool-execute-before] Tool "${toolName}" is blocked for CI fast-path session ${sessionID} before forward progress. First make real progress with evidence writes, code edits, build/test verification, or a bounded rerun; only then may you consider review/delegation steps.`
+    }
+
+    return undefined
+  }
+
   return async (input, output): Promise<void> => {
     if (isSessionToolDisabled(input.sessionID, input.tool)) {
       throw new Error(
@@ -522,6 +548,10 @@ export function createToolExecuteBeforeHandler(args: {
     }
 
     const normalizedToolName = input.tool.toLowerCase()
+    const blockedCiFastPathToolMessage = getBlockedCiFastPathToolMessage(input.sessionID, normalizedToolName)
+    if (blockedCiFastPathToolMessage) {
+      throw new Error(blockedCiFastPathToolMessage)
+    }
 
     if (isStandalonePlaywrightPreflightAttempt(normalizedToolName, output.args)) {
       setSessionFlag(input.sessionID, CI_PLAYWRIGHT_PREFLIGHT_READY_FLAG)

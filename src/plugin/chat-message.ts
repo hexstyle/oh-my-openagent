@@ -4,7 +4,7 @@ import type { PluginContext } from "./types"
 import { hasConnectedProvidersCache, log } from "../shared"
 import { normalizePromptTools } from "../shared/prompt-tools"
 import { getSessionModel, setSessionModel } from "../shared/session-model-state"
-import { setSessionTools } from "../shared/session-tools-store"
+import { setSessionFlag, setSessionTools } from "../shared/session-tools-store"
 import { getMainSessionID, setSessionAgent, subagentSessions } from "../features/claude-code-session-state"
 import { applyUltraworkModelOverrideOnMessage } from "./ultrawork-model-override"
 import { NATIVE_LOOP_TRIGGERED_FLAG } from "./command-execute-before"
@@ -38,6 +38,52 @@ function isStartWorkHookOutput(value: unknown): value is StartWorkHookOutput {
     const partRecord = part as Record<string, unknown>
     return typeof partRecord["type"] === "string"
   })
+}
+
+function isDirectCiEvidenceModePrompt(parts: ChatMessagePart[]): boolean {
+  const text = parts
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text ?? "")
+    .join("\n")
+    .toLowerCase()
+
+  if (!text.includes(".sisyphus/evidence/")) {
+    return false
+  }
+
+  const ciSignals = [
+    "evidence-gated ci",
+    "ci fix loop",
+    "current failing set",
+    "claude review",
+    "ci-loop-checkpoint",
+    "repair-log",
+    "playwright",
+    "bamboo",
+  ]
+
+  return ciSignals.some((signal) => text.includes(signal))
+}
+
+function applyDirectCiEvidenceModeRestrictions(
+  sessionID: string,
+  output: ChatMessageHandlerOutput,
+): void {
+  const tools = (output.message["tools"] as Record<string, unknown> | undefined) ?? {}
+  output.message["tools"] = {
+    ...tools,
+    task: false,
+    "task_*": false,
+    skill: false,
+    skill_mcp: false,
+    teammate: false,
+    call_omo_agent: false,
+    session_search: false,
+    todowrite: false,
+    todoread: false,
+    webfetch: false,
+  }
+  setSessionFlag(sessionID, "ci-fast-path")
 }
 
 function hasExplicitAgentModelOverride(
@@ -180,6 +226,9 @@ export function createChatMessageHandler(args: {
     await hooks.noHephaestusNonGpt?.["chat.message"]?.(input, output)
     if (hooks.startWork && isStartWorkHookOutput(output)) {
       await hooks.startWork["chat.message"]?.(input, output)
+    }
+    if (isDirectCiEvidenceModePrompt(output.parts)) {
+      applyDirectCiEvidenceModeRestrictions(input.sessionID, output)
     }
     const normalizedTools = normalizePromptTools(
       output.message["tools"] as Record<string, boolean | "allow" | "deny" | "ask"> | undefined,

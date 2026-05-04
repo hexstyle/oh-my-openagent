@@ -11,7 +11,7 @@ import { createAutoSlashCommandHook } from "../hooks/auto-slash-command/hook"
 import { createStartWorkHook } from "../hooks/start-work"
 import { readBoulderState } from "../features/boulder-state"
 import { registerAgentName } from "../features/claude-code-session-state"
-import { clearSessionTools, getSessionTools } from "../shared/session-tools-store"
+import { clearSessionTools, getSessionTools, hasSessionFlag } from "../shared/session-tools-store"
 
 type ChatMessagePart = { type: string; text?: string; [key: string]: unknown }
 type ChatMessageHandlerOutput = { message: Record<string, unknown>; parts: ChatMessagePart[] }
@@ -196,8 +196,47 @@ describe("createChatMessageHandler - start-work integration", () => {
     expect(getSessionTools("session-ci-tools")).toEqual({
       task: false,
       "task_*": false,
+      skill: false,
+      skill_mcp: false,
       teammate: false,
       call_omo_agent: false,
+      session_search: false,
+      todowrite: false,
+      todoread: false,
+      webfetch: false,
+    })
+  })
+
+  test("direct evidence-gated ci prompts inherit ci fast-path restrictions without /start-work", async () => {
+    const handler = createChatMessageHandler(createMockHandlerArgs())
+    const output = {
+      message: {},
+      parts: [{
+        type: "text",
+        text: "Resume an evidence-gated CI fix loop. Use canonical .sisyphus/evidence/repair-log.md and .sisyphus/evidence/ci-loop-checkpoint.md. Cover the current failing set, use bounded Playwright reruns, and run Claude review before push.",
+      }],
+    }
+
+    await handler(
+      {
+        sessionID: "session-direct-ci-evidence",
+        agent: "sisyphus",
+      },
+      output,
+    )
+
+    expect(hasSessionFlag("session-direct-ci-evidence", "ci-fast-path")).toBe(true)
+    expect(getSessionTools("session-direct-ci-evidence")).toEqual({
+      task: false,
+      "task_*": false,
+      skill: false,
+      skill_mcp: false,
+      teammate: false,
+      call_omo_agent: false,
+      session_search: false,
+      todowrite: false,
+      todoread: false,
+      webfetch: false,
     })
   })
 
