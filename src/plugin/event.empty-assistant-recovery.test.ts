@@ -683,6 +683,124 @@ describe("createEventHandler idle empty assistant recovery", () => {
     })
   })
 
+  test("recovers delayed sisyphus CI reasoning-only turns even after an internal compaction user message", async () => {
+    jest.useFakeTimers()
+
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_reasoning_only_sisyphus_ci_compaction",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nCurrent build evidence is on disk; continue the unified edit batch.",
+        }],
+      },
+      {
+        id: "msg_internal_compaction_user",
+        role: "user",
+        parts: [{
+          type: "compaction",
+        }],
+      },
+      {
+        id: "msg_reasoning_only_sisyphus_ci_after_compaction",
+        role: "assistant",
+        agent: "Sisyphus (Ultraworker)",
+        parts: [
+          {
+            type: "step-start",
+          },
+          {
+            type: "reasoning",
+            text: "I have the next constrained edit batch ready and should continue with tool work now.",
+          },
+          {
+            type: "text",
+            text: "",
+          },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_reasoning_only_sisyphus_ci_after_compaction",
+            sessionID: "ses_reasoning_only_sisyphus_ci_after_compaction",
+            role: "assistant",
+            agent: "Sisyphus (Ultraworker)",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part_reasoning_only_sisyphus_ci_after_compaction",
+            sessionID: "ses_reasoning_only_sisyphus_ci_after_compaction",
+            messageID: "msg_reasoning_only_sisyphus_ci_after_compaction",
+            type: "reasoning",
+            text: "I have the next constrained edit batch ready and should continue with tool work now.",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part_empty_text_only_sisyphus_ci_after_compaction",
+            sessionID: "ses_reasoning_only_sisyphus_ci_after_compaction",
+            messageID: "msg_reasoning_only_sisyphus_ci_after_compaction",
+            type: "text",
+            text: "",
+          },
+        },
+      },
+    } as const)
+
+    if (typeof jest.advanceTimersByTimeAsync === "function") {
+      await jest.advanceTimersByTimeAsync(5001)
+    } else {
+      jest.advanceTimersByTime(5001)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_reasoning_only_sisyphus_ci_after_compaction" },
+      body: expect.objectContaining({
+        agent: "Atlas (Plan Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining("evidence-gated CI"),
+          }),
+        ]),
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
   test("recovers and resumes when idle prometheus session ends with a raw-shape reasoning-only assistant turn", async () => {
     //#given
     const handler = createHandler([

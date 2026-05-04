@@ -487,6 +487,24 @@ function assistantMessageHasVisibleContent(parts: RecoveryMessagePart[] | undefi
   return false;
 }
 
+function findLastUserMessageMatching(
+  messages: RecoveryMessage[],
+  predicate: (message: RecoveryMessage) => boolean,
+): RecoveryMessage | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    if (getMessageRole(candidate) !== "user") {
+      continue;
+    }
+
+    if (predicate(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
 async function promptSimpleRecoveryContinuation(
   session: RecoveryResumeSessionApi | undefined,
   sessionID: string,
@@ -1337,7 +1355,11 @@ async function maybeRecoverSisyphusCiReasoningOnlyAssistantMessage(
   if (!assistantMessageHasVisibleContent(lastMessage.parts)) return false;
   if (!assistantMessageHasRecoverablePlannerInternalParts(lastMessage.parts)) return false;
 
-  const lastUser = findLastUserMessage(messages as never);
+  const lastEvidenceGatedUser = findLastUserMessageMatching(
+    messages as RecoveryMessage[],
+    (message) => messageIndicatesEvidenceGatedCi(message),
+  );
+  const lastUser = lastEvidenceGatedUser ?? findLastUserMessage(messages as never);
   if (!messageIndicatesEvidenceGatedCi(lastUser as RecoveryMessage | undefined)) {
     return false;
   }
