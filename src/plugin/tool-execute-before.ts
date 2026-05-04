@@ -160,6 +160,19 @@ export function createToolExecuteBeforeHandler(args: {
     return isEvidenceDiff || isToolOutputReflection
   }
 
+  function isHistoricalSisyphusReadAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
+    if (toolName !== "read") return false
+    const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
+    if (typeof filePath !== "string") {
+      return false
+    }
+
+    return (
+      filePath.includes(".sisyphus/notepads/")
+      || filePath.includes(".sisyphus/run-continuation/")
+    )
+  }
+
   function isForwardProgressAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
     if (toolName === "write" || toolName === "edit") {
       return true
@@ -424,11 +437,23 @@ export function createToolExecuteBeforeHandler(args: {
     }
 
     if (
-      hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
+      (hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
+        || hasSessionFlag(input.sessionID, CI_EVIDENCE_CORE_READ_FLAG))
       && isBroadDirtyBatchDiffAttempt(normalizedToolName, output.args)
     ) {
       throw new Error(
         `[tool-execute-before] Broad dirty-batch git diff output is blocked for CI fast-path session ${input.sessionID}. Inspect the batch with git diff --stat first, then use per-file or otherwise narrow diff slices before verification.`,
+      )
+    }
+
+    if (
+      hasSessionFlag(input.sessionID, CI_EVIDENCE_CORE_READ_FLAG)
+      && hasSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
+      && !hasSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
+      && isHistoricalSisyphusReadAttempt(normalizedToolName, output.args)
+    ) {
+      throw new Error(
+        `[tool-execute-before] Historical .sisyphus note reads are blocked for session ${input.sessionID} after the current evidence pass. Stay on canonical current-build evidence and the active dirty batch instead of reopening notepads/run-continuation history.`,
       )
     }
 

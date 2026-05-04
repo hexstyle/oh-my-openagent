@@ -341,6 +341,32 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("blocks historical .sisyphus/notepads reads after core evidence pass and before forward progress", async () => {
+    const sessionID = "ses_ci_notepad_history_read"
+    setSessionFlag(sessionID, "ci-evidence-core-read")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_notepad_history_read" },
+        { args: { filePath: "/repo/.sisyphus/notepads/ci-green-build313-final/learnings.md" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow("Historical .sisyphus note reads are blocked")
+
+    clearSessionTools()
+  })
+
   test("allows product-code git diff after dirty-batch inspection and before forward progress", async () => {
     const sessionID = "ses_ci_product_diff_allowed"
     setSessionFlag(sessionID, "ci-evidence-core-read")
@@ -388,6 +414,35 @@ describe("createToolExecuteBeforeHandler", () => {
         {
           args: {
             command: "git diff -- Optimizer.PlaywrightTests/CalculationSessionsE2ETests.cs Optimizer.PlaywrightTests/ReportFormTemplatesE2ETests.cs Optimizer.PlaywrightTests/ScenarioE2ETests.cs Optimizer.PlaywrightTests/TaskGroupExecutionE2ETests.cs Optimizer.PlaywrightTests/UserAdministrationE2ETests.cs",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("Broad dirty-batch git diff output is blocked")
+
+    clearSessionTools()
+  })
+
+  test("blocks broad multi-file dirty-batch git diff output after core evidence pass even without fast-path flag", async () => {
+    const sessionID = "ses_ci_broad_diff_after_evidence"
+    setSessionFlag(sessionID, "ci-evidence-core-read")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID, callID: "call_broad_dirty_diff_after_evidence" },
+        {
+          args: {
+            command: "git diff --unified=0 -- Optimizer.PlaywrightTests/CalculationSessionsE2ETests.cs Optimizer.PlaywrightTests/ReportFormTemplatesE2ETests.cs Optimizer.PlaywrightTests/ScenarioE2ETests.cs Optimizer.PlaywrightTests/TaskGroupExecutionE2ETests.cs Optimizer.PlaywrightTests/UserAdministrationE2ETests.cs",
           } as Record<string, unknown>,
         },
       ),
