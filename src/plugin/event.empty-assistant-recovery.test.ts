@@ -1054,6 +1054,96 @@ describe("createEventHandler idle empty assistant recovery", () => {
     })
   })
 
+  test("recovers planner CI bootstrap reread guardrails immediately on the blocked tool turn", async () => {
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_planner_ci_guardrail_immediate",
+          role: "user",
+          agent: "Prometheus (Plan Builder)",
+          model: {
+            providerID: "anthropic",
+            modelID: "claude-opus-4-6",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nThe current CI state is already materialized under .sisyphus/evidence/.",
+        }],
+      },
+      {
+        id: "msg_planner_ci_guardrail_immediate",
+        role: "assistant",
+        agent: "Prometheus (Plan Builder)",
+        parts: [
+          {
+            type: "step-start",
+          },
+          {
+            type: "reasoning",
+            text: "Let me read the canonical CI evidence set before delegating the next batch.",
+          },
+          {
+            type: "tool",
+            tool: "read",
+            state: {
+              status: "error",
+              input: {
+                filePath: "/Users/redff00xx/eurochemeopt/.sisyphus/evidence/ci-loop-checkpoint.md",
+              },
+              error: "[tool-execute-before] Core CI evidence rereads are blocked for session ses_planner_ci_guardrail_immediate.",
+            },
+          },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_planner_ci_guardrail_immediate",
+            sessionID: "ses_planner_ci_guardrail_immediate",
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part_planner_ci_guardrail_immediate",
+            sessionID: "ses_planner_ci_guardrail_immediate",
+            messageID: "msg_planner_ci_guardrail_immediate",
+            type: "tool",
+            tool: "read",
+            state: {
+              status: "error",
+              input: {
+                filePath: "/Users/redff00xx/eurochemeopt/.sisyphus/evidence/ci-loop-checkpoint.md",
+              },
+              error: "[tool-execute-before] Core CI evidence rereads are blocked for session ses_planner_ci_guardrail_immediate.",
+            },
+          },
+        },
+      },
+    } as const)
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    const plannerRecoveryCall = promptAsyncMock.mock.calls[0]?.[0] as Record<string, any>
+    expect(plannerRecoveryCall?.path).toEqual({ id: "ses_planner_ci_guardrail_immediate" })
+    expect(plannerRecoveryCall?.query).toEqual({ directory: "/tmp" })
+    expect(plannerRecoveryCall?.body?.agent).toBe("Prometheus (Plan Builder)")
+    expect(plannerRecoveryCall?.body?.model?.providerID).toBe("anthropic")
+    expect(plannerRecoveryCall?.body?.model?.modelID).toBe("claude-opus-4-6")
+    expect(plannerRecoveryCall?.body?.parts?.[0]?.text).toContain("core evidence files")
+  })
+
   test("recovers delayed atlas pending empty task calls in ci fast-path", async () => {
     jest.useFakeTimers()
 

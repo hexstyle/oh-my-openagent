@@ -245,6 +245,14 @@ const PROMETHEUS_TOOL_ONLY_TURN_RECOVERY_TEXT = [
   "Only stop after the final plan artifact exists and you provide a concise user-facing summary.",
   PROMETHEUS_FINAL_ARTIFACT_RECOVERY_TEXT,
 ].join("\n");
+const PROMETHEUS_CI_BOOTSTRAP_TOOL_ERROR_RECOVERY_TEXT = [
+  "[session recovered - continue CI planning from the existing evidence now]",
+  "Your previous CI bootstrap read was blocked because the canonical evidence set is already established on disk.",
+  "Do not retry legacy .sisyphus evidence aliases, and do not reread the blocked core evidence files again.",
+  "Use the current on-disk plan, dirty batch, and tracker state you already established and immediately continue the next concrete planner action.",
+  "If delegation should happen now, emit the task call now.",
+  "If the active plan already has the next executor batch defined, continue directly from that state instead of restarting discovery.",
+].join("\n");
 const SISYPHUS_CI_EMPTY_TOOL_RECOVERY_TEXT = [
   "[session recovered - continue evidence-gated CI now]",
   "Your previous CI tool call was emitted without the required arguments and never executed.",
@@ -295,6 +303,7 @@ const recoveredEmptyAssistantMessageBySession = new Map<string, string>();
 const recoveredPendingEmptyToolMessageBySession = new Map<string, string>();
 const recoveredPendingEmptySisyphusToolMessageBySession = new Map<string, string>();
 const recoveredSisyphusCiGuardrailToolMessageBySession = new Map<string, string>();
+const recoveredPlannerCiBootstrapToolMessageBySession = new Map<string, string>();
 const recoveredPlannerReasoningOnlyMessageBySession = new Map<string, string>();
 const recoveredSisyphusCiReasoningOnlyMessageBySession = new Map<string, string>();
 const recoveredInterruptedPlannerVisibleMessageBySession = new Map<string, string>();
@@ -322,6 +331,7 @@ type AssistantRecoverySnapshot = {
   pendingPrometheusTool?: string;
   pendingSisyphusCiTool?: string;
   erroredSisyphusCiGuardrailTool?: string;
+  erroredPlannerCiBootstrapTool?: string;
 };
 const assistantRecoverySnapshotBySession = new Map<string, AssistantRecoverySnapshot>();
 const RECOVERABLE_PENDING_PROMETHEUS_TOOLS = new Set(["write", "edit", "todowrite", "task"]);
@@ -353,6 +363,7 @@ export function _resetEventRecoveryStateForTesting(): void {
   recoveredPendingEmptyToolMessageBySession.clear();
   recoveredPendingEmptySisyphusToolMessageBySession.clear();
   recoveredSisyphusCiGuardrailToolMessageBySession.clear();
+  recoveredPlannerCiBootstrapToolMessageBySession.clear();
   recoveredPlannerReasoningOnlyMessageBySession.clear();
   recoveredSisyphusCiReasoningOnlyMessageBySession.clear();
   recoveredInterruptedPlannerVisibleMessageBySession.clear();
@@ -779,6 +790,29 @@ function findRecoverableErroredSisyphusCiGuardrailTool(
   return undefined;
 }
 
+function findRecoverableErroredPlannerCiBootstrapTool(
+  parts: RecoveryMessagePart[] | undefined,
+): { tool: string } | undefined {
+  if (!Array.isArray(parts) || parts.length === 0) return undefined;
+
+  for (const part of parts) {
+    if (part?.type !== "tool" || typeof part.tool !== "string") continue;
+    if (part.tool !== "read") continue;
+    const status = part.state?.status;
+    if (status !== "error") continue;
+    const errorText = typeof part.state?.error === "string" ? part.state.error.toLowerCase() : "";
+    if (!errorText) continue;
+    if (
+      errorText.includes("core ci evidence rereads are blocked")
+      || errorText.includes("refusing legacy .sisyphus evidence alias read")
+    ) {
+      return { tool: part.tool };
+    }
+  }
+
+  return undefined;
+}
+
 function findRecoverableLaunchedSisyphusCiVerifyWaveTool(
   parts: RecoveryMessagePart[] | undefined,
 ): { tool: string } | undefined {
@@ -1118,6 +1152,13 @@ function updateAssistantRecoverySnapshotPart(
     const erroredSisyphusCiGuardrailTool = findRecoverableErroredSisyphusCiGuardrailTool([part]);
     if (erroredSisyphusCiGuardrailTool) {
       snapshot.erroredSisyphusCiGuardrailTool = erroredSisyphusCiGuardrailTool.tool;
+      return;
+    }
+
+    const erroredPlannerCiBootstrapTool = findRecoverableErroredPlannerCiBootstrapTool([part]);
+    if (erroredPlannerCiBootstrapTool) {
+      snapshot.erroredPlannerCiBootstrapTool = erroredPlannerCiBootstrapTool.tool;
+      rememberRecoverablePrometheusSnapshot(sessionID, snapshot);
       return;
     }
 
@@ -1944,6 +1985,136 @@ async function maybeRecoverSisyphusCiGuardrailToolError(
   if (resumed) {
     recoveredSisyphusCiGuardrailToolMessageBySession.set(sessionID, lastRecoverableMessageID);
     log("[event] recovered sisyphus CI guardrail tool error", {
+      sessionID,
+      source,
+      messageID: lastRecoverableMessageID,
+      tool: lastRecoverableTool.tool,
+      agent: lastMessageAgent,
+    });
+  }
+
+  return resumed;
+}
+
+async function maybeRecoverPlannerCiBootstrapToolError(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "session.status.idle",
+): Promise<boolean> {
+  if (hasRecentPrometheusRuntimeFallbackRecoveryGuard(sessionID, source, "planner ci-bootstrap tool-error")) {
+    return false;
+  }
+
+  const session = ctx.client["session"] as {
+    messages?: (args: { path: { id: string } }) => Promise<unknown>;
+    abort?: (args: { path: { id: string } }) => Promise<unknown>;
+    promptAsync?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+    prompt?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+  } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    return false;
+  }
+
+  let response: unknown;
+  try {
+    response = await readMessages({
+      path: { id: sessionID },
+    });
+  } catch {
+    return false;
+  }
+
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = getMessageID(lastMessage);
+  const lastMessageAgent = getMessageAgent(lastMessage);
+  if (!lastMessageID) return false;
+  if (expectedMessageID && lastMessageID !== expectedMessageID) return false;
+  if (getMessageRole(lastMessage) !== "assistant") return false;
+  if (getMessageError(lastMessage)) return false;
+  const plannerLikeAgent = isPrometheusPlannerAgent(lastMessageAgent) || isAtlasPlanExecutorAgent(lastMessageAgent);
+  if (!plannerLikeAgent) return false;
+
+  const latestRecoverableTool = findRecoverableErroredPlannerCiBootstrapTool(lastMessage.parts);
+  const latestMessageIsRecoverableGuardrailTurn = !!latestRecoverableTool;
+  if (
+    !latestMessageIsRecoverableGuardrailTurn
+    && assistantMessageHasUserFacingContent(lastMessage.parts)
+  ) return false;
+  if (
+    !latestMessageIsRecoverableGuardrailTurn
+    && !assistantMessageHasRecoverablePlannerInternalParts(lastMessage.parts)
+  ) return false;
+
+  let lastRecoverableTool: { tool: string } | undefined = latestRecoverableTool;
+  let lastRecoverableMessageID: string | undefined = latestMessageIsRecoverableGuardrailTurn
+    ? lastMessageID
+    : undefined;
+  if (!lastRecoverableTool || !lastRecoverableMessageID) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      const candidateAgent = getMessageAgent(candidate);
+      if (
+        getMessageRole(candidate) !== "assistant"
+        || (!isPrometheusPlannerAgent(candidateAgent) && !isAtlasPlanExecutorAgent(candidateAgent))
+      ) {
+        continue;
+      }
+      const recoverableTool = findRecoverableErroredPlannerCiBootstrapTool(candidate.parts);
+      if (recoverableTool) {
+        lastRecoverableTool = recoverableTool;
+        lastRecoverableMessageID = getMessageID(candidate);
+        break;
+      }
+    }
+  }
+
+  if (!lastRecoverableTool || !lastRecoverableMessageID) {
+    return false;
+  }
+
+  const lastEvidenceGatedUser = findLastUserMessageMatching(
+    messages as RecoveryMessage[],
+    (message) => messageIndicatesEvidenceGatedCi(message),
+  );
+  const lastUser = lastEvidenceGatedUser ?? findLastUserMessage(messages as never);
+  if (!messageIndicatesEvidenceGatedCi(lastUser as RecoveryMessage | undefined)) {
+    return false;
+  }
+
+  const lastRecoveredMessageID = recoveredPlannerCiBootstrapToolMessageBySession.get(sessionID);
+  if (lastRecoveredMessageID === lastMessageID || lastRecoveredMessageID === lastRecoverableMessageID) {
+    return false;
+  }
+
+  await session?.abort?.({ path: { id: sessionID } }).catch(() => {});
+
+  const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+  resumeConfig.directory = ctx.directory;
+  resumeConfig.continuationText = PROMETHEUS_CI_BOOTSTRAP_TOOL_ERROR_RECOVERY_TEXT;
+  const resumed = await resumeRecoveredPrometheusSession(
+    ctx,
+    sessionID,
+    PROMETHEUS_CI_BOOTSTRAP_TOOL_ERROR_RECOVERY_TEXT,
+    resumeConfig,
+    session as RecoveryResumeSessionApi | undefined,
+  );
+
+  if (resumed) {
+    recoveredPlannerCiBootstrapToolMessageBySession.set(sessionID, lastRecoverableMessageID);
+    log("[event] recovered planner CI bootstrap tool error", {
       sessionID,
       source,
       messageID: lastRecoverableMessageID,
@@ -4079,6 +4250,33 @@ export function createEventHandler(args: {
             }
           } catch (err) {
             log("[event] immediate sisyphus CI guardrail-tool recovery failed in message.part.updated:", {
+              sessionID,
+              messageID,
+              error: err,
+            });
+          }
+        }
+        const shouldImmediatelyRecoverPlannerCiBootstrapTool =
+          !!snapshot
+          && (isPrometheusPlannerAgent(snapshot.agent ?? getSessionAgent(sessionID))
+            || isAtlasPlanExecutorAgent(snapshot.agent ?? getSessionAgent(sessionID)))
+          && !!snapshot.erroredPlannerCiBootstrapTool;
+        if (
+          shouldImmediatelyRecoverPlannerCiBootstrapTool
+          && !hooks.stopContinuationGuard?.isStopped(sessionID)
+        ) {
+          try {
+            const recoveredPlannerCiBootstrapTool = await maybeRecoverPlannerCiBootstrapToolError(
+              pluginContext,
+              sessionID,
+              messageID,
+              "message.part.updated.planner-ci-bootstrap-tool",
+            );
+            if (recoveredPlannerCiBootstrapTool) {
+              return;
+            }
+          } catch (err) {
+            log("[event] immediate planner CI bootstrap-tool recovery failed in message.part.updated:", {
               sessionID,
               messageID,
               error: err,
