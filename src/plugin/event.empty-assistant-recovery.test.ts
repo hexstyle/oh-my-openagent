@@ -953,6 +953,107 @@ describe("createEventHandler idle empty assistant recovery", () => {
     })
   })
 
+  test("recovers sisyphus CI guardrail tool errors immediately on the blocked tool turn", async () => {
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_guardrail_tool_error_sisyphus_ci_immediate",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nCurrent evidence is in .sisyphus/evidence/ and the unified batch must continue.",
+        }],
+      },
+      {
+        id: "msg_guardrail_tool_error_sisyphus_ci_immediate",
+        role: "assistant",
+        agent: "Sisyphus Junior (Focused Executor)",
+        parts: [
+          {
+            type: "step-start",
+          },
+          {
+            type: "reasoning",
+            text: "Let me inspect one more source slice before the rerun.",
+          },
+          {
+            type: "tool",
+            tool: "grep",
+            state: {
+              status: "error",
+              input: {
+                pattern: "WaitForNavigation",
+                path: "/Users/redff00xx/eurochemeopt/Optimizer.PlaywrightTests",
+              },
+              error: "[tool-execute-before] Post-dirty-batch exploration budget is exhausted for CI fast-path session ses_guardrail_tool_error_sisyphus_ci_immediate.",
+            },
+          },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_guardrail_tool_error_sisyphus_ci_immediate",
+            sessionID: "ses_guardrail_tool_error_sisyphus_ci_immediate",
+            role: "assistant",
+            agent: "Sisyphus Junior (Focused Executor)",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part_guardrail_tool_error_sisyphus_ci_immediate",
+            sessionID: "ses_guardrail_tool_error_sisyphus_ci_immediate",
+            messageID: "msg_guardrail_tool_error_sisyphus_ci_immediate",
+            type: "tool",
+            tool: "grep",
+            state: {
+              status: "error",
+              input: {
+                pattern: "WaitForNavigation",
+                path: "/Users/redff00xx/eurochemeopt/Optimizer.PlaywrightTests",
+              },
+              error: "[tool-execute-before] Post-dirty-batch exploration budget is exhausted for CI fast-path session ses_guardrail_tool_error_sisyphus_ci_immediate.",
+            },
+          },
+        },
+      },
+    } as const)
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_guardrail_tool_error_sisyphus_ci_immediate" },
+      body: expect.objectContaining({
+        agent: "Atlas (Plan Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining("runtime guard"),
+          }),
+        ]),
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
   test("recovers delayed atlas pending empty task calls in ci fast-path", async () => {
     jest.useFakeTimers()
 

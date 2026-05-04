@@ -294,6 +294,7 @@ const SISYPHUS_CI_ABORTED_VERIFY_WAVE_RECOVERY_TEXT = [
 const recoveredEmptyAssistantMessageBySession = new Map<string, string>();
 const recoveredPendingEmptyToolMessageBySession = new Map<string, string>();
 const recoveredPendingEmptySisyphusToolMessageBySession = new Map<string, string>();
+const recoveredSisyphusCiGuardrailToolMessageBySession = new Map<string, string>();
 const recoveredPlannerReasoningOnlyMessageBySession = new Map<string, string>();
 const recoveredSisyphusCiReasoningOnlyMessageBySession = new Map<string, string>();
 const recoveredInterruptedPlannerVisibleMessageBySession = new Map<string, string>();
@@ -351,6 +352,7 @@ export function _resetEventRecoveryStateForTesting(): void {
   recoveredEmptyAssistantMessageBySession.clear();
   recoveredPendingEmptyToolMessageBySession.clear();
   recoveredPendingEmptySisyphusToolMessageBySession.clear();
+  recoveredSisyphusCiGuardrailToolMessageBySession.clear();
   recoveredPlannerReasoningOnlyMessageBySession.clear();
   recoveredSisyphusCiReasoningOnlyMessageBySession.clear();
   recoveredInterruptedPlannerVisibleMessageBySession.clear();
@@ -1878,21 +1880,33 @@ async function maybeRecoverSisyphusCiGuardrailToolError(
   if (getMessageRole(lastMessage) !== "assistant") return false;
   if (getMessageError(lastMessage)) return false;
   if (!isSisyphusExecutorAgent(lastMessageAgent)) return false;
-  if (assistantMessageHasUserFacingContent(lastMessage.parts)) return false;
-  if (!assistantMessageHasRecoverablePlannerInternalParts(lastMessage.parts)) return false;
+  const latestRecoverableTool = findRecoverableErroredSisyphusCiGuardrailTool(lastMessage.parts);
+  const latestMessageIsRecoverableGuardrailTurn = !!latestRecoverableTool;
+  if (
+    !latestMessageIsRecoverableGuardrailTurn
+    && assistantMessageHasUserFacingContent(lastMessage.parts)
+  ) return false;
+  if (
+    !latestMessageIsRecoverableGuardrailTurn
+    && !assistantMessageHasRecoverablePlannerInternalParts(lastMessage.parts)
+  ) return false;
 
-  let lastRecoverableTool: { tool: string } | undefined;
-  let lastRecoverableMessageID: string | undefined;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const candidate = messages[index];
-    if (getMessageRole(candidate) !== "assistant" || !isSisyphusExecutorAgent(getMessageAgent(candidate))) {
-      continue;
-    }
-    const recoverableTool = findRecoverableErroredSisyphusCiGuardrailTool(candidate.parts);
-    if (recoverableTool) {
-      lastRecoverableTool = recoverableTool;
-      lastRecoverableMessageID = getMessageID(candidate);
-      break;
+  let lastRecoverableTool: { tool: string } | undefined = latestRecoverableTool;
+  let lastRecoverableMessageID: string | undefined = latestMessageIsRecoverableGuardrailTurn
+    ? lastMessageID
+    : undefined;
+  if (!lastRecoverableTool || !lastRecoverableMessageID) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (getMessageRole(candidate) !== "assistant" || !isSisyphusExecutorAgent(getMessageAgent(candidate))) {
+        continue;
+      }
+      const recoverableTool = findRecoverableErroredSisyphusCiGuardrailTool(candidate.parts);
+      if (recoverableTool) {
+        lastRecoverableTool = recoverableTool;
+        lastRecoverableMessageID = getMessageID(candidate);
+        break;
+      }
     }
   }
 
@@ -1909,7 +1923,7 @@ async function maybeRecoverSisyphusCiGuardrailToolError(
     return false;
   }
 
-  const lastRecoveredMessageID = recoveredPendingEmptySisyphusToolMessageBySession.get(sessionID);
+  const lastRecoveredMessageID = recoveredSisyphusCiGuardrailToolMessageBySession.get(sessionID);
   if (lastRecoveredMessageID === lastMessageID || lastRecoveredMessageID === lastRecoverableMessageID) {
     return false;
   }
@@ -1928,7 +1942,7 @@ async function maybeRecoverSisyphusCiGuardrailToolError(
   );
 
   if (resumed) {
-    recoveredPendingEmptySisyphusToolMessageBySession.set(sessionID, lastRecoverableMessageID);
+    recoveredSisyphusCiGuardrailToolMessageBySession.set(sessionID, lastRecoverableMessageID);
     log("[event] recovered sisyphus CI guardrail tool error", {
       sessionID,
       source,
@@ -4039,6 +4053,32 @@ export function createEventHandler(args: {
             }
           } catch (err) {
             log("[event] immediate interrupted-tool recovery failed in message.part.updated:", {
+              sessionID,
+              messageID,
+              error: err,
+            });
+          }
+        }
+        const shouldImmediatelyRecoverSisyphusGuardrailTool =
+          !!snapshot
+          && isSisyphusExecutorAgent(snapshot.agent ?? getSessionAgent(sessionID))
+          && !!snapshot.erroredSisyphusCiGuardrailTool;
+        if (
+          shouldImmediatelyRecoverSisyphusGuardrailTool
+          && !hooks.stopContinuationGuard?.isStopped(sessionID)
+        ) {
+          try {
+            const recoveredSisyphusGuardrailTool = await maybeRecoverSisyphusCiGuardrailToolError(
+              pluginContext,
+              sessionID,
+              messageID,
+              "message.part.updated.guardrail-tool",
+            );
+            if (recoveredSisyphusGuardrailTool) {
+              return;
+            }
+          } catch (err) {
+            log("[event] immediate sisyphus CI guardrail-tool recovery failed in message.part.updated:", {
               sessionID,
               messageID,
               error: err,
