@@ -156,6 +156,7 @@ Playwright can look "busy" while the test is actually waiting on the wrong thing
   - do \`kill -TERM\`, short sleep, then \`kill -KILL\` only for leftovers
   - print \`RERUN_START phase=preflight\` and \`RERUN_END phase=preflight\`
 - If an older local rerun is still alive, do NOT stack a new rerun on top of it. Kill the stale leftover, record that fact in evidence, and only then launch the fresh bounded rerun.
+- If a live rerun process predates the current session/turn and the intended TRX path is still missing or incomplete, treat that process as a stale leftover, not as the current verify wave. Kill it, record the stale state in evidence, and only then spend the bounded rerun.
 - If the heartbeat keeps reporting "still no TRX" or no artifact growth, treat that as direct evidence of an idle wait or wrong awaited predicate and stop guessing.
 - In that case, capture the hang as evidence, name the most likely stuck awaited surface, and continue diagnosis from that fact.
 - Do not silently burn more time on an unobservable rerun.

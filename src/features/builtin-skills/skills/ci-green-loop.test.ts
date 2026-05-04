@@ -141,6 +141,7 @@ describe("ci green loop builtin skills", () => {
     expect(dotnetPlaywrightSkill.template).toContain("RERUN_START phase=preflight")
     expect(dotnetPlaywrightSkill.template).toContain("RERUN_END phase=preflight")
     expect(dotnetPlaywrightSkill.template).toContain("do NOT stack a new rerun on top of it")
+    expect(dotnetPlaywrightSkill.template).toContain("predates the current session/turn")
     expect(dotnetPlaywrightSkill.template).toContain("still no TRX")
     expect(dotnetPlaywrightSkill.template).toContain("Coverage Integrity (MANDATORY)")
     expect(dotnetPlaywrightSkill.template).toContain("Do NOT replace a real UI/API/data-path validation with a stub")
