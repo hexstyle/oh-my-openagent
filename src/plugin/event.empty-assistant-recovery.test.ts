@@ -1144,6 +1144,96 @@ describe("createEventHandler idle empty assistant recovery", () => {
     expect(plannerRecoveryCall?.body?.parts?.[0]?.text).toContain("core evidence files")
   })
 
+  test("recovers planner post-bootstrap exploration guardrails immediately on the blocked tool turn", async () => {
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_planner_ci_post_bootstrap_guardrail_immediate",
+          role: "user",
+          agent: "Prometheus (Plan Builder)",
+          model: {
+            providerID: "anthropic",
+            modelID: "claude-opus-4-6",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nThe current CI state is already materialized under .sisyphus/evidence/.",
+        }],
+      },
+      {
+        id: "msg_planner_ci_post_bootstrap_guardrail_immediate",
+        role: "assistant",
+        agent: "Prometheus (Plan Builder)",
+        parts: [
+          {
+            type: "step-start",
+          },
+          {
+            type: "reasoning",
+            text: "I should inspect the tracker set and source one more time before delegating.",
+          },
+          {
+            type: "tool",
+            tool: "read",
+            state: {
+              status: "error",
+              input: {
+                filePath: "/Users/redff00xx/eurochemeopt/.sisyphus/evidence/tests/ScenarioE2ETests.Scenario_CopySubmit_CopyDataFalse_ShiftFalse_UsesDefaultValues.md",
+              },
+              error: "[tool-execute-before] Planner post-bootstrap exploration is blocked for CI fast-path session ses_planner_ci_post_bootstrap_guardrail_immediate. Prometheus must hand off via task now instead of reading trackers, source files, or search results after the canonical CI bootstrap pass.",
+            },
+          },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_planner_ci_post_bootstrap_guardrail_immediate",
+            sessionID: "ses_planner_ci_post_bootstrap_guardrail_immediate",
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part_planner_ci_post_bootstrap_guardrail_immediate",
+            sessionID: "ses_planner_ci_post_bootstrap_guardrail_immediate",
+            messageID: "msg_planner_ci_post_bootstrap_guardrail_immediate",
+            type: "tool",
+            tool: "read",
+            state: {
+              status: "error",
+              input: {
+                filePath: "/Users/redff00xx/eurochemeopt/.sisyphus/evidence/tests/ScenarioE2ETests.Scenario_CopySubmit_CopyDataFalse_ShiftFalse_UsesDefaultValues.md",
+              },
+              error: "[tool-execute-before] Planner post-bootstrap exploration is blocked for CI fast-path session ses_planner_ci_post_bootstrap_guardrail_immediate. Prometheus must hand off via task now instead of reading trackers, source files, or search results after the canonical CI bootstrap pass.",
+            },
+          },
+        },
+      },
+    } as const)
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    const plannerRecoveryCall = promptAsyncMock.mock.calls[0]?.[0] as Record<string, any>
+    expect(plannerRecoveryCall?.path).toEqual({ id: "ses_planner_ci_post_bootstrap_guardrail_immediate" })
+    expect(plannerRecoveryCall?.query).toEqual({ directory: "/tmp" })
+    expect(plannerRecoveryCall?.body?.agent).toBe("Prometheus (Plan Builder)")
+    expect(plannerRecoveryCall?.body?.model?.providerID).toBe("anthropic")
+    expect(plannerRecoveryCall?.body?.model?.modelID).toBe("claude-opus-4-6")
+    expect(plannerRecoveryCall?.body?.parts?.[0]?.text).toContain("emit the task call now")
+  })
+
   test("recovers idle planner CI visible summary turns that stop before delegation", async () => {
     const handler = createHandler([
       {

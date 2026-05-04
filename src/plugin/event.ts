@@ -826,6 +826,7 @@ function findRecoverableErroredPlannerCiBootstrapTool(
     if (
       errorText.includes("core ci evidence rereads are blocked")
       || errorText.includes("refusing legacy .sisyphus evidence alias read")
+      || errorText.includes("planner post-bootstrap exploration is blocked")
     ) {
       return { tool: part.tool };
     }

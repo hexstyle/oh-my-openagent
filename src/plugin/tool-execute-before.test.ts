@@ -432,6 +432,57 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("blocks planner tracker/source exploration after canonical ci bootstrap before task delegation", async () => {
+    const sessionID = "ses_ci_planner_post_bootstrap_exploration"
+    setSessionFlag(sessionID, "ci-fast-path")
+    setSessionFlag(sessionID, "ci-evidence-core-read")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({
+              data: [
+                {
+                  info: {
+                    role: "user",
+                    agent: "Prometheus (Plan Builder)",
+                  },
+                },
+              ],
+            }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_tracker_read_before_task" },
+        {
+          args: {
+            filePath: "/repo/.sisyphus/evidence/tests/ScenarioE2ETests.Scenario_CopySubmit_CopyDataFalse_ShiftFalse_UsesDefaultValues.md",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("Planner post-bootstrap exploration is blocked")
+
+    await expect(
+      handler(
+        { tool: "grep", sessionID, callID: "call_source_search_before_task" },
+        {
+          args: {
+            pattern: "WaitForNavigation",
+            path: "/repo/Optimizer.PlaywrightTests",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("Planner post-bootstrap exploration is blocked")
+
+    clearSessionTools()
+  })
+
   test("marks dirty-batch inspection on first product-code read after core evidence pass in ci fast-path", async () => {
     const sessionID = "ses_ci_dirty_batch_from_code_read"
     setSessionFlag(sessionID, "ci-fast-path")

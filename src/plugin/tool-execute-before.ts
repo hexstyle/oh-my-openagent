@@ -657,6 +657,35 @@ export function createToolExecuteBeforeHandler(args: {
     )
   }
 
+  function isPlannerPostBootstrapExplorationAttempt(
+    toolName: string,
+    argsObject: Record<string, unknown>,
+  ): boolean {
+    if (toolName === "read") {
+      return isTrackerReadAttempt(toolName, argsObject) || getCodeReadPath(toolName, argsObject) !== undefined
+    }
+
+    if (toolName === "grep" || toolName === "glob" || toolName === "lsp_diagnostics") {
+      return true
+    }
+
+    if (toolName !== "bash") {
+      return false
+    }
+
+    const command = getStringArg(argsObject, ["command"])
+    if (typeof command !== "string") {
+      return false
+    }
+
+    const lower = command.toLowerCase()
+    return (
+      /\bgit status\b|\bgit diff\b|\brg\b|\bgrep\b/i.test(command)
+      || lower.includes(".sisyphus/evidence/tests/")
+      || lower.includes("optimizer.playwrighttests")
+    )
+  }
+
   function isSlowCsharpLspDiagnosticsAttempt(
     toolName: string,
     argsObject: Record<string, unknown>,
@@ -713,6 +742,21 @@ export function createToolExecuteBeforeHandler(args: {
       if (plannerBootstrapReadCount > PLANNER_BOOTSTRAP_EVIDENCE_READ_BUDGET) {
         throw new Error(
           `[tool-execute-before] Core CI evidence rereads are blocked for session ${input.sessionID} after the canonical planner bootstrap pass. Emit the task delegation or continue the active executor handoff instead of rereading boulder/plan/checkpoint/repair-log/build-analysis again.`,
+        )
+      }
+    }
+
+    if (
+      hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
+      && hasSessionFlag(input.sessionID, CI_EVIDENCE_CORE_READ_FLAG)
+      && !hasSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
+      && !hasSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
+      && isPlannerPostBootstrapExplorationAttempt(normalizedToolName, output.args)
+    ) {
+      const resolvedAgent = await resolveSessionAgent(ctx.client, input.sessionID)
+      if (resolvedAgent === "Prometheus (Plan Builder)") {
+        throw new Error(
+          `[tool-execute-before] Planner post-bootstrap exploration is blocked for CI fast-path session ${input.sessionID}. Prometheus must hand off via task now instead of reading trackers, source files, or search results after the canonical CI bootstrap pass.`,
         )
       }
     }
