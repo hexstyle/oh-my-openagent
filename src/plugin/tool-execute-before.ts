@@ -1,5 +1,6 @@
 import type { PluginContext } from "./types"
 import { randomUUID } from "node:crypto"
+import { execFileSync } from "node:child_process"
 import { existsSync, readdirSync, statSync } from "node:fs"
 import { dirname } from "node:path"
 
@@ -283,6 +284,20 @@ export function createToolExecuteBeforeHandler(args: {
     return hasPreflightMarker && hasAudit && hasRunnerKinds && hasCleanup && !launchesDotnetTest
   }
 
+  function hasLiveScopedPlaywrightRunners(): boolean {
+    const snapshot = process.env.OMO_TEST_PS_OUTPUT
+      ?? execFileSync("ps", ["-ax", "-o", "pid=,command="], { encoding: "utf8" })
+    const scopeTerms = ["eurochemeopt", "optimizer.playwrighttests", "playwright"]
+    const processTerms = ["dotnet test", "testhost.dll", "run-driver", "headless_shell", "chromium"]
+
+    return snapshot
+      .split(/\r?\n/)
+      .map((line) => line.trim().toLowerCase())
+      .some((line) => line.length > 0
+        && scopeTerms.some((term) => line.includes(term))
+        && processTerms.some((term) => line.includes(term)))
+  }
+
   function extractContentArg(argsObject: Record<string, unknown>, keys: string[]): string | undefined {
     for (const key of keys) {
       const value = argsObject[key]
@@ -462,6 +477,12 @@ export function createToolExecuteBeforeHandler(args: {
     }
 
     const hasFreshStandalonePreflight = hasSessionFlag(sessionID, CI_PLAYWRIGHT_PREFLIGHT_READY_FLAG)
+    if (hasFreshStandalonePreflight && (!hasStaleRunnerAudit || !hasStaleRunnerCleanup) && hasLiveScopedPlaywrightRunners()) {
+      throw new Error(
+        `[tool-execute-before] Refusing Playwright test run for session ${sessionID} because the immediately preceding dedicated stale-runner preflight did not clear the live eurochemeopt/playwright runner set. Record that stale state in evidence, kill the leftover runners first, and only then launch the bounded rerun.`,
+      )
+    }
+
     if ((!hasStaleRunnerAudit || !hasStaleRunnerCleanup) && !hasFreshStandalonePreflight) {
       throw new Error(
         `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without stale-runner preflight. Emit RERUN_PRECHECK and audit lingering dotnet test/testhost/headless_shell/run-driver processes, with cleanup logic for leftovers from prior iterations, either in the same bounded rerun command or in the immediately preceding dedicated preflight step, before launching the bounded rerun.`,

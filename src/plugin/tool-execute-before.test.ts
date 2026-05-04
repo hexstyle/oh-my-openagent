@@ -630,27 +630,83 @@ describe("createToolExecuteBeforeHandler", () => {
       hooks: {},
     })
 
-    await expect(
-      handler(
-        { tool: "bash", sessionID: "ses_playwright_split_preflight", callID: "call_playwright_split_preflight_1" },
-        {
-          args: {
-            command: "export SELF=$$ && echo 'RERUN_PRECHECK start' && ps -ax -o pid=,command= | rg 'dotnet test|testhost|headless_shell|run-driver' || true && pkill -f 'Optimizer.PlaywrightTests.*testhost.dll|playwright/package/cli.js run-driver|headless_shell.*playwright_chromiumdev_profile' || true && echo 'RERUN_START phase=preflight' && echo 'RERUN_END phase=preflight'",
-          } as Record<string, unknown>,
-        },
-      ),
-    ).resolves.toBeUndefined()
+    const previousPsOutput = process.env.OMO_TEST_PS_OUTPUT
+    process.env.OMO_TEST_PS_OUTPUT = ""
+    try {
+      await expect(
+        handler(
+          { tool: "bash", sessionID: "ses_playwright_split_preflight", callID: "call_playwright_split_preflight_1" },
+          {
+            args: {
+              command: "export SELF=$$ && echo 'RERUN_PRECHECK start' && ps -ax -o pid=,command= | rg 'dotnet test|testhost|headless_shell|run-driver' || true && pkill -f 'Optimizer.PlaywrightTests.*testhost.dll|playwright/package/cli.js run-driver|headless_shell.*playwright_chromiumdev_profile' || true && echo 'RERUN_START phase=preflight' && echo 'RERUN_END phase=preflight'",
+            } as Record<string, unknown>,
+          },
+        ),
+      ).resolves.toBeUndefined()
 
-    await expect(
-      handler(
-        { tool: "bash", sessionID: "ses_playwright_split_preflight", callID: "call_playwright_split_preflight_2" },
-        {
-          args: {
-            command: "export OPTIEX_PLAYWRIGHT_BASE_URL=http://localhost:5055 OPTIEX_PLAYWRIGHT_CONF_CONNECTION_STRING='Data Source=localhost' OPTIEX_PLAYWRIGHT_DATA_CONNECTION_STRING='Data Source=localhost' RERUN_EXPECTED_TESTS=8 RESULTS_DIR='Optimizer.PlaywrightTests/TestResults/iterationX' TRX_NAME='iterationX.trx' RERUN_TRX_PATH=\"$RESULTS_DIR/$TRX_NAME\" && python3 - <<'PY'\nimport xml.etree.ElementTree as ET\nprint('RERUN_START')\nprint('UnitTestResult parse ready')\nprint('RERUN_END')\nprint('RERUN_HEARTBEAT bootstrap')\nprint('RERUN_EXPECTED_TESTS=' + '8')\nPY\n&& (while kill -0 \"$TEST_PID\" 2>/dev/null; do echo \"RERUN_HEARTBEAT waiting for trx\"; sleep 30; done) & TEST_PID=$! && perl -e 'alarm shift; exec @ARGV' 900 /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --logger \"trx;LogFileName=$TRX_NAME\" --results-directory \"$RESULTS_DIR\" && python3 - <<'PY'\nimport os, xml.etree.ElementTree as ET\nprint('UnitTestResult parse ready for', os.environ.get('RERUN_TRX_PATH', ''))\nPY",
-          } as Record<string, unknown>,
+      await expect(
+        handler(
+          { tool: "bash", sessionID: "ses_playwright_split_preflight", callID: "call_playwright_split_preflight_2" },
+          {
+            args: {
+              command: "export OPTIEX_PLAYWRIGHT_BASE_URL=http://localhost:5055 OPTIEX_PLAYWRIGHT_CONF_CONNECTION_STRING='Data Source=localhost' OPTIEX_PLAYWRIGHT_DATA_CONNECTION_STRING='Data Source=localhost' RERUN_EXPECTED_TESTS=8 RESULTS_DIR='Optimizer.PlaywrightTests/TestResults/iterationX' TRX_NAME='iterationX.trx' RERUN_TRX_PATH=\"$RESULTS_DIR/$TRX_NAME\" && python3 - <<'PY'\nimport xml.etree.ElementTree as ET\nprint('RERUN_START')\nprint('UnitTestResult parse ready')\nprint('RERUN_END')\nprint('RERUN_HEARTBEAT bootstrap')\nprint('RERUN_EXPECTED_TESTS=' + '8')\nPY\n&& (while kill -0 \"$TEST_PID\" 2>/dev/null; do echo \"RERUN_HEARTBEAT waiting for trx\"; sleep 30; done) & TEST_PID=$! && perl -e 'alarm shift; exec @ARGV' 900 /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --logger \"trx;LogFileName=$TRX_NAME\" --results-directory \"$RESULTS_DIR\" && python3 - <<'PY'\nimport os, xml.etree.ElementTree as ET\nprint('UnitTestResult parse ready for', os.environ.get('RERUN_TRX_PATH', ''))\nPY",
+            } as Record<string, unknown>,
+          },
+        ),
+      ).resolves.toBeUndefined()
+    } finally {
+      if (previousPsOutput === undefined) {
+        delete process.env.OMO_TEST_PS_OUTPUT
+      } else {
+        process.env.OMO_TEST_PS_OUTPUT = previousPsOutput
+      }
+    }
+  })
+
+  test("blocks bounded Playwright rerun after a dedicated preflight when live runners still exist", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
         },
-      ),
-    ).resolves.toBeUndefined()
+      },
+      hooks: {},
+    })
+
+    const previousPsOutput = process.env.OMO_TEST_PS_OUTPUT
+    process.env.OMO_TEST_PS_OUTPUT = "28723 dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --results-directory Optimizer.PlaywrightTests/TestResults/iteration17"
+
+    try {
+      await expect(
+        handler(
+          { tool: "bash", sessionID: "ses_playwright_split_preflight_stale", callID: "call_playwright_split_preflight_stale_1" },
+          {
+            args: {
+              command: "export SELF=$$ && echo 'RERUN_PRECHECK start' && ps -ax -o pid=,command= | rg 'dotnet test|testhost|headless_shell|run-driver' || true && pkill -f 'Optimizer.PlaywrightTests.*testhost.dll|playwright/package/cli.js run-driver|headless_shell.*playwright_chromiumdev_profile' || true && echo 'RERUN_START phase=preflight' && echo 'RERUN_END phase=preflight'",
+            } as Record<string, unknown>,
+          },
+        ),
+      ).resolves.toBeUndefined()
+
+      await expect(
+        handler(
+          { tool: "bash", sessionID: "ses_playwright_split_preflight_stale", callID: "call_playwright_split_preflight_stale_2" },
+          {
+            args: {
+              command: "export OPTIEX_PLAYWRIGHT_BASE_URL=http://localhost:5055 OPTIEX_PLAYWRIGHT_CONF_CONNECTION_STRING='Data Source=localhost' OPTIEX_PLAYWRIGHT_DATA_CONNECTION_STRING='Data Source=localhost' RERUN_EXPECTED_TESTS=8 RESULTS_DIR='Optimizer.PlaywrightTests/TestResults/iterationX' TRX_NAME='iterationX.trx' RERUN_TRX_PATH=\"$RESULTS_DIR/$TRX_NAME\" && python3 - <<'PY'\nimport xml.etree.ElementTree as ET\nprint('RERUN_START')\nprint('UnitTestResult parse ready')\nprint('RERUN_END')\nprint('RERUN_HEARTBEAT bootstrap')\nprint('RERUN_EXPECTED_TESTS=' + '8')\nPY\n&& (while kill -0 \"$TEST_PID\" 2>/dev/null; do echo \"RERUN_HEARTBEAT waiting for trx\"; sleep 30; done) & TEST_PID=$! && perl -e 'alarm shift; exec @ARGV' 900 /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --logger \"trx;LogFileName=$TRX_NAME\" --results-directory \"$RESULTS_DIR\" && python3 - <<'PY'\nimport os, xml.etree.ElementTree as ET\nprint('UnitTestResult parse ready for', os.environ.get('RERUN_TRX_PATH', ''))\nPY",
+            } as Record<string, unknown>,
+          },
+        ),
+      ).rejects.toThrow("did not clear the live eurochemeopt/playwright runner set")
+    } finally {
+      if (previousPsOutput === undefined) {
+        delete process.env.OMO_TEST_PS_OUTPUT
+      } else {
+        process.env.OMO_TEST_PS_OUTPUT = previousPsOutput
+      }
+    }
   })
 
   test("blocks Playwright project dotnet test without bounded rerun markers and hard timeout wrapper", async () => {
