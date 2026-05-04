@@ -654,6 +654,8 @@ export function createToolExecuteBeforeHandler(args: {
       toolName === "grep"
       || toolName === "glob"
       || toolName === "lsp_diagnostics"
+      || toolName === "ast_grep_search"
+      || toolName === "ast_grep_replace"
     )
   }
 
@@ -665,7 +667,13 @@ export function createToolExecuteBeforeHandler(args: {
       return isTrackerReadAttempt(toolName, argsObject) || getCodeReadPath(toolName, argsObject) !== undefined
     }
 
-    if (toolName === "grep" || toolName === "glob" || toolName === "lsp_diagnostics") {
+    if (
+      toolName === "grep"
+      || toolName === "glob"
+      || toolName === "lsp_diagnostics"
+      || toolName === "ast_grep_search"
+      || toolName === "ast_grep_replace"
+    ) {
       return true
     }
 

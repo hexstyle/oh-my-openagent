@@ -748,6 +748,54 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("counts ast_grep_search toward the post-dirty-batch exploration budget", async () => {
+    const sessionID = "ses_ci_ast_grep_budget"
+    setSessionFlag(sessionID, "ci-fast-path")
+    setSessionFlag(sessionID, "ci-evidence-core-read")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    for (let index = 0; index < 6; index += 1) {
+      await expect(
+        handler(
+          { tool: "ast_grep_search", sessionID, callID: `call_ast_grep_${index}` },
+          {
+            args: {
+              pattern: "WaitForNavigationAsync",
+              lang: "csharp",
+              paths: ["/repo/Optimizer.PlaywrightTests"],
+            } as Record<string, unknown>,
+          },
+        ),
+      ).resolves.toBeUndefined()
+    }
+
+    await expect(
+      handler(
+        { tool: "ast_grep_search", sessionID, callID: "call_ast_grep_blocked" },
+        {
+          args: {
+            pattern: "FillDialogInputAsync",
+            lang: "csharp",
+            paths: ["/repo/Optimizer.PlaywrightTests"],
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("Post-dirty-batch exploration budget is exhausted")
+
+    clearSessionTools()
+  })
+
   test("blocks csharp lsp_diagnostics before forward progress in ci fast-path", async () => {
     const sessionID = "ses_ci_csharp_lsp_block"
     setSessionFlag(sessionID, "ci-fast-path")
