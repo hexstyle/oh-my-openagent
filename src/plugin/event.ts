@@ -2617,7 +2617,7 @@ async function maybeRecoverSisyphusCiAbortedToolWrapper(
 ): Promise<boolean> {
   const cachedSnapshot = getAssistantRecoverySnapshot(sessionID, expectedMessageID);
   const cachedAgent = cachedSnapshot?.agent ?? getSessionAgent(sessionID);
-  if (!isSisyphusExecutorAgent(cachedAgent)) {
+  if (cachedAgent && !isSisyphusExecutorAgent(cachedAgent)) {
     return false;
   }
   const tryCachedSnapshotRecovery = async (reason: string): Promise<boolean> => {
@@ -2786,7 +2786,7 @@ async function maybeRecoverSisyphusCiAbortedVerifyWave(
 ): Promise<boolean> {
   const cachedSnapshot = getAssistantRecoverySnapshot(sessionID, expectedMessageID);
   const cachedAgent = cachedSnapshot?.agent ?? getSessionAgent(sessionID);
-  if (!isSisyphusExecutorAgent(cachedAgent)) {
+  if (cachedAgent && !isSisyphusExecutorAgent(cachedAgent)) {
     return false;
   }
 
@@ -3145,6 +3145,17 @@ export function createEventHandler(args: {
             "message.updated.delayed",
           );
           if (recoveredSisyphusCiReasoningOnly) {
+            coordinator?.observe(sessionID, { kind: "recovery_result", success: true });
+            return;
+          }
+
+          const recoveredSisyphusInterruptedVisible = await maybeRecoverSisyphusCiInterruptedVisibleAssistantMessage(
+            pluginContext,
+            sessionID,
+            messageID,
+            "message.updated.delayed",
+          );
+          if (recoveredSisyphusInterruptedVisible) {
             coordinator?.observe(sessionID, { kind: "recovery_result", success: true });
             return;
           }
@@ -3721,6 +3732,32 @@ export function createEventHandler(args: {
               }
             } catch (err) {
               log("[event] immediate planner reasoning-only recovery failed in message.updated:", {
+                sessionID,
+                error: err,
+              });
+            }
+          }
+
+          const shouldImmediatelyRecoverSisyphusInterruptedVisible =
+            info?.finish === "other"
+            && isSisyphusExecutorAgent(snapshot.agent ?? getSessionAgent(sessionID))
+            && snapshot.hasUserFacingContent;
+          if (
+            shouldImmediatelyRecoverSisyphusInterruptedVisible
+            && !hooks.stopContinuationGuard?.isStopped(sessionID)
+          ) {
+            try {
+              const recoveredSisyphusInterruptedVisible = await maybeRecoverSisyphusCiInterruptedVisibleAssistantMessage(
+                pluginContext,
+                sessionID,
+                assistantMessageID,
+                "message.updated.finish-other",
+              );
+              if (recoveredSisyphusInterruptedVisible) {
+                return;
+              }
+            } catch (err) {
+              log("[event] immediate sisyphus CI interrupted-visible recovery failed in message.updated:", {
                 sessionID,
                 error: err,
               });

@@ -754,6 +754,72 @@ describe("createEventHandler idle empty assistant recovery", () => {
     })
   })
 
+  test("recovers idle sisyphus CI visible summary turns after dirty-batch inspection", async () => {
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_visible_summary_sisyphus_ci",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nCurrent build evidence is on disk; continue the unified edit batch and bounded rerun.",
+        }],
+      },
+      {
+        info: {
+          id: "msg_visible_summary_sisyphus_ci",
+          role: "assistant",
+          agent: "Sisyphus (Ultraworker)",
+          finish: "other",
+        },
+        parts: [
+          {
+            type: "text",
+            text: "I have clear next steps and can proceed. Next I would move into the edit batch and bounded rerun.",
+          },
+          {
+            type: "step-finish",
+            reason: "other",
+          },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionID: "ses_visible_summary_sisyphus_ci",
+          status: { type: "idle" },
+        },
+      },
+    })
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_visible_summary_sisyphus_ci" },
+      body: expect.objectContaining({
+        agent: "Atlas (Plan Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining("resume the active evidence-gated CI verify chain now"),
+          }),
+        ]),
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
   test("recovers delayed sisyphus CI pending empty bash tool calls", async () => {
     jest.useFakeTimers()
 
