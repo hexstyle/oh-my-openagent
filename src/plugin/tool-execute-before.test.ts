@@ -368,6 +368,39 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("marks dirty-batch inspection on first product-code read after core evidence pass in ci fast-path", async () => {
+    const sessionID = "ses_ci_dirty_batch_from_code_read"
+    setSessionFlag(sessionID, "ci-fast-path")
+    setSessionFlag(sessionID, "ci-evidence-core-read")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_first_dirty_code_read" },
+        { args: { filePath: "/repo/Optimizer.PlaywrightTests/ScenarioE2ETests.cs" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_core_reread_after_code_read" },
+        { args: { filePath: "/repo/.sisyphus/evidence/build-332-analysis.md" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow("Core CI evidence rereads are blocked")
+
+    clearSessionTools()
+  })
+
   test("does not treat evidence ls commands as evidence materialization writes", async () => {
     const sessionID = "ses_ci_evidence_ls_only"
     setSessionFlag(sessionID, "ci-fast-path")

@@ -744,6 +744,15 @@ export function createToolExecuteBeforeHandler(args: {
     if (
       codeReadPath
       && hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
+      && hasSessionFlag(input.sessionID, CI_EVIDENCE_CORE_READ_FLAG)
+      && !hasSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
+    ) {
+      setSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
+    }
+
+    if (
+      codeReadPath
+      && hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
       && hasSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
       && !hasSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
     ) {
