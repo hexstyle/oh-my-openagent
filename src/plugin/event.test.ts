@@ -887,6 +887,73 @@ describe("createEventHandler - session recovery compaction", () => {
 		expect(callOrder).toEqual(["summarize", "prompt"])
 	})
 
+	it("still runs session recovery before runtime-fallback short-circuit for recoverable tool transcript errors", async () => {
+		//#given
+		const sessionID = "ses_recovery_before_runtime_fallback"
+		setMainSession(sessionID)
+		const callOrder: string[] = []
+
+		const eventHandler = createEventHandler({
+			ctx: {
+				directory: "/tmp",
+				client: {
+					session: {
+						abort: async () => ({}),
+						summarize: async () => {
+							callOrder.push("summarize")
+							return {}
+						},
+						prompt: async () => {
+							callOrder.push("prompt")
+							return {}
+						},
+					},
+				},
+			} as any,
+			pluginConfig: {
+				experimental: {
+					auto_resume: true,
+				},
+			} as any,
+			firstMessageVariantGate: {
+				markSessionCreated: () => {},
+				clear: () => {},
+			},
+			managers: {
+				tmuxSessionManager: {
+					onSessionCreated: async () => {},
+					onSessionDeleted: async () => {},
+				},
+			} as any,
+			hooks: {
+				sessionRecovery: {
+					isRecoverableError: () => true,
+					handleSessionRecovery: async () => true,
+				},
+				runtimeFallback: { event: async () => {} },
+				stopContinuationGuard: { isStopped: () => false },
+			} as any,
+		})
+
+		//#when
+		await eventHandler({
+			event: {
+				type: "session.error",
+				properties: {
+					sessionID,
+					messageID: "msg_runtime_fallback_bypass",
+					error: {
+						name: "Error",
+						message: "messages.2: `tool_use` ids were found without `tool_result` blocks immediately after",
+					},
+				},
+			},
+		} as any)
+
+		//#then
+		expect(callOrder).toEqual(["summarize", "prompt"])
+	})
+
 	it("continues dispatching later event hooks when an earlier hook throws", async () => {
 		//#given
 		const runtimeFallbackCalls: EventInput[] = []

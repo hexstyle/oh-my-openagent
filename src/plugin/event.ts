@@ -2597,6 +2597,9 @@ async function maybeRecoverSisyphusCiAbortedToolWrapper(
 ): Promise<boolean> {
   const cachedSnapshot = getAssistantRecoverySnapshot(sessionID, expectedMessageID);
   const cachedAgent = cachedSnapshot?.agent ?? getSessionAgent(sessionID);
+  if (!isSisyphusExecutorAgent(cachedAgent)) {
+    return false;
+  }
   const tryCachedSnapshotRecovery = async (reason: string): Promise<boolean> => {
     if (!cachedSnapshot) {
       return false;
@@ -2761,6 +2764,12 @@ async function maybeRecoverSisyphusCiAbortedVerifyWave(
   source = "message.updated.error",
   eventError?: unknown,
 ): Promise<boolean> {
+  const cachedSnapshot = getAssistantRecoverySnapshot(sessionID, expectedMessageID);
+  const cachedAgent = cachedSnapshot?.agent ?? getSessionAgent(sessionID);
+  if (!isSisyphusExecutorAgent(cachedAgent)) {
+    return false;
+  }
+
   const session = ctx.client["session"] as {
     messages?: (args: { path: { id: string } }) => Promise<unknown>;
     promptAsync?: (args: {
@@ -3890,6 +3899,47 @@ export function createEventHandler(args: {
         const errorName = extractErrorName(error);
         const errorMessage = extractErrorMessage(error);
         const errorInfo = { name: errorName, message: errorMessage };
+        const recoverableSessionRecovery = hooks.sessionRecovery;
+        const sessionRecoveryCanHandleError = recoverableSessionRecovery?.isRecoverableError(error) ?? false;
+
+        if (sessionRecoveryCanHandleError && recoverableSessionRecovery != null) {
+          const messageInfo = {
+            id: props?.messageID as string | undefined,
+            role: "assistant" as const,
+            sessionID,
+            error,
+          };
+          const recovered = await recoverableSessionRecovery.handleSessionRecovery(messageInfo);
+
+          if (
+            recovered &&
+            sessionID &&
+            sessionID === getMainSessionID() &&
+            !hooks.stopContinuationGuard?.isStopped(sessionID)
+          ) {
+            await pluginContext.client.session
+              .summarize({
+                path: { id: sessionID },
+                body: { auto: true },
+                query: { directory: pluginContext.directory },
+              })
+              .catch((err: unknown) => {
+                log("[event] compaction before recovery continue failed:", { sessionID, error: err });
+              });
+
+            await pluginContext.client.session
+              .prompt({
+                path: { id: sessionID },
+                body: { parts: [{ type: "text", text: "continue" }] },
+                query: { directory: pluginContext.directory },
+              })
+              .catch(() => {});
+          }
+
+          if (recovered) {
+            return;
+          }
+        }
 
         if (
           args.pluginConfig.experimental?.auto_resume
@@ -3952,44 +4002,8 @@ export function createEventHandler(args: {
           }
         }
 
-        // First, try session recovery for internal errors (thinking blocks, tool results, etc.)
-        if (hooks.sessionRecovery?.isRecoverableError(error)) {
-          const messageInfo = {
-            id: props?.messageID as string | undefined,
-            role: "assistant" as const,
-            sessionID,
-            error,
-          };
-          const recovered = await hooks.sessionRecovery.handleSessionRecovery(messageInfo);
-
-          if (
-            recovered &&
-            sessionID &&
-            sessionID === getMainSessionID() &&
-            !hooks.stopContinuationGuard?.isStopped(sessionID)
-          ) {
-            // Trigger compaction before sending "continue" to avoid double-sending continuation
-            await pluginContext.client.session
-              .summarize({
-                path: { id: sessionID },
-                body: { auto: true },
-                query: { directory: pluginContext.directory },
-              })
-              .catch((err: unknown) => {
-                log("[event] compaction before recovery continue failed:", { sessionID, error: err });
-              });
-
-            await pluginContext.client.session
-              .prompt({
-                path: { id: sessionID },
-                body: { parts: [{ type: "text", text: "continue" }] },
-                query: { directory: pluginContext.directory },
-              })
-              .catch(() => {});
-          }
-        }
-        // Second, try model fallback for model errors (rate limit, quota, provider issues, etc.)
-        else if (sessionID && (shouldRetryError(errorInfo) || shouldSwitchFallback(errorInfo)) && !isRuntimeFallbackEnabled && isModelFallbackEnabled) {
+        // Try model fallback for model errors (rate limit, quota, provider issues, etc.)
+        if (sessionID && (shouldRetryError(errorInfo) || shouldSwitchFallback(errorInfo)) && !isRuntimeFallbackEnabled && isModelFallbackEnabled) {
           let agentName = getSessionAgent(sessionID);
 
           if (!agentName && sessionID === getMainSessionID()) {
