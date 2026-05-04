@@ -350,6 +350,19 @@ export function createToolExecuteBeforeHandler(args: {
       lower.includes("rerun_heartbeat")
       && lower.includes("kill -0")
       && lower.includes("sleep")
+    const hasStaleRunnerAudit =
+      lower.includes("rerun_precheck")
+      && (lower.includes("ps -axo") || lower.includes("pgrep"))
+      && (
+        lower.includes("dotnet test")
+        || lower.includes("testhost")
+        || lower.includes("headless_shell")
+        || lower.includes("run-driver")
+      )
+    const hasStaleRunnerCleanup =
+      lower.includes("pkill")
+      || /\bkill\s+-?\d+/i.test(command)
+      || lower.includes("xargs kill")
 
     if (!hasResultsDirectory || !hasTrxLogger || !hasVisibleStartMarker || !hasVisibleEndMarker) {
       throw new Error(
@@ -372,6 +385,12 @@ export function createToolExecuteBeforeHandler(args: {
     if (!hasObservableHeartbeat) {
       throw new Error(
         `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without observable heartbeat logging. Emit recurring RERUN_HEARTBEAT lines from the same bounded rerun command so idle waits without TRX/artifact progress are visible before the hard timeout.`,
+      )
+    }
+
+    if (!hasStaleRunnerAudit || !hasStaleRunnerCleanup) {
+      throw new Error(
+        `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without stale-runner preflight. Emit RERUN_PRECHECK and audit lingering dotnet test/testhost/headless_shell/run-driver processes, with cleanup logic for leftovers from prior iterations, before launching the bounded rerun.`,
       )
     }
   }

@@ -140,6 +140,8 @@ Playwright can look "busy" while the test is actually waiting on the wrong thing
 - A rerun is incomplete if the TRX shows fewer results than the intended failing-set coverage, even if the command itself exited 0.
 - If a rerun lives materially longer than the last comparable local baseline and still has no TRX file or no new result artifacts, treat that as a hang signal, not as "still probably running normally".
 - The rerun command must emit a recurring heartbeat while the test process is alive (for example \`RERUN_HEARTBEAT elapsed=... trx_exists=... artifact_count=...\` every 20-30s).
+- Before launching the bounded rerun, do a stale-runner preflight (\`RERUN_PRECHECK\`): audit lingering \`dotnet test\`, \`testhost.dll\`, Playwright \`run-driver\`, and Chromium \`headless_shell\` leftovers from prior iterations, and clean them up before spending the one rerun.
+- If an older local rerun is still alive, do NOT stack a new rerun on top of it. Kill the stale leftover, record that fact in evidence, and only then launch the fresh bounded rerun.
 - If the heartbeat keeps reporting "still no TRX" or no artifact growth, treat that as direct evidence of an idle wait or wrong awaited predicate and stop guessing.
 - In that case, capture the hang as evidence, name the most likely stuck awaited surface, and continue diagnosis from that fact.
 - Do not silently burn more time on an unobservable rerun.

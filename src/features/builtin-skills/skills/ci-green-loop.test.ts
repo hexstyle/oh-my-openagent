@@ -129,6 +129,8 @@ describe("ci green loop builtin skills", () => {
     expect(dotnetPlaywrightSkill.template).toContain("Do not silently burn more time on an unobservable rerun.")
     expect(dotnetPlaywrightSkill.template).toContain("The rerun command must emit a recurring heartbeat")
     expect(dotnetPlaywrightSkill.template).toContain("RERUN_HEARTBEAT")
+    expect(dotnetPlaywrightSkill.template).toContain("stale-runner preflight (`RERUN_PRECHECK`)")
+    expect(dotnetPlaywrightSkill.template).toContain("do NOT stack a new rerun on top of it")
     expect(dotnetPlaywrightSkill.template).toContain("still no TRX")
     expect(dotnetPlaywrightSkill.template).toContain("Coverage Integrity (MANDATORY)")
     expect(dotnetPlaywrightSkill.template).toContain("Do NOT replace a real UI/API/data-path validation with a stub")
