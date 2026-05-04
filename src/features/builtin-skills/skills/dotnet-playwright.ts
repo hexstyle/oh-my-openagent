@@ -146,6 +146,7 @@ Playwright can look "busy" while the test is actually waiting on the wrong thing
 - The rerun command must emit a recurring heartbeat while the test process is alive (for example \`RERUN_HEARTBEAT elapsed=... trx_exists=... artifact_count=...\` every 20-30s).
 - The heartbeat should be shell-observable, not hidden inside a blocking Python loop. Prefer \`kill -0 "$PID"\` + \`sleep 20\` in the same bash command.
 - Before launching the bounded rerun, do a stale-runner preflight (\`RERUN_PRECHECK\`): audit lingering \`dotnet test\`, \`testhost.dll\`, Playwright \`run-driver\`, and Chromium \`headless_shell\` leftovers from prior iterations, and clean them up before spending the one rerun.
+- Preferred shape: keep \`RERUN_PRECHECK\` in the same shell wave as the bounded rerun. If you split it into a dedicated preflight command, the bounded rerun must follow immediately in the next command for the same session.
 - Make the stale-runner preflight shell-visible and self-safe:
   - \`export SELF=$$\`
   - print \`RERUN_PRECHECK ...\`

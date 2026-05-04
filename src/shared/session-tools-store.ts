@@ -20,6 +20,15 @@ export function hasSessionFlag(sessionID: string, flag: string): boolean {
   return flagsStore.get(sessionID)?.has(flag) ?? false;
 }
 
+export function clearSessionFlag(sessionID: string, flag: string): void {
+  const flags = flagsStore.get(sessionID);
+  if (!flags) return;
+  flags.delete(flag);
+  if (flags.size === 0) {
+    flagsStore.delete(sessionID);
+  }
+}
+
 export function isSessionToolDisabled(sessionID: string, toolName: string): boolean {
   const tools = store.get(sessionID);
   if (!tools) {

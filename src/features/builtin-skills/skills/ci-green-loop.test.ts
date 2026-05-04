@@ -132,6 +132,7 @@ describe("ci green loop builtin skills", () => {
     expect(dotnetPlaywrightSkill.template).toContain("RERUN_HEARTBEAT")
     expect(dotnetPlaywrightSkill.template).toContain("kill -0 \"$PID\"")
     expect(dotnetPlaywrightSkill.template).toContain("stale-runner preflight (`RERUN_PRECHECK`)")
+    expect(dotnetPlaywrightSkill.template).toContain("If you split it into a dedicated preflight command")
     expect(dotnetPlaywrightSkill.template).toContain("export SELF=$$")
     expect(dotnetPlaywrightSkill.template).toContain("ps -ax -o pid=,command=")
     expect(dotnetPlaywrightSkill.template).toContain("exclude `$SELF` from matches")

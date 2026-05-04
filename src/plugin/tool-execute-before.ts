@@ -7,6 +7,7 @@ import { getMainSessionID } from "../features/claude-code-session-state"
 import { clearBoulderState } from "../features/boulder-state"
 import { log } from "../shared"
 import {
+  clearSessionFlag,
   hasSessionFlag,
   isSessionToolDisabled,
   setSessionFlag,
@@ -32,6 +33,7 @@ export function createToolExecuteBeforeHandler(args: {
   const CI_EVIDENCE_CORE_READ_FLAG = "ci-evidence-core-read"
   const CI_DIRTY_BATCH_INSPECTED_FLAG = "ci-dirty-batch-inspected"
   const CI_FORWARD_PROGRESS_FLAG = "ci-forward-progress"
+  const CI_PLAYWRIGHT_PREFLIGHT_READY_FLAG = "ci-playwright-preflight-ready"
 
   function getStringArg(argsObject: Record<string, unknown>, keys: string[]): string | undefined {
     for (const key of keys) {
@@ -252,6 +254,35 @@ export function createToolExecuteBeforeHandler(args: {
     return false
   }
 
+  function isStandalonePlaywrightPreflightAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
+    if (toolName !== "bash") return false
+    const command = getStringArg(argsObject, ["command"])
+    if (typeof command !== "string") {
+      return false
+    }
+
+    const lower = command.toLowerCase()
+    const hasPreflightMarker = lower.includes("rerun_precheck")
+    const hasAudit =
+      lower.includes("ps -ax")
+      || lower.includes("ps -axo")
+      || lower.includes("pgrep")
+    const hasRunnerKinds =
+      lower.includes("dotnet test")
+      || lower.includes("testhost")
+      || lower.includes("headless_shell")
+      || lower.includes("run-driver")
+    const hasCleanup =
+      lower.includes("pkill")
+      || /\bkill\s+-?\d+/i.test(command)
+      || lower.includes("xargs kill")
+
+    const launchesDotnetTest =
+      /(?:^|&&|;|\()\s*(?:\/opt\/homebrew\/opt\/dotnet@8\/libexec\/dotnet|dotnet)\s+test\b/i.test(command)
+
+    return hasPreflightMarker && hasAudit && hasRunnerKinds && hasCleanup && !launchesDotnetTest
+  }
+
   function extractContentArg(argsObject: Record<string, unknown>, keys: string[]): string | undefined {
     for (const key of keys) {
       const value = argsObject[key]
@@ -430,10 +461,15 @@ export function createToolExecuteBeforeHandler(args: {
       )
     }
 
-    if (!hasStaleRunnerAudit || !hasStaleRunnerCleanup) {
+    const hasFreshStandalonePreflight = hasSessionFlag(sessionID, CI_PLAYWRIGHT_PREFLIGHT_READY_FLAG)
+    if ((!hasStaleRunnerAudit || !hasStaleRunnerCleanup) && !hasFreshStandalonePreflight) {
       throw new Error(
-        `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without stale-runner preflight. Emit RERUN_PRECHECK and audit lingering dotnet test/testhost/headless_shell/run-driver processes, with cleanup logic for leftovers from prior iterations, before launching the bounded rerun.`,
+        `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without stale-runner preflight. Emit RERUN_PRECHECK and audit lingering dotnet test/testhost/headless_shell/run-driver processes, with cleanup logic for leftovers from prior iterations, either in the same bounded rerun command or in the immediately preceding dedicated preflight step, before launching the bounded rerun.`,
       )
+    }
+
+    if (hasFreshStandalonePreflight) {
+      clearSessionFlag(sessionID, CI_PLAYWRIGHT_PREFLIGHT_READY_FLAG)
     }
   }
 
@@ -465,6 +501,10 @@ export function createToolExecuteBeforeHandler(args: {
     }
 
     const normalizedToolName = input.tool.toLowerCase()
+
+    if (isStandalonePlaywrightPreflightAttempt(normalizedToolName, output.args)) {
+      setSessionFlag(input.sessionID, CI_PLAYWRIGHT_PREFLIGHT_READY_FLAG)
+    }
 
     if (
       hasSessionFlag(input.sessionID, CI_EVIDENCE_MATERIALIZED_FLAG)
