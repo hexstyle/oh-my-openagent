@@ -116,6 +116,25 @@ await Expect(page.Locator(".status")).ToHaveTextAsync("Complete");
 await page.WaitForTimeoutAsync(5000); // DON'T — hides real timing issues
 \`\`\`
 
+### Idle / Empty Wait Failure Mode (MANDATORY)
+
+Playwright can look "busy" while the test is actually waiting on the wrong thing forever. Treat this as a first-class failure mode:
+- A long wait with no meaningful DOM/API state change is a bug, not "flaky timing".
+- Always identify the exact awaited signal: selector, response, dialog, navigation, grid row, download, or command surface.
+- If a wait times out, log what changed and what did NOT change during that interval. "Still waiting" is not a diagnosis.
+- For response waits, log request URL, whether the request fired at all, whether it failed transport-level (\`ERR_CONNECTION_REFUSED\`, \`ERR_ABORTED\`, etc.), and whether retries actually triggered a new request.
+- For UI waits, log the visible fallback surface (\`Edit page\`, loader, modal, overlay, disabled button, empty grid, etc.) and whether the page became interactive or stayed in shell/loading state.
+- If a Playwright run spends minutes without converging, suspect an empty wait loop or wrong awaited predicate before blaming the app.
+- The fixing agent must watch for these hangs while writing, running, and diagnosing Playwright tests. A rerun that times out without a concrete awaited-signal diagnosis is incomplete.
+
+### Coverage Integrity (MANDATORY)
+
+Any Playwright fix must preserve the intended end-to-end chain:
+- Do NOT replace a real UI/API/data-path validation with a stub, fake response, or simplified smoke path unless the test is explicitly meant to verify that stubbed seam.
+- Do NOT weaken coverage by removing the assertion that proves the business outcome, skipping the step that triggers the real backend call, or turning a real full-chain test into a partial shortcut.
+- Retries, helper fallbacks, and direct-navigation recovery are allowed only when they still verify the same real product behavior.
+- If you add a fallback path, the final assertion must still prove the original user-visible or backend-visible outcome.
+
 ### Evidence Pipeline
 
 Every test failure should produce:

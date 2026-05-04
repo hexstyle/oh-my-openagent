@@ -22,6 +22,8 @@ Plans MUST cover 100% of known failures. A plan addressing a subset is REJECTED.
 
 **Coverage map** — table showing root cause group → failure count → confidence. Total must equal 100% of failures.
 
+**Coverage integrity is mandatory**: no fix may reduce end-to-end coverage for the currently failing chain, replace a real UI/API/data path with a stub, or convert a product check into a fake pass shortcut. If a test currently exercises the full chain, keep it full-chain. If a helper/fallback narrows the observable surface, record why that still preserves the same business path and verification power.
+
 **NEVER split fixes into separate tasks by group.** If prior evidence/diagnosis exists from a previous iteration, embed it directly in Task 2's instructions — don't create a new Task 1.
 
 Pre-digested fix instructions = ONE hypothesis for ONE group. Plan MUST still include full diagnosis to find ALL groups.
@@ -187,6 +189,12 @@ Do NOT push a commit that fixes only one file or one cluster unless the current 
 4. inclusion in the local verification target set or an explicit repo-native verification blocker.
 5. a passing Claude review recorded for the current batch in \`repair-log.md\` / checkpoint evidence.
 If any current failing test misses one of those five items, continue working locally and do not push.
+
+### No Coverage Regression / No Stubbed Passes
+- Do NOT "fix" CI by removing assertions, skipping pages, bypassing network/UI/data steps, loosening the scenario to a smoke check, or introducing test-only stubs where the test is supposed to prove the real chain works.
+- If you add a fallback, retry, or helper path, it must still observe the same real user-visible outcome or real backend effect that the original test intended to verify.
+- Any change that would make the test easier but less representative is invalid unless the tracker explicitly records a pre-existing harness bug and the replacement still preserves equivalent end-to-end coverage.
+- During pre-push audit, explicitly confirm that no current failing test was converted from a full-chain validation into a partial-chain shortcut or fake green.
 
 ### Stale Plan Detection (MANDATORY — run before STEP 3)
 The plan may have been written for an OLDER build. Before applying fixes:

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { bambooCiSkill } from "./bamboo-ci"
 import { ciGreenLoopSkill } from "./ci-green-loop"
+import { dotnetPlaywrightSkill } from "./dotnet-playwright"
 
 describe("ci green loop builtin skills", () => {
   test("ci-green-loop template requires iteration ledger updates", () => {
@@ -100,5 +101,24 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("If the latest plan/build is still pinned to the previous revision after 2 minutes")
     expect(ciGreenLoopSkill.template).toContain("Silent post-push waiting is forbidden")
     expect(ciGreenLoopSkill.template).toContain("trigger-lag investigation")
+  })
+
+  test("ci-green-loop forbids coverage-reducing shortcut fixes and fake passes", () => {
+    expect(ciGreenLoopSkill.template).toContain("Coverage integrity is mandatory")
+    expect(ciGreenLoopSkill.template).toContain("no fix may reduce end-to-end coverage")
+    expect(ciGreenLoopSkill.template).toContain("replace a real UI/API/data path with a stub")
+    expect(ciGreenLoopSkill.template).toContain("No Coverage Regression / No Stubbed Passes")
+    expect(ciGreenLoopSkill.template).toContain("Do NOT \"fix\" CI by removing assertions")
+    expect(ciGreenLoopSkill.template).toContain("partial-chain shortcut or fake green")
+  })
+
+  test("dotnet-playwright treats empty waits and idle hangs as a mandatory diagnosis target", () => {
+    expect(dotnetPlaywrightSkill.template).toContain("Idle / Empty Wait Failure Mode (MANDATORY)")
+    expect(dotnetPlaywrightSkill.template).toContain("A long wait with no meaningful DOM/API state change is a bug")
+    expect(dotnetPlaywrightSkill.template).toContain("Always identify the exact awaited signal")
+    expect(dotnetPlaywrightSkill.template).toContain("ERR_CONNECTION_REFUSED")
+    expect(dotnetPlaywrightSkill.template).toContain("A rerun that times out without a concrete awaited-signal diagnosis is incomplete")
+    expect(dotnetPlaywrightSkill.template).toContain("Coverage Integrity (MANDATORY)")
+    expect(dotnetPlaywrightSkill.template).toContain("Do NOT replace a real UI/API/data-path validation with a stub")
   })
 })

@@ -1,6 +1,7 @@
 import { spawn as bunSpawn } from "bun"
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process"
 import { existsSync, statSync } from "fs"
+import { delimiter } from "node:path"
 import { log } from "../../shared/logger"
 // Bun spawn segfaults on Windows (oven-sh/bun#25798) — unfixed as of v1.3.8+
 function shouldUseNodeSpawn(): boolean {
@@ -130,6 +131,41 @@ function wrapNodeProcess(proc: ChildProcess): UnifiedProcess {
     },
   }
 }
+
+const DOTNET8_HOMEBREW_ROOT = "/opt/homebrew/opt/dotnet@8/libexec"
+
+function prependPathSegment(pathValue: string | undefined, segment: string): string {
+  if (!pathValue || pathValue.length === 0) {
+    return segment
+  }
+
+  const segments = pathValue.split(delimiter)
+  if (segments.includes(segment)) {
+    return pathValue
+  }
+
+  return `${segment}${delimiter}${pathValue}`
+}
+
+export function augmentEnvForLspCommand(
+  command: string[],
+  env: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  if (command[0] !== "csharp-ls") {
+    return env
+  }
+
+  if (!existsSync(DOTNET8_HOMEBREW_ROOT)) {
+    return env
+  }
+
+  return {
+    ...env,
+    DOTNET_ROOT: env.DOTNET_ROOT?.trim().length ? env.DOTNET_ROOT : DOTNET8_HOMEBREW_ROOT,
+    PATH: prependPathSegment(env.PATH, DOTNET8_HOMEBREW_ROOT),
+  }
+}
+
 export function spawnProcess(
   command: string[],
   options: { cwd: string; env: Record<string, string | undefined> }
@@ -138,12 +174,13 @@ export function spawnProcess(
   if (!cwdValidation.valid) {
     throw new Error(`[LSP] ${cwdValidation.error}`)
   }
+  const effectiveEnv = augmentEnvForLspCommand(command, options.env)
   if (shouldUseNodeSpawn()) {
     const [cmd, ...args] = command
     log("[LSP] Using Node.js child_process on Windows to avoid Bun spawn segfault")
     const proc = nodeSpawn(cmd, args, {
       cwd: options.cwd,
-      env: options.env as NodeJS.ProcessEnv,
+      env: effectiveEnv as NodeJS.ProcessEnv,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
       shell: true,
@@ -155,7 +192,7 @@ export function spawnProcess(
     stdout: "pipe",
     stderr: "pipe",
     cwd: options.cwd,
-    env: options.env,
+    env: effectiveEnv,
   })
   return proc as unknown as UnifiedProcess
 }
