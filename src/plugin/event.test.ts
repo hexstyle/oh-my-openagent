@@ -6,11 +6,12 @@ import { join } from "node:path"
 
 import { createEventHandler } from "./event"
 import { createChatMessageHandler } from "./chat-message"
-import { _resetForTesting, setMainSession } from "../features/claude-code-session-state"
+import { _resetForTesting, setMainSession, updateSessionAgent } from "../features/claude-code-session-state"
 import { clearPendingModelFallback, createModelFallbackHook } from "../hooks/model-fallback/hook"
 import { resetRuntimeFallbackSessionIDCache } from "../hooks/runtime-fallback/session-id"
 import { getSessionPromptParams, setSessionPromptParams } from "../shared/session-prompt-params-state"
 import { markRecentRuntimeFallbackContinuationDispatch, resetRecentRuntimeFallbackContinuationDispatchesForTests } from "../shared/recent-runtime-fallback-continuation"
+import { setSessionModel } from "../shared/session-model-state"
 import * as loggerModule from "../shared/logger"
 import * as dataPathModule from "../shared/data-path"
 
@@ -826,6 +827,75 @@ describe("createEventHandler - session recovery compaction", () => {
 
 		//#then - summarize (compaction) must be called before prompt (continue)
 		expect(callOrder).toEqual(["summarize", "prompt"])
+	})
+
+	it("routes recovery compaction through the configured agent compaction model", async () => {
+		//#given
+		const sessionID = "ses_recovery_compaction_model_route"
+		setMainSession(sessionID)
+		updateSessionAgent(sessionID, "Sisyphus (Ultraworker)")
+		setSessionModel(sessionID, { providerID: "anthropic", modelID: "claude-sonnet-4-6" })
+
+		const summarizeCalls: Array<Record<string, unknown>> = []
+		const eventHandler = createEventHandler({
+			ctx: {
+				directory: "/tmp",
+				client: {
+					session: {
+						abort: async () => ({}),
+						summarize: async (input: Record<string, unknown>) => {
+							summarizeCalls.push(input)
+							return {}
+						},
+						prompt: async () => ({}),
+					},
+				},
+			} as any,
+			pluginConfig: {
+				agents: {
+					sisyphus: {
+						compaction: { model: "openai/gpt-5.4" },
+					},
+				},
+			} as any,
+			firstMessageVariantGate: {
+				markSessionCreated: () => {},
+				clear: () => {},
+			},
+			managers: {
+				tmuxSessionManager: {
+					onSessionCreated: async () => {},
+					onSessionDeleted: async () => {},
+				},
+			} as any,
+			hooks: {
+				sessionRecovery: {
+					isRecoverableError: () => true,
+					handleSessionRecovery: async () => true,
+				},
+				stopContinuationGuard: { isStopped: () => false },
+			} as any,
+		})
+
+		//#when
+		await eventHandler({
+			event: {
+				type: "session.error",
+				properties: {
+					sessionID,
+					messageID: "msg_compaction_model_route",
+					error: { name: "Error", message: "tool_result block(s) that are not immediately" },
+				},
+			},
+		} as any)
+
+		//#then
+		expect(summarizeCalls).toHaveLength(1)
+		expect(summarizeCalls[0]?.body).toEqual({
+			auto: true,
+			providerID: "openai",
+			modelID: "gpt-5.4",
+		})
 	})
 
 	it("sends continue even if compaction fails", async () => {

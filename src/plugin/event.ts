@@ -46,6 +46,7 @@ import { clearSessionPromptParams } from "../shared/session-prompt-params-state"
 import { deleteSessionTools } from "../shared/session-tools-store";
 import { lspManager } from "../tools";
 import { getRuntimeFallbackSessionID } from "../hooks/runtime-fallback/session-id";
+import { resolveCompactionModel } from "../hooks/shared/compaction-model-resolver";
 
 import type { CreatedHooks } from "../create-hooks";
 import type { Managers } from "../create-managers";
@@ -125,6 +126,25 @@ function extractProviderModelFromErrorMessage(message: string): { providerID?: s
   }
 
   return {};
+}
+
+function buildRecoveryCompactionBody(
+  pluginConfig: OhMyOpenCodeConfig,
+  sessionID: string,
+): { auto: true; providerID?: string; modelID?: string } {
+  const sessionModel = getSessionModel(sessionID);
+  if (!sessionModel?.providerID || !sessionModel?.modelID) {
+    return { auto: true };
+  }
+
+  const { providerID, modelID } = resolveCompactionModel(
+    pluginConfig,
+    sessionID,
+    sessionModel.providerID,
+    sessionModel.modelID,
+  );
+
+  return { auto: true, providerID, modelID };
 }
 
 function isProviderBlockedErrorText(message: string): boolean {
@@ -3920,7 +3940,7 @@ export function createEventHandler(args: {
             await pluginContext.client.session
               .summarize({
                 path: { id: sessionID },
-                body: { auto: true },
+                body: buildRecoveryCompactionBody(args.pluginConfig, sessionID),
                 query: { directory: pluginContext.directory },
               })
               .catch((err: unknown) => {
