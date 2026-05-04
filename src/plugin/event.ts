@@ -323,7 +323,7 @@ type AssistantRecoverySnapshot = {
   erroredSisyphusCiGuardrailTool?: string;
 };
 const assistantRecoverySnapshotBySession = new Map<string, AssistantRecoverySnapshot>();
-const RECOVERABLE_PENDING_PROMETHEUS_TOOLS = new Set(["write", "edit", "todowrite"]);
+const RECOVERABLE_PENDING_PROMETHEUS_TOOLS = new Set(["write", "edit", "todowrite", "task"]);
 const RECOVERABLE_PENDING_SISYPHUS_CI_TOOLS = new Set(["bash"]);
 
 function clearSharedEmptyAssistantRecoveryTimer(sessionID: string): void {
@@ -426,6 +426,12 @@ function isPrometheusPlannerAgent(agent: string | undefined): boolean {
   if (!agent) return false;
   const normalizedAgent = agent.toLowerCase();
   return normalizedAgent.includes("prometheus") || normalizedAgent.includes("plan builder");
+}
+
+function isAtlasPlanExecutorAgent(agent: string | undefined): boolean {
+  if (!agent) return false;
+  const normalizedAgent = agent.toLowerCase();
+  return normalizedAgent.includes("atlas") || normalizedAgent.includes("plan executor");
 }
 
 function isSisyphusExecutorAgent(agent: string | undefined): boolean {
@@ -2608,11 +2614,19 @@ async function maybeRecoverPrometheusPendingEmptyToolCall(
   ) {
     return false;
   }
-  if (!isPrometheusPlannerAgent(lastMessageAgent)) return false;
 
   const pendingTool = findRecoverablePendingPrometheusTool(lastMessage.parts);
   if (!pendingTool) {
     return tryCachedSnapshotRecovery("live-transcript-missing-pending-tool");
+  }
+
+  const lastUser = findLastUserMessage(messages as never);
+  const isAtlasCiPendingTask =
+    pendingTool.tool === "task"
+    && isAtlasPlanExecutorAgent(lastMessageAgent)
+    && messageIndicatesEvidenceGatedCi(lastUser as RecoveryMessage | undefined);
+  if (!isPrometheusPlannerAgent(lastMessageAgent) && !isAtlasCiPendingTask) {
+    return false;
   }
 
   const lastRecoveredMessageID = recoveredPendingEmptyToolMessageBySession.get(sessionID);
@@ -2628,7 +2642,6 @@ async function maybeRecoverPrometheusPendingEmptyToolCall(
 
   await session?.abort?.({ path: { id: sessionID } }).catch(() => {});
 
-  const lastUser = findLastUserMessage(messages as never);
   const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
   resumeConfig.directory = ctx.directory;
   resumeConfig.continuationText = PROMETHEUS_EMPTY_TOOL_RECOVERY_TEXT;
@@ -4032,9 +4045,12 @@ export function createEventHandler(args: {
             });
           }
         }
+        const plannerLikeAgent =
+          isPrometheusPlannerAgent(snapshot?.agent ?? getSessionAgent(sessionID))
+          || isAtlasPlanExecutorAgent(snapshot?.agent ?? getSessionAgent(sessionID));
         const shouldPreferPlannerRecovery =
           !!snapshot
-          && isPrometheusPlannerAgent(snapshot.agent ?? getSessionAgent(sessionID))
+          && plannerLikeAgent
           && (
             !!snapshot.pendingPrometheusTool
             || (

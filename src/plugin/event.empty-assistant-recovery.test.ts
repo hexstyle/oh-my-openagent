@@ -953,6 +953,99 @@ describe("createEventHandler idle empty assistant recovery", () => {
     })
   })
 
+  test("recovers delayed atlas pending empty task calls in ci fast-path", async () => {
+    jest.useFakeTimers()
+
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_atlas_pending_task_ci",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nDelegate the unified CI task and continue the current loop.",
+        }],
+      },
+      {
+        id: "msg_atlas_pending_task_ci",
+        role: "assistant",
+        agent: "Atlas (Plan Executor)",
+        parts: [
+          {
+            type: "tool",
+            tool: "task",
+            raw: "",
+            state: { status: "pending", input: {} },
+          },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_atlas_pending_task_ci",
+            sessionID: "ses_atlas_pending_task_ci",
+            role: "assistant",
+            agent: "Atlas (Plan Executor)",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part_atlas_pending_task_ci",
+            sessionID: "ses_atlas_pending_task_ci",
+            messageID: "msg_atlas_pending_task_ci",
+            type: "tool",
+            tool: "task",
+            raw: "",
+            state: { status: "pending", input: {} },
+          },
+        },
+      },
+    } as const)
+
+    if (typeof jest.advanceTimersByTimeAsync === "function") {
+      await jest.advanceTimersByTimeAsync(5001)
+    } else {
+      jest.advanceTimersByTime(5001)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_atlas_pending_task_ci" },
+      body: expect.objectContaining({
+        agent: "Atlas (Plan Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining("tool call was emitted without the required arguments"),
+          }),
+        ]),
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
   test("recovers idle sisyphus CI visible summary turns after dirty-batch inspection", async () => {
     const handler = createHandler([
       {
