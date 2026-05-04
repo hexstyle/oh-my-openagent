@@ -146,6 +146,14 @@ Playwright can look "busy" while the test is actually waiting on the wrong thing
 - The rerun command must emit a recurring heartbeat while the test process is alive (for example \`RERUN_HEARTBEAT elapsed=... trx_exists=... artifact_count=...\` every 20-30s).
 - The heartbeat should be shell-observable, not hidden inside a blocking Python loop. Prefer \`kill -0 "$PID"\` + \`sleep 20\` in the same bash command.
 - Before launching the bounded rerun, do a stale-runner preflight (\`RERUN_PRECHECK\`): audit lingering \`dotnet test\`, \`testhost.dll\`, Playwright \`run-driver\`, and Chromium \`headless_shell\` leftovers from prior iterations, and clean them up before spending the one rerun.
+- Make the stale-runner preflight shell-visible and self-safe:
+  - \`export SELF=$$\`
+  - print \`RERUN_PRECHECK ...\`
+  - audit with \`ps -ax -o pid=,command=\`
+  - exclude \`$SELF\` from matches
+  - scope cleanup to repo-related processes only (\`eurochemeopt\`, \`Optimizer.PlaywrightTests\`, \`playwright\`)
+  - do \`kill -TERM\`, short sleep, then \`kill -KILL\` only for leftovers
+  - print \`RERUN_START phase=preflight\` and \`RERUN_END phase=preflight\`
 - If an older local rerun is still alive, do NOT stack a new rerun on top of it. Kill the stale leftover, record that fact in evidence, and only then launch the fresh bounded rerun.
 - If the heartbeat keeps reporting "still no TRX" or no artifact growth, treat that as direct evidence of an idle wait or wrong awaited predicate and stop guessing.
 - In that case, capture the hang as evidence, name the most likely stuck awaited surface, and continue diagnosis from that fact.
