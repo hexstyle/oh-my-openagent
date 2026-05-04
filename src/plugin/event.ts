@@ -335,6 +335,7 @@ type AssistantRecoverySnapshot = {
   agent?: string;
   hasVisibleContent: boolean;
   hasUserFacingContent: boolean;
+  hasPlannerCiHandoffText: boolean;
   hasRecoverablePlannerInternalParts: boolean;
   hasStreamingDelta: boolean;
   pendingPrometheusTool?: string;
@@ -500,6 +501,16 @@ function assistantMessageHasUserFacingContent(parts: RecoveryMessagePart[] | und
   }
 
   return false;
+}
+
+function textIndicatesPlannerCiHandoff(text: string | undefined): boolean {
+  if (typeof text !== "string") return false;
+  const normalized = text.toLowerCase();
+  return (
+    normalized.includes("/start-work")
+    || normalized.includes("do you want to proceed")
+    || normalized.includes("this will dispatch sisyphus")
+  );
 }
 
 function assistantMessageHasRecoverablePlannerInternalParts(parts: RecoveryMessagePart[] | undefined): boolean {
@@ -954,6 +965,7 @@ function upsertAssistantRecoverySnapshot(
     agent: agent ?? existingSnapshot?.agent ?? getSessionAgent(sessionID),
     hasVisibleContent: false,
     hasUserFacingContent: false,
+    hasPlannerCiHandoffText: false,
     hasRecoverablePlannerInternalParts: false,
     hasStreamingDelta: false,
   };
@@ -1140,6 +1152,9 @@ function updateAssistantRecoverySnapshotPart(
       snapshot.hasVisibleContent = true;
       snapshot.hasUserFacingContent = true;
       snapshot.hasStreamingDelta = false;
+      if (textIndicatesPlannerCiHandoff(part.text)) {
+        snapshot.hasPlannerCiHandoffText = true;
+      }
     }
     rememberRecoverablePrometheusSnapshot(sessionID, snapshot);
     return;
@@ -4422,6 +4437,32 @@ export function createEventHandler(args: {
             }
           } catch (err) {
             log("[event] immediate planner CI bootstrap-tool recovery failed in message.part.updated:", {
+              sessionID,
+              messageID,
+              error: err,
+            });
+          }
+        }
+        const shouldImmediatelyRecoverPlannerCiHandoffText =
+          !!snapshot
+          && snapshot.hasPlannerCiHandoffText
+          && snapshot.hasUserFacingContent;
+        if (
+          shouldImmediatelyRecoverPlannerCiHandoffText
+          && !hooks.stopContinuationGuard?.isStopped(sessionID)
+        ) {
+          try {
+            const recoveredPlannerCiVisibleSummary = await maybeRecoverPrometheusCiVisibleSummaryAssistantMessage(
+              pluginContext,
+              sessionID,
+              messageID,
+              "message.part.updated.planner-ci-handoff-text",
+            );
+            if (recoveredPlannerCiVisibleSummary) {
+              return;
+            }
+          } catch (err) {
+            log("[event] immediate planner ci handoff-text recovery failed in message.part.updated:", {
               sessionID,
               messageID,
               error: err,
