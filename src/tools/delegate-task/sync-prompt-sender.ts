@@ -33,6 +33,15 @@ function isUnexpectedEofError(error: unknown): boolean {
   return lowered.includes("unexpected eof") || lowered.includes("json parse error")
 }
 
+function isAssistantPrefillError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  const lowered = message.toLowerCase()
+  return (
+    lowered.includes("assistant message prefill")
+    || lowered.includes("conversation must end with a user message")
+  )
+}
+
 export async function sendSyncPrompt(
   client: OpencodeClient,
   input: {
@@ -84,6 +93,21 @@ export async function sendSyncPrompt(
   try {
     await deps.promptWithModelSuggestionRetry(client, promptArgs)
   } catch (promptError) {
+    if (isAssistantPrefillError(promptError)) {
+      try {
+        await deps.promptWithModelSuggestionRetry(client, {
+          ...promptArgs,
+          body: {
+            ...promptArgs.body,
+            parts: [{ type: "text", text: effectivePrompt }],
+          },
+        })
+        return null
+      } catch (plainUserRetryError) {
+        promptError = plainUserRetryError
+      }
+    }
+
     if (isOracleAgent(input.agentToUse) && isUnexpectedEofError(promptError)) {
       try {
         await deps.promptSyncWithModelSuggestionRetry(client, promptArgs)

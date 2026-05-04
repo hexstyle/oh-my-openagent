@@ -367,4 +367,51 @@ bunDescribe("sendSyncPrompt", () => {
     bunExpect(promptWithModelSuggestionRetry).toHaveBeenCalledTimes(1)
     bunExpect(promptSyncWithModelSuggestionRetry).toHaveBeenCalledTimes(0)
   })
+
+  bunTest("retries sync task prompt with plain user text when Claude rejects assistant prefill", async () => {
+    //#given
+    const { sendSyncPrompt } = require("./sync-prompt-sender")
+
+    const promptCalls: any[] = []
+    const promptWithModelSuggestionRetry = bunMock(async (_client: any, input: any) => {
+      promptCalls.push(input)
+      if (promptCalls.length === 1) {
+        throw new Error("This model does not support assistant message prefill. The conversation must end with a user message.")
+      }
+    })
+
+    const input = {
+      sessionID: "test-session",
+      agentToUse: "Sisyphus (Ultraworker)",
+      args: {
+        description: "test task",
+        prompt: "fix all failures",
+        run_in_background: false,
+        load_skills: [],
+      },
+      systemContent: undefined,
+      categoryModel: {
+        providerID: "anthropic",
+        modelID: "claude-sonnet-4-6",
+      },
+      toastManager: null,
+      taskId: undefined,
+    }
+
+    //#when
+    const result = await sendSyncPrompt(
+      { session: { promptAsync: bunMock(async () => ({ data: {} })) } },
+      input,
+      {
+        promptWithModelSuggestionRetry,
+        promptSyncWithModelSuggestionRetry: bunMock(async () => {}),
+      },
+    )
+
+    //#then
+    bunExpect(result).toBeNull()
+    bunExpect(promptWithModelSuggestionRetry).toHaveBeenCalledTimes(2)
+    bunExpect(promptCalls[0].body.parts[0].text).toContain("<!-- OMO_INTERNAL_INITIATOR -->")
+    bunExpect(promptCalls[1].body.parts[0].text).toBe("fix all failures")
+  })
 })
