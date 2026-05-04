@@ -542,6 +542,57 @@ function assistantMessageHasVisibleContent(parts: RecoveryMessagePart[] | undefi
   return false;
 }
 
+function assistantMessageHasRecoverableEmptyReasoningPrelude(parts: RecoveryMessagePart[] | undefined): boolean {
+  if (!Array.isArray(parts) || parts.length === 0) return false;
+
+  let hasStepStart = false;
+  let hasEmptyReasoning = false;
+
+  for (const part of parts) {
+    const type = part?.type;
+    if (!type) continue;
+
+    if (type === "step-start") {
+      hasStepStart = true;
+      continue;
+    }
+
+    if (type === "reasoning" || type === "thinking") {
+      if (typeof part.text === "string" && part.text.trim().length === 0) {
+        hasEmptyReasoning = true;
+        continue;
+      }
+
+      return false;
+    }
+
+    if (
+      type === "redacted_thinking"
+      || type === "meta"
+      || type === "step-finish"
+      || type === "patch"
+      || type === "compaction"
+    ) {
+      continue;
+    }
+
+    if (type === "text") {
+      if (typeof part.text === "string" && part.text.trim().length > 0) {
+        return false;
+      }
+      continue;
+    }
+
+    if (type === "tool" || type === "tool_use" || type === "tool_result") {
+      return false;
+    }
+
+    return false;
+  }
+
+  return hasStepStart && hasEmptyReasoning;
+}
+
 function findLastUserMessageMatching(
   messages: RecoveryMessage[],
   predicate: (message: RecoveryMessage) => boolean,
@@ -1551,7 +1602,12 @@ async function maybeRecoverSisyphusCiReasoningOnlyAssistantMessage(
   if (getMessageError(lastMessage)) return false;
   if (!isSisyphusExecutorAgent(lastMessageAgent)) return false;
   if (assistantMessageHasUserFacingContent(lastMessage.parts)) return false;
-  if (!assistantMessageHasVisibleContent(lastMessage.parts)) return false;
+  if (
+    !assistantMessageHasVisibleContent(lastMessage.parts)
+    && !assistantMessageHasRecoverableEmptyReasoningPrelude(lastMessage.parts)
+  ) {
+    return false;
+  }
   if (!assistantMessageHasRecoverablePlannerInternalParts(lastMessage.parts)) return false;
 
   const lastEvidenceGatedUser = findLastUserMessageMatching(
