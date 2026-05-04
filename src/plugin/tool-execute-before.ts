@@ -1,6 +1,7 @@
 import type { PluginContext } from "./types"
 import { randomUUID } from "node:crypto"
-import { existsSync, statSync } from "node:fs"
+import { existsSync, readdirSync, statSync } from "node:fs"
+import { dirname } from "node:path"
 
 import { getMainSessionID } from "../features/claude-code-session-state"
 import { clearBoulderState } from "../features/boulder-state"
@@ -89,6 +90,45 @@ export function createToolExecuteBeforeHandler(args: {
       filePath.endsWith(".sisyphus/ci-loop-checkpoint.md")
       || filePath.endsWith(".sisyphus/repair-log.md")
     )
+  }
+
+  function getHistoricalVerifyArtifactRead(
+    toolName: string,
+    argsObject: Record<string, unknown>,
+  ): { filePath: string; staleIteration: number; latestIteration: number } | undefined {
+    if (toolName !== "read") return undefined
+    const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
+    if (typeof filePath !== "string") {
+      return undefined
+    }
+
+    const match = filePath.match(/Optimizer\.PlaywrightTests\/TestResults\/iteration(\d+)\//i)
+    if (!match) {
+      return undefined
+    }
+
+    const staleIteration = Number.parseInt(match[1] ?? "", 10)
+    if (!Number.isFinite(staleIteration)) {
+      return undefined
+    }
+
+    const resultsDir = dirname(dirname(filePath))
+    try {
+      const latestIteration = readdirSync(resultsDir)
+        .map((entry) => entry.match(/^iteration(\d+)$/i))
+        .filter((entry): entry is RegExpMatchArray => entry !== null)
+        .map((entry) => Number.parseInt(entry[1] ?? "", 10))
+        .filter((value) => Number.isFinite(value))
+        .reduce((max, value) => Math.max(max, value), staleIteration)
+
+      if (latestIteration > staleIteration) {
+        return { filePath, staleIteration, latestIteration }
+      }
+    } catch {
+      return undefined
+    }
+
+    return undefined
   }
 
   function isDirtyBatchInspectionAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
@@ -476,6 +516,19 @@ export function createToolExecuteBeforeHandler(args: {
       throw new Error(
         `[tool-execute-before] Historical .sisyphus note reads are blocked for session ${input.sessionID} after the current evidence pass. Stay on canonical current-build evidence and the active dirty batch instead of reopening notepads/run-continuation history.`,
       )
+    }
+
+    if (
+      hasSessionFlag(input.sessionID, CI_EVIDENCE_CORE_READ_FLAG)
+      && hasSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
+      && !hasSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
+    ) {
+      const historicalVerifyArtifactRead = getHistoricalVerifyArtifactRead(normalizedToolName, output.args)
+      if (historicalVerifyArtifactRead) {
+        throw new Error(
+          `[tool-execute-before] Historical local verify artifact read is blocked for session ${input.sessionID}. ${historicalVerifyArtifactRead.filePath} is iteration${historicalVerifyArtifactRead.staleIteration}, but iteration${historicalVerifyArtifactRead.latestIteration} already exists. Continue from the newest verify iteration instead of reopening stale TRX/artifact state.`,
+        )
+      }
     }
 
     if (isDirectoryReadAttempt(normalizedToolName, output.args)) {

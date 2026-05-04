@@ -2,6 +2,9 @@ const { describe, expect, test } = require("bun:test")
 const { createToolExecuteBeforeHandler } = require("./tool-execute-before")
 const { createToolRegistry } = require("./tool-registry")
 const { builtinTools } = require("../tools")
+const { mkdtempSync, mkdirSync, rmSync } = require("node:fs")
+const { join } = require("node:path")
+const { tmpdir } = require("node:os")
 const {
   clearSessionTools,
   setSessionTools,
@@ -449,6 +452,45 @@ describe("createToolExecuteBeforeHandler", () => {
     ).rejects.toThrow("Broad dirty-batch git diff output is blocked")
 
     clearSessionTools()
+  })
+
+  test("blocks historical Playwright verify artifact reads when a newer iteration already exists", async () => {
+    const root = mkdtempSync(join(tmpdir(), "omo-historical-verify-"))
+    const iteration13 = join(root, "Optimizer.PlaywrightTests/TestResults/iteration13")
+    const iteration15 = join(root, "Optimizer.PlaywrightTests/TestResults/iteration15")
+    mkdirSync(iteration13, { recursive: true })
+    mkdirSync(iteration15, { recursive: true })
+
+    try {
+      const sessionID = "ses_historical_verify_read"
+      setSessionFlag(sessionID, "ci-evidence-core-read")
+      setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+      const handler = createToolExecuteBeforeHandler({
+        ctx: {
+          client: {
+            session: {
+              messages: async () => ({ data: [] }),
+            },
+          },
+        },
+        hooks: {},
+      })
+
+      await expect(
+        handler(
+          { tool: "read", sessionID, callID: "call_historical_verify_read" },
+          {
+            args: {
+              filePath: join(iteration13, "local-verify-iteration13-host.trx"),
+            } as Record<string, unknown>,
+          },
+        ),
+      ).rejects.toThrow("Historical local verify artifact read is blocked")
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+      clearSessionTools()
+    }
   })
 
   test("allows narrow or summary dirty-batch git diff inspection in CI fast-path", async () => {
