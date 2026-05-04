@@ -131,6 +131,10 @@ Playwright can look "busy" while the test is actually waiting on the wrong thing
 
 - Every local Playwright rerun must be launched through a bounded wrapper, not as an opaque fire-and-wait shell step.
 - The bounded wrapper must include a real hard timeout (\`perl -e 'alarm ...'\`, \`timeout\`/\`gtimeout\`, or a python subprocess timeout). A plain \`dotnet test\` is not bounded.
+- Prefer a shell-visible wrapper that the runtime can inspect directly, for example:
+  \`perl -e 'alarm shift; exec @ARGV' 5400 dotnet test ... &\`
+  then heartbeat with \`while kill -0 "$PID" 2>/dev/null; do echo "RERUN_HEARTBEAT ..."; sleep 20; done\`
+  and finish with \`wait "$PID"\`.
 - The wrapper must emit:
   - the exact results directory and intended TRX path
   - the filtered test count or named failing-set coverage
@@ -140,6 +144,7 @@ Playwright can look "busy" while the test is actually waiting on the wrong thing
 - A rerun is incomplete if the TRX shows fewer results than the intended failing-set coverage, even if the command itself exited 0.
 - If a rerun lives materially longer than the last comparable local baseline and still has no TRX file or no new result artifacts, treat that as a hang signal, not as "still probably running normally".
 - The rerun command must emit a recurring heartbeat while the test process is alive (for example \`RERUN_HEARTBEAT elapsed=... trx_exists=... artifact_count=...\` every 20-30s).
+- The heartbeat should be shell-observable, not hidden inside a blocking Python loop. Prefer \`kill -0 "$PID"\` + \`sleep 20\` in the same bash command.
 - Before launching the bounded rerun, do a stale-runner preflight (\`RERUN_PRECHECK\`): audit lingering \`dotnet test\`, \`testhost.dll\`, Playwright \`run-driver\`, and Chromium \`headless_shell\` leftovers from prior iterations, and clean them up before spending the one rerun.
 - If an older local rerun is still alive, do NOT stack a new rerun on top of it. Kill the stale leftover, record that fact in evidence, and only then launch the fresh bounded rerun.
 - If the heartbeat keeps reporting "still no TRX" or no artifact growth, treat that as direct evidence of an idle wait or wrong awaited predicate and stop guessing.

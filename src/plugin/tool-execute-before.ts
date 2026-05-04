@@ -414,7 +414,7 @@ export function createToolExecuteBeforeHandler(args: {
 
     if (!hasHardTimeoutWrapper) {
       throw new Error(
-        `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without a hard timeout wrapper. Use perl alarm, timeout/gtimeout, or a python subprocess timeout in the same bash command.`,
+        `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without a hard timeout wrapper. Use perl alarm, timeout/gtimeout, or a python subprocess timeout in the same bash command. Preferred shell form: perl -e 'alarm shift; exec @ARGV' 5400 dotnet test ... & followed by wait "$PID".`,
       )
     }
 
