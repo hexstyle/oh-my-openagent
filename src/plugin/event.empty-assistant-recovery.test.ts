@@ -986,6 +986,102 @@ describe("createEventHandler idle empty assistant recovery", () => {
     })
   })
 
+  test("keeps delayed sisyphus CI recovery armed when reasoning streams through part.delta text", async () => {
+    jest.useFakeTimers()
+
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_sisyphus_delta_reasoning",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nContinue the current bounded rerun and evidence-gated CI loop.",
+        }],
+      },
+      {
+        info: {
+          id: "msg_sisyphus_delta_reasoning",
+          role: "assistant",
+          agent: "Sisyphus (Ultraworker)",
+        },
+        parts: [
+          { type: "step-start" },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_sisyphus_delta_reasoning",
+            sessionID: "ses_sisyphus_delta_reasoning",
+            role: "assistant",
+            agent: "Sisyphus (Ultraworker)",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part_sisyphus_delta_reasoning_start",
+            sessionID: "ses_sisyphus_delta_reasoning",
+            messageID: "msg_sisyphus_delta_reasoning",
+            type: "step-start",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.delta",
+        properties: {
+          sessionID: "ses_sisyphus_delta_reasoning",
+          messageID: "msg_sisyphus_delta_reasoning",
+          delta: {
+            text: "I have the current tracker set and should now run the bounded 8-test verify wrapper.",
+          },
+        },
+      },
+    } as const)
+
+    if (typeof jest.advanceTimersByTimeAsync === "function") {
+      await jest.advanceTimersByTimeAsync(5001)
+    } else {
+      jest.advanceTimersByTime(5001)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_sisyphus_delta_reasoning" },
+      body: expect.objectContaining({
+        agent: "Atlas (Plan Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+        parts: expect.any(Array),
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
   test("recovers and resumes when idle prometheus session ends with a raw-shape reasoning-only assistant turn", async () => {
     //#given
     const handler = createHandler([

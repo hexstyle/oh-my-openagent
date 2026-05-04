@@ -1021,12 +1021,13 @@ function updateAssistantRecoverySnapshotDelta(
   }
 
   snapshot.hasVisibleContent = true;
-  const isPrometheusInternalStreamingDelta =
-    isPrometheusPlannerAgent(snapshot.agent ?? getSessionAgent(sessionID))
+  const recoveryAgent = snapshot.agent ?? getSessionAgent(sessionID)
+  const isInternalStreamingDelta =
+    (isPrometheusPlannerAgent(recoveryAgent) || isSisyphusExecutorAgent(recoveryAgent))
     && snapshot.hasRecoverablePlannerInternalParts
     && !snapshot.hasUserFacingContent;
 
-  if (!isPrometheusInternalStreamingDelta) {
+  if (!isInternalStreamingDelta) {
     snapshot.hasUserFacingContent = true;
   }
   snapshot.hasStreamingDelta = true;
