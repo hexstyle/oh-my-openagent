@@ -586,6 +586,66 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("blocks csharp lsp_diagnostics before forward progress in ci fast-path", async () => {
+    const sessionID = "ses_ci_csharp_lsp_block"
+    setSessionFlag(sessionID, "ci-fast-path")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "lsp_diagnostics", sessionID, callID: "call_ci_csharp_lsp" },
+        {
+          args: {
+            filePath: "/repo/Optimizer.PlaywrightTests/ScenarioE2ETests.cs",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("C# lsp_diagnostics is blocked")
+
+    clearSessionTools()
+  })
+
+  test("allows non-csharp lsp_diagnostics before forward progress in ci fast-path", async () => {
+    const sessionID = "ses_ci_non_csharp_lsp_ok"
+    setSessionFlag(sessionID, "ci-fast-path")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "lsp_diagnostics", sessionID, callID: "call_ci_ts_lsp" },
+        {
+          args: {
+            filePath: "/repo/src/plugin/tool-execute-before.ts",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).resolves.toBeUndefined()
+
+    clearSessionTools()
+  })
+
   test("clears the post-dirty-batch exploration budget after forward progress", async () => {
     const sessionID = "ses_ci_exploration_budget_reset"
     setSessionFlag(sessionID, "ci-fast-path")

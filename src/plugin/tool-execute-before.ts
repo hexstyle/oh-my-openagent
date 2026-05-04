@@ -2,7 +2,7 @@ import type { PluginContext } from "./types"
 import { randomUUID } from "node:crypto"
 import { execFileSync } from "node:child_process"
 import { existsSync, readdirSync, statSync } from "node:fs"
-import { dirname } from "node:path"
+import { dirname, extname } from "node:path"
 
 import { getMainSessionID } from "../features/claude-code-session-state"
 import { clearBoulderState } from "../features/boulder-state"
@@ -635,6 +635,23 @@ export function createToolExecuteBeforeHandler(args: {
     )
   }
 
+  function isSlowCsharpLspDiagnosticsAttempt(
+    toolName: string,
+    argsObject: Record<string, unknown>,
+  ): boolean {
+    if (toolName !== "lsp_diagnostics") {
+      return false
+    }
+
+    const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath", "directory"])
+    if (typeof filePath === "string" && extname(filePath).toLowerCase() === ".cs") {
+      return true
+    }
+
+    const extension = getStringArg(argsObject, ["extension"])
+    return typeof extension === "string" && extension.trim().toLowerCase() === ".cs"
+  }
+
   function trackDirtyBatchCodeRead(sessionID: string, filePath: string): number {
     const sessionCounts = dirtyBatchCodeReadCounts.get(sessionID) ?? new Map<string, number>()
     const nextCount = (sessionCounts.get(filePath) ?? 0) + 1
@@ -786,6 +803,17 @@ export function createToolExecuteBeforeHandler(args: {
           `[tool-execute-before] Repeated dirty-batch code rereads are blocked for CI fast-path session ${input.sessionID}. ${codeReadPath} has already been read ${readCount - 1} times since the current dirty-batch inspection. Move to an edit, bounded rerun, build/test step, or evidence update instead of rereading the same file again.`,
         )
       }
+    }
+
+    if (
+      hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
+      && hasSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
+      && !hasSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
+      && isSlowCsharpLspDiagnosticsAttempt(normalizedToolName, output.args)
+    ) {
+      throw new Error(
+        `[tool-execute-before] C# lsp_diagnostics is blocked for CI fast-path session ${input.sessionID} before forward progress. The csharp LSP startup path is too slow for the first dirty-batch wave; move to narrow reads/grep, an edit, or the bounded rerun instead of waiting on csharp server initialization.`,
+      )
     }
 
     if (
