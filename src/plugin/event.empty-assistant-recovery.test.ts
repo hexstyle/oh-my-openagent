@@ -1024,6 +1024,99 @@ describe("createEventHandler idle empty assistant recovery", () => {
     })
   })
 
+  test("recovers sisyphus CI aborted verify waves after the bounded rerun was already launched", async () => {
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_sisyphus_ci_aborted_verify_wave",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nCurrent build evidence is on disk; continue the unified edit batch and bounded rerun.",
+        }],
+      },
+      {
+        info: {
+          id: "msg_sisyphus_ci_aborted_verify_wave",
+          role: "assistant",
+          agent: "Sisyphus (Ultraworker)",
+          finish: "tool-calls",
+        },
+        parts: [
+          {
+            type: "text",
+            text: "The wrapper is validated; I am launching the bounded verify wave now.",
+          },
+          {
+            type: "tool",
+            tool: "bash",
+            raw: "RERUN_START bounded-iteration15\nRERUN_PRECHECK auditing lingering dotnet test, testhost.dll, headless_shell, run-driver processes",
+            state: {
+              status: "pending",
+              input: {
+                command: "RERUN_START && RERUN_PRECHECK && /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --results-directory Optimizer.PlaywrightTests/TestResults/iteration15",
+              },
+            },
+          },
+        ],
+      },
+      {
+        info: {
+          id: "msg_sisyphus_ci_aborted_verify_wave_error",
+          role: "assistant",
+          agent: "Sisyphus (Ultraworker)",
+          error: {
+            name: "MessageAbortedError",
+            message: "Aborted",
+          },
+        },
+        parts: [],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_sisyphus_ci_aborted_verify_wave_error",
+            sessionID: "ses_sisyphus_ci_aborted_verify_wave",
+            role: "assistant",
+            agent: "Sisyphus (Ultraworker)",
+            error: {
+              name: "MessageAbortedError",
+              message: "Aborted",
+            },
+          },
+        },
+      },
+    } as const)
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_sisyphus_ci_aborted_verify_wave" },
+      body: expect.objectContaining({
+        agent: "Atlas (Plan Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining("resume the launched evidence-gated CI verify wave now"),
+          }),
+        ]),
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
   test("recovers delayed sisyphus CI reasoning-only turns even after an internal compaction user message", async () => {
     jest.useFakeTimers()
 

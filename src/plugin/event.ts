@@ -253,6 +253,15 @@ const SISYPHUS_CI_INTERRUPTED_VISIBLE_TURN_RECOVERY_TEXT = [
   "If that verify wave already produced artifacts, continue from those artifacts instead of burning another redundant discovery pass.",
   "Do not emit another prose-only assistant turn before the next tool call.",
 ].join("\n");
+const SISYPHUS_CI_ABORTED_VERIFY_WAVE_RECOVERY_TEXT = [
+  "[session recovered - resume the launched evidence-gated CI verify wave now]",
+  "Your previous Sisyphus CI turn already launched the bounded local verify wave before the session aborted.",
+  "Do not restart discovery, re-read evidence, or burn a second blind rerun.",
+  "Inspect the current verify artifacts and process state first, then continue from that exact verify state.",
+  "If the bounded rerun is still alive, monitor it and harvest the TRX/artifacts when it finishes.",
+  "If the bounded rerun died without a complete TRX, capture that failed verify state as evidence and continue the current dirty-batch loop from there.",
+  "Do not emit another prose-only assistant turn before the next concrete tool action.",
+].join("\n");
 const recoveredEmptyAssistantMessageBySession = new Map<string, string>();
 const recoveredPendingEmptyToolMessageBySession = new Map<string, string>();
 const recoveredPendingEmptySisyphusToolMessageBySession = new Map<string, string>();
@@ -260,6 +269,7 @@ const recoveredPlannerReasoningOnlyMessageBySession = new Map<string, string>();
 const recoveredSisyphusCiReasoningOnlyMessageBySession = new Map<string, string>();
 const recoveredInterruptedPlannerVisibleMessageBySession = new Map<string, string>();
 const recoveredInterruptedSisyphusCiVisibleMessageBySession = new Map<string, string>();
+const recoveredAbortedSisyphusCiVerifyWaveMessageBySession = new Map<string, string>();
 const recoveredPlannerToolOnlyMessageBySession = new Map<string, string>();
 const recoveredProviderBlockedErrorMessageBySession = new Map<string, string>();
 const prometheusProviderBlockedRetryStateBySession = new Map<string, {
@@ -315,6 +325,7 @@ export function _resetEventRecoveryStateForTesting(): void {
   recoveredSisyphusCiReasoningOnlyMessageBySession.clear();
   recoveredInterruptedPlannerVisibleMessageBySession.clear();
   recoveredInterruptedSisyphusCiVisibleMessageBySession.clear();
+  recoveredAbortedSisyphusCiVerifyWaveMessageBySession.clear();
   recoveredProviderBlockedErrorMessageBySession.clear();
   prometheusProviderBlockedRetryStateBySession.clear();
   recentRecoverablePrometheusSnapshotBySession.clear();
@@ -643,6 +654,44 @@ function findRecoverablePendingSisyphusCiTool(
     if (raw.length === 0 && (input === undefined || isEmptyRecord(input))) {
       return { tool };
     }
+  }
+
+  return undefined;
+}
+
+function findRecoverableLaunchedSisyphusCiVerifyWaveTool(
+  parts: RecoveryMessagePart[] | undefined,
+): { tool: string } | undefined {
+  if (!Array.isArray(parts) || parts.length === 0) return undefined;
+
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const part = parts[index];
+    if (part?.type !== "tool" || typeof part.tool !== "string") {
+      continue;
+    }
+
+    const tool = part.tool.trim().toLowerCase();
+    if (tool !== "bash") {
+      continue;
+    }
+
+    const raw = typeof part.raw === "string" ? part.raw : "";
+    const inputCommand =
+      isRecord(part.state?.input) && typeof part.state.input.command === "string"
+        ? part.state.input.command
+        : "";
+    const command = `${raw}\n${inputCommand}`.toLowerCase();
+    if (
+      !command.includes("optimizer.playwrighttests/optimizer.playwrighttests.csproj")
+      || !command.includes("dotnet test")
+      || !command.includes("rerun_start")
+      || !command.includes("rerun_precheck")
+      || !command.includes("--results-directory")
+    ) {
+      continue;
+    }
+
+    return { tool };
   }
 
   return undefined;
@@ -2705,6 +2754,127 @@ async function maybeRecoverSisyphusCiAbortedToolWrapper(
   return false;
 }
 
+async function maybeRecoverSisyphusCiAbortedVerifyWave(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "message.updated.error",
+  eventError?: unknown,
+): Promise<boolean> {
+  const session = ctx.client["session"] as {
+    messages?: (args: { path: { id: string } }) => Promise<unknown>;
+    promptAsync?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+    prompt?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+  } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    log("[event] sisyphus CI aborted verify-wave recovery skipped: session.messages unavailable", { sessionID, source });
+    return false;
+  }
+
+  let response: unknown;
+  try {
+    response = await readMessages({
+      path: { id: sessionID },
+    });
+  } catch (error) {
+    log("[event] sisyphus CI aborted verify-wave recovery skipped: session.messages failed", {
+      sessionID,
+      source,
+      error,
+    });
+    return false;
+  }
+
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = getMessageID(lastMessage);
+  const lastMessageError = getMessageError(lastMessage);
+  const wrapperError = lastMessageError ?? eventError;
+  const wrapperErrorName = extractErrorName(wrapperError);
+  const wrapperErrorText = extractErrorMessage(wrapperError).toLowerCase();
+
+  if (!lastMessageID) return false;
+  if (expectedMessageID && lastMessageID !== expectedMessageID) return false;
+  if (getMessageRole(lastMessage) !== "assistant") return false;
+  if (wrapperErrorName !== "MessageAbortedError" && !wrapperErrorText.includes("aborted")) {
+    return false;
+  }
+
+  const lastEvidenceGatedUser = findLastUserMessageMatching(
+    messages as RecoveryMessage[],
+    (message) => messageIndicatesEvidenceGatedCi(message),
+  );
+  const lastUser = lastEvidenceGatedUser ?? findLastUserMessage(messages as never);
+  if (!messageIndicatesEvidenceGatedCi(lastUser as RecoveryMessage | undefined)) {
+    return false;
+  }
+
+  for (let index = messages.length - 2; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    const candidateID = getMessageID(candidate);
+    if (!candidateID || getMessageRole(candidate) !== "assistant") {
+      continue;
+    }
+
+    if (!isSisyphusExecutorAgent(getMessageAgent(candidate))) {
+      continue;
+    }
+
+    const launchedVerifyWave = findRecoverableLaunchedSisyphusCiVerifyWaveTool(candidate.parts);
+    if (!launchedVerifyWave) {
+      continue;
+    }
+
+    const lastRecoveredMessageID = recoveredAbortedSisyphusCiVerifyWaveMessageBySession.get(sessionID);
+    if (lastRecoveredMessageID === candidateID) {
+      log("[event] sisyphus CI aborted verify-wave recovery skipped: message already recovered", {
+        sessionID,
+        source,
+        candidateID,
+      });
+      return false;
+    }
+
+    const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+    resumeConfig.directory = ctx.directory;
+    resumeConfig.continuationText = SISYPHUS_CI_ABORTED_VERIFY_WAVE_RECOVERY_TEXT;
+    const resumed = await resumeRecoveredPrometheusSession(
+      ctx,
+      sessionID,
+      SISYPHUS_CI_ABORTED_VERIFY_WAVE_RECOVERY_TEXT,
+      resumeConfig,
+      session as RecoveryResumeSessionApi | undefined,
+    );
+
+    if (resumed) {
+      recoveredAbortedSisyphusCiVerifyWaveMessageBySession.set(sessionID, candidateID);
+      log("[event] recovered aborted verify-wave for Sisyphus CI tool call", {
+        sessionID,
+        source,
+        candidateID,
+        errorMessageID: lastMessageID,
+        tool: launchedVerifyWave.tool,
+      });
+      return true;
+    }
+
+    return false;
+  }
+
+  return false;
+}
+
 function applyUserConfiguredFallbackChain(
   sessionID: string,
   agentName: string,
@@ -3166,6 +3336,16 @@ export function createEventHandler(args: {
       return true;
     }
 
+    const recoveredSisyphusAbortedVerifyWave = await maybeRecoverSisyphusCiAbortedVerifyWave(
+      pluginContext,
+      sessionID,
+      undefined,
+      source,
+    );
+    if (recoveredSisyphusAbortedVerifyWave) {
+      return true;
+    }
+
     const recoveredPlannerReasoningOnly = await maybeRecoverPrometheusReasoningOnlyAssistantMessage(
       pluginContext,
       sessionID,
@@ -3372,6 +3552,17 @@ export function createEventHandler(args: {
             assistantError,
           );
           if (recoveredSisyphusAbortedWrapper) {
+            return;
+          }
+
+          const recoveredSisyphusAbortedVerifyWave = await maybeRecoverSisyphusCiAbortedVerifyWave(
+            pluginContext,
+            sessionID,
+            assistantMessageID,
+            "message.updated.error",
+            assistantError,
+          );
+          if (recoveredSisyphusAbortedVerifyWave) {
             return;
           }
 
@@ -3713,6 +3904,17 @@ export function createEventHandler(args: {
             error,
           );
           if (recoveredSisyphusAbortedWrapper) {
+            return;
+          }
+
+          const recoveredSisyphusAbortedVerifyWave = await maybeRecoverSisyphusCiAbortedVerifyWave(
+            pluginContext,
+            sessionID,
+            (props?.messageID as string | undefined) ?? (props?.messageId as string | undefined),
+            "session.error",
+            error,
+          );
+          if (recoveredSisyphusAbortedVerifyWave) {
             return;
           }
 
