@@ -368,6 +368,38 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("does not treat evidence ls commands as evidence materialization writes", async () => {
+    const sessionID = "ses_ci_evidence_ls_only"
+    setSessionFlag(sessionID, "ci-fast-path")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID, callID: "call_evidence_ls" },
+        { args: { command: "ls .sisyphus/evidence/tests/ | head -20" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_tracker_after_ls" },
+        { args: { filePath: "/repo/.sisyphus/evidence/tests/Scenario.md" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
+    clearSessionTools()
+  })
+
   test("blocks evidence-only git diff reflection after dirty-batch inspection and before forward progress", async () => {
     const sessionID = "ses_ci_evidence_diff_reflection"
     setSessionFlag(sessionID, "ci-evidence-core-read")

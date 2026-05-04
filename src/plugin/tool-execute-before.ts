@@ -245,11 +245,36 @@ export function createToolExecuteBeforeHandler(args: {
 
     if (toolName === "bash") {
       const command = getStringArg(argsObject, ["command"])
-      return typeof command === "string" && (
+      if (typeof command !== "string") {
+        return false
+      }
+
+      const targetsEvidencePath =
         command.includes(".sisyphus/evidence/tests/")
         || command.includes(".sisyphus/evidence/repair-log.md")
         || command.includes(".sisyphus/evidence/ci-loop-checkpoint.md")
-      )
+      if (!targetsEvidencePath) {
+        return false
+      }
+
+      const normalized = command.toLowerCase()
+      const hasWriteSignal =
+        normalized.includes("tee ")
+        || normalized.includes("tee\t")
+        || normalized.includes("python3 <<'py'")
+        || normalized.includes("python3 <<\"py\"")
+        || normalized.includes("python <<'py'")
+        || normalized.includes("python <<\"py\"")
+        || normalized.includes("perl -0pi")
+        || normalized.includes("sed -i")
+        || normalized.includes("mv ")
+        || normalized.includes("cp ")
+        || /(^|[;&(]\s*)printf\b/i.test(command)
+        || /(^|[;&(]\s*)echo\b/i.test(command)
+        || /(^|[;&(]\s*)cat\b[\s\S]*?>{1,2}/i.test(command)
+        || />{1,2}\s*["']?[^"'\n]*\.sisyphus\/evidence\//i.test(command)
+
+      return hasWriteSignal
     }
 
     return false
