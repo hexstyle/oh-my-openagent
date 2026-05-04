@@ -592,6 +592,77 @@ describe("createEventHandler idle empty assistant recovery", () => {
     })
   })
 
+  test("recovers and resumes when idle sisyphus CI session ends with a pending empty bash tool call", async () => {
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_empty_bash_sisyphus_ci",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nCurrent build evidence is on disk; continue the unified edit batch and bounded rerun.",
+        }],
+      },
+      {
+        info: {
+          id: "msg_empty_bash_sisyphus_ci",
+          role: "assistant",
+          agent: "Sisyphus (Ultraworker)",
+          finish: "tool-calls",
+        },
+        parts: [
+          {
+            type: "step-start",
+          },
+          {
+            type: "reasoning",
+            text: "I should now run the bounded verify wrapper for the current unified batch.",
+          },
+          {
+            type: "tool",
+            tool: "bash",
+            raw: "",
+            state: { status: "pending", input: {} },
+          },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionID: "ses_empty_bash_sisyphus_ci",
+          status: { type: "idle" },
+        },
+      },
+    })
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_empty_bash_sisyphus_ci" },
+      body: expect.objectContaining({
+        agent: "Atlas (Plan Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining("previous CI tool call was emitted without the required arguments"),
+          }),
+        ]),
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
   test("recovers delayed sisyphus CI reasoning-only turns even when persisted message role is omitted", async () => {
     jest.useFakeTimers()
 
@@ -676,6 +747,120 @@ describe("createEventHandler idle empty assistant recovery", () => {
         parts: expect.arrayContaining([
           expect.objectContaining({
             text: expect.stringContaining("evidence-gated CI"),
+          }),
+        ]),
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
+  test("recovers delayed sisyphus CI pending empty bash tool calls", async () => {
+    jest.useFakeTimers()
+
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_empty_bash_sisyphus_ci_delayed",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nCurrent build evidence is on disk; continue the unified edit batch and bounded rerun.",
+        }],
+      },
+      {
+        id: "msg_empty_bash_sisyphus_ci_delayed",
+        agent: "Sisyphus (Ultraworker)",
+        parts: [
+          {
+            type: "step-start",
+          },
+          {
+            type: "reasoning",
+            text: "I should now run the bounded verify wrapper for the current unified batch.",
+          },
+          {
+            type: "tool",
+            tool: "bash",
+            raw: "",
+            state: { status: "pending", input: {} },
+          },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_empty_bash_sisyphus_ci_delayed",
+            sessionID: "ses_empty_bash_sisyphus_ci_delayed",
+            role: "assistant",
+            agent: "Sisyphus (Ultraworker)",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part_reasoning_empty_bash_sisyphus_ci_delayed",
+            sessionID: "ses_empty_bash_sisyphus_ci_delayed",
+            messageID: "msg_empty_bash_sisyphus_ci_delayed",
+            type: "reasoning",
+            text: "I should now run the bounded verify wrapper for the current unified batch.",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part_empty_bash_sisyphus_ci_delayed",
+            sessionID: "ses_empty_bash_sisyphus_ci_delayed",
+            messageID: "msg_empty_bash_sisyphus_ci_delayed",
+            type: "tool",
+            tool: "bash",
+            raw: "",
+            state: { status: "pending", input: {} },
+          },
+        },
+      },
+    } as const)
+
+    if (typeof jest.advanceTimersByTimeAsync === "function") {
+      await jest.advanceTimersByTimeAsync(5001)
+    } else {
+      jest.advanceTimersByTime(5001)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_empty_bash_sisyphus_ci_delayed" },
+      body: expect.objectContaining({
+        agent: "Atlas (Plan Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining("previous CI tool call was emitted without the required arguments"),
           }),
         ]),
       }),

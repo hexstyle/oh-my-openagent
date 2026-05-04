@@ -225,6 +225,15 @@ const PROMETHEUS_TOOL_ONLY_TURN_RECOVERY_TEXT = [
   "Only stop after the final plan artifact exists and you provide a concise user-facing summary.",
   PROMETHEUS_FINAL_ARTIFACT_RECOVERY_TEXT,
 ].join("\n");
+const SISYPHUS_CI_EMPTY_TOOL_RECOVERY_TEXT = [
+  "[session recovered - continue evidence-gated CI now]",
+  "Your previous CI tool call was emitted without the required arguments and never executed.",
+  "Do not add another explanatory assistant turn before the tool call.",
+  "Immediately emit the correct tool call with complete arguments.",
+  "If the next action is a bash tool call, include the full bounded command in one shot.",
+  "Do not restart the analysis from scratch.",
+  "Resume from the exact current evidence/edit state and continue the unified CI batch.",
+].join("\n");
 const SISYPHUS_CI_REASONING_ONLY_RECOVERY_TEXT = [
   "[session recovered - continue evidence-gated CI now]",
   "You are in evidence-gated CI mode.",
@@ -237,6 +246,7 @@ const SISYPHUS_CI_REASONING_ONLY_RECOVERY_TEXT = [
 ].join("\n");
 const recoveredEmptyAssistantMessageBySession = new Map<string, string>();
 const recoveredPendingEmptyToolMessageBySession = new Map<string, string>();
+const recoveredPendingEmptySisyphusToolMessageBySession = new Map<string, string>();
 const recoveredPlannerReasoningOnlyMessageBySession = new Map<string, string>();
 const recoveredSisyphusCiReasoningOnlyMessageBySession = new Map<string, string>();
 const recoveredInterruptedPlannerVisibleMessageBySession = new Map<string, string>();
@@ -260,9 +270,11 @@ type AssistantRecoverySnapshot = {
   hasRecoverablePlannerInternalParts: boolean;
   hasStreamingDelta: boolean;
   pendingPrometheusTool?: string;
+  pendingSisyphusCiTool?: string;
 };
 const assistantRecoverySnapshotBySession = new Map<string, AssistantRecoverySnapshot>();
 const RECOVERABLE_PENDING_PROMETHEUS_TOOLS = new Set(["write", "edit", "todowrite"]);
+const RECOVERABLE_PENDING_SISYPHUS_CI_TOOLS = new Set(["bash"]);
 
 function clearSharedEmptyAssistantRecoveryTimer(sessionID: string): void {
   const timer = emptyAssistantRecoveryTimers.get(sessionID);
@@ -288,6 +300,7 @@ export function _resetEventRecoveryStateForTesting(): void {
   }
   recoveredEmptyAssistantMessageBySession.clear();
   recoveredPendingEmptyToolMessageBySession.clear();
+  recoveredPendingEmptySisyphusToolMessageBySession.clear();
   recoveredPlannerReasoningOnlyMessageBySession.clear();
   recoveredSisyphusCiReasoningOnlyMessageBySession.clear();
   recoveredInterruptedPlannerVisibleMessageBySession.clear();
@@ -594,6 +607,36 @@ function findRecoverablePendingPrometheusTool(
   return undefined;
 }
 
+function findRecoverablePendingSisyphusCiTool(
+  parts: RecoveryMessagePart[] | undefined,
+): { tool: string } | undefined {
+  if (!Array.isArray(parts) || parts.length === 0) return undefined;
+
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const part = parts[index];
+    if (part?.type !== "tool" || typeof part.tool !== "string") {
+      continue;
+    }
+
+    const tool = part.tool.trim().toLowerCase();
+    if (!RECOVERABLE_PENDING_SISYPHUS_CI_TOOLS.has(tool)) {
+      continue;
+    }
+
+    if (part.state?.status !== "pending") {
+      continue;
+    }
+
+    const raw = typeof part.raw === "string" ? part.raw.trim() : "";
+    const input = part.state?.input;
+    if (raw.length === 0 && (input === undefined || isEmptyRecord(input))) {
+      return { tool };
+    }
+  }
+
+  return undefined;
+}
+
 function isInterruptedRecoverablePrometheusToolPart(
   part: RecoveryMessagePart | undefined,
 ): boolean {
@@ -788,6 +831,75 @@ async function resumeCachedPendingPrometheusToolRecovery(
   return resumed;
 }
 
+async function resumeCachedPendingSisyphusToolRecovery(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  source: string,
+  snapshot: AssistantRecoverySnapshot,
+  agent: string | undefined,
+  logLabel: string,
+): Promise<boolean> {
+  if (!snapshot.pendingSisyphusCiTool || !isSisyphusExecutorAgent(agent)) {
+    return false;
+  }
+
+  const lastRecoveredMessageID = recoveredPendingEmptySisyphusToolMessageBySession.get(sessionID);
+  if (lastRecoveredMessageID === snapshot.messageID) {
+    log(`[event] ${logLabel} skipped: message already recovered`, {
+      sessionID,
+      source,
+      lastMessageID: snapshot.messageID,
+      tool: snapshot.pendingSisyphusCiTool,
+    });
+    return false;
+  }
+
+  const sessionApi = ctx.client as {
+    session?: {
+      abort?: (args: { path: { id: string } }) => Promise<unknown>;
+      promptAsync?: (args: {
+        path: { id: string };
+        body: { parts: Array<Record<string, unknown>> };
+        query?: { directory: string };
+      }) => Promise<unknown>;
+      prompt?: (args: {
+        path: { id: string };
+        body: { parts: Array<Record<string, unknown>> };
+        query?: { directory: string };
+      }) => Promise<unknown>;
+    };
+  };
+
+  await sessionApi.session?.abort?.({ path: { id: sessionID } }).catch(() => {});
+
+  const resumed = await resumeRecoveredPrometheusSession(
+    ctx,
+    sessionID,
+    SISYPHUS_CI_EMPTY_TOOL_RECOVERY_TEXT,
+    {
+      sessionID,
+      directory: ctx.directory,
+      agent,
+      model: getSessionModel(sessionID),
+      continuationText: SISYPHUS_CI_EMPTY_TOOL_RECOVERY_TEXT,
+    },
+    sessionApi.session as RecoveryResumeSessionApi | undefined,
+  );
+
+  if (resumed) {
+    recoveredPendingEmptySisyphusToolMessageBySession.set(sessionID, snapshot.messageID);
+    log(`[event] recovered ${logLabel}`, {
+      sessionID,
+      source,
+      messageID: snapshot.messageID,
+      tool: snapshot.pendingSisyphusCiTool,
+      agent,
+    });
+  }
+
+  return resumed;
+}
+
 function updateAssistantRecoverySnapshotPart(
   sessionID: string,
   messageID: string,
@@ -814,6 +926,12 @@ function updateAssistantRecoverySnapshotPart(
     if (pendingTool) {
       snapshot.pendingPrometheusTool = pendingTool.tool;
       rememberRecoverablePrometheusSnapshot(sessionID, snapshot);
+      return;
+    }
+
+    const pendingSisyphusCiTool = findRecoverablePendingSisyphusCiTool([part]);
+    if (pendingSisyphusCiTool) {
+      snapshot.pendingSisyphusCiTool = pendingSisyphusCiTool.tool;
       return;
     }
 
@@ -1395,6 +1513,129 @@ async function maybeRecoverSisyphusCiReasoningOnlyAssistantMessage(
       sessionID,
       source,
       messageID: lastMessageID,
+      agent: lastMessageAgent,
+    });
+  }
+
+  return resumed;
+}
+
+async function maybeRecoverSisyphusCiPendingEmptyToolCall(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "session.status.idle",
+): Promise<boolean> {
+  const cachedSnapshot = getAssistantRecoverySnapshot(sessionID, expectedMessageID);
+  const cachedAgent = cachedSnapshot?.agent ?? getSessionAgent(sessionID);
+  const tryCachedSnapshotRecovery = async (reason: string): Promise<boolean> => {
+    if (!cachedSnapshot) {
+      return false;
+    }
+
+    return resumeCachedPendingSisyphusToolRecovery(
+      ctx,
+      sessionID,
+      `${source}:${reason}`,
+      cachedSnapshot,
+      cachedAgent,
+      "cached pending empty sisyphus CI tool call",
+    );
+  };
+
+  const session = ctx.client["session"] as {
+    messages?: (args: { path: { id: string } }) => Promise<unknown>;
+    abort?: (args: { path: { id: string } }) => Promise<unknown>;
+    promptAsync?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+    prompt?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+  } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    log("[event] sisyphus CI empty tool recovery skipped: session.messages unavailable", { sessionID, source });
+    return tryCachedSnapshotRecovery("session-messages-unavailable");
+  }
+
+  let response: unknown;
+  try {
+    response = await readMessages({
+      path: { id: sessionID },
+    });
+  } catch (error) {
+    log("[event] sisyphus CI empty tool recovery skipped: session.messages failed", {
+      sessionID,
+      source,
+      error,
+    });
+    return tryCachedSnapshotRecovery("session-messages-failed");
+  }
+
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = getMessageID(lastMessage);
+  const lastMessageAgent = getMessageAgent(lastMessage);
+  if (!lastMessageID) {
+    return tryCachedSnapshotRecovery("missing-latest-message");
+  }
+  if (expectedMessageID && lastMessageID !== expectedMessageID) return false;
+  if (getMessageRole(lastMessage) !== "assistant") return false;
+  if (getMessageError(lastMessage)) return false;
+  if (!isSisyphusExecutorAgent(lastMessageAgent)) return false;
+
+  const pendingTool = findRecoverablePendingSisyphusCiTool(lastMessage.parts);
+  if (!pendingTool) {
+    return tryCachedSnapshotRecovery("live-transcript-missing-pending-tool");
+  }
+
+  const lastEvidenceGatedUser = findLastUserMessageMatching(
+    messages as RecoveryMessage[],
+    (message) => messageIndicatesEvidenceGatedCi(message),
+  );
+  const lastUser = lastEvidenceGatedUser ?? findLastUserMessage(messages as never);
+  if (!messageIndicatesEvidenceGatedCi(lastUser as RecoveryMessage | undefined)) {
+    return false;
+  }
+
+  const lastRecoveredMessageID = recoveredPendingEmptySisyphusToolMessageBySession.get(sessionID);
+  if (lastRecoveredMessageID === lastMessageID) {
+    log("[event] sisyphus CI empty tool recovery skipped: message already recovered", {
+      sessionID,
+      source,
+      lastMessageID,
+      tool: pendingTool.tool,
+    });
+    return false;
+  }
+
+  await session?.abort?.({ path: { id: sessionID } }).catch(() => {});
+
+  const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+  resumeConfig.directory = ctx.directory;
+  resumeConfig.continuationText = SISYPHUS_CI_EMPTY_TOOL_RECOVERY_TEXT;
+  const resumed = await resumeRecoveredPrometheusSession(
+    ctx,
+    sessionID,
+    SISYPHUS_CI_EMPTY_TOOL_RECOVERY_TEXT,
+    resumeConfig,
+    session as RecoveryResumeSessionApi | undefined,
+  );
+
+  if (resumed) {
+    recoveredPendingEmptySisyphusToolMessageBySession.set(sessionID, lastMessageID);
+    log("[event] recovered pending empty sisyphus CI tool call", {
+      sessionID,
+      source,
+      messageID: lastMessageID,
+      tool: pendingTool.tool,
       agent: lastMessageAgent,
     });
   }
@@ -2408,6 +2649,17 @@ export function createEventHandler(args: {
             return;
           }
 
+          const recoveredPendingSisyphusTool = await maybeRecoverSisyphusCiPendingEmptyToolCall(
+            pluginContext,
+            sessionID,
+            messageID,
+            "message.updated.delayed",
+          );
+          if (recoveredPendingSisyphusTool) {
+            coordinator?.observe(sessionID, { kind: "recovery_result", success: true });
+            return;
+          }
+
           const recoveredPlannerReasoningOnly = await maybeRecoverPrometheusReasoningOnlyAssistantMessage(
             pluginContext,
             sessionID,
@@ -2624,6 +2876,16 @@ export function createEventHandler(args: {
       if (recoveredPendingTool) {
         return true;
       }
+    }
+
+    const recoveredPendingSisyphusTool = await maybeRecoverSisyphusCiPendingEmptyToolCall(
+      pluginContext,
+      sessionID,
+      undefined,
+      source,
+    );
+    if (recoveredPendingSisyphusTool) {
+      return true;
     }
 
     const recoveredPlannerReasoningOnly = await maybeRecoverPrometheusReasoningOnlyAssistantMessage(
@@ -3004,8 +3266,13 @@ export function createEventHandler(args: {
         const shouldPreferSisyphusCiRecovery =
           !!snapshot
           && isSisyphusExecutorAgent(snapshot.agent ?? getSessionAgent(sessionID))
-          && !snapshot.hasUserFacingContent
-          && snapshot.hasRecoverablePlannerInternalParts;
+          && (
+            !!snapshot.pendingSisyphusCiTool
+            || (
+              !snapshot.hasUserFacingContent
+              && snapshot.hasRecoverablePlannerInternalParts
+            )
+          );
         if (shouldPreferPlannerRecovery || shouldPreferSisyphusCiRecovery) {
           scheduleEmptyAssistantRecovery(sessionID, messageID);
         } else if (snapshot?.hasVisibleContent) {
