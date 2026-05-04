@@ -288,6 +288,27 @@ export function createToolExecuteBeforeHandler(args: {
         `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without local contour source. Re-export provisioned OPTIEX_PLAYWRIGHT_* env vars in the same bash command or generate/source Optimizer.WebSiteTests/generated/TestAppInstances.json first.`,
       )
     }
+
+    const hasResultsDirectory = lower.includes("--results-directory")
+    const hasTrxLogger = lower.includes("trx;logfilename=")
+    const hasVisibleStartMarker = lower.includes("rerun_start")
+    const hasVisibleEndMarker = lower.includes("rerun_end")
+    const hasHardTimeoutWrapper =
+      (lower.includes("perl -e") && lower.includes("alarm"))
+      || /\b(gtimeout|timeout)\b/.test(lower)
+      || (lower.includes("python3") && lower.includes("timeout="))
+
+    if (!hasResultsDirectory || !hasTrxLogger || !hasVisibleStartMarker || !hasVisibleEndMarker) {
+      throw new Error(
+        `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without the bounded rerun markers. Include --results-directory, trx logger path, RERUN_START, and RERUN_END in the same bash command.`,
+      )
+    }
+
+    if (!hasHardTimeoutWrapper) {
+      throw new Error(
+        `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without a hard timeout wrapper. Use perl alarm, timeout/gtimeout, or a python subprocess timeout in the same bash command.`,
+      )
+    }
   }
 
   function buildUltraworkOracleVerificationPrompt(prompt: string, originalTask: string, verificationAttemptId: string): string {

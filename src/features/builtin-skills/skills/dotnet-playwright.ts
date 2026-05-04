@@ -130,6 +130,7 @@ Playwright can look "busy" while the test is actually waiting on the wrong thing
 ### Bounded Rerun Contract (MANDATORY)
 
 - Every local Playwright rerun must be launched through a bounded wrapper, not as an opaque fire-and-wait shell step.
+- The bounded wrapper must include a real hard timeout (\`perl -e 'alarm ...'\`, \`timeout\`/\`gtimeout\`, or a python subprocess timeout). A plain \`dotnet test\` is not bounded.
 - The wrapper must emit:
   - the exact results directory and intended TRX path
   - the filtered test count or named failing-set coverage

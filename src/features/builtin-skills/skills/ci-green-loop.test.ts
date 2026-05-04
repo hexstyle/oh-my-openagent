@@ -120,6 +120,7 @@ describe("ci green loop builtin skills", () => {
     expect(dotnetPlaywrightSkill.template).toContain("A rerun that times out without a concrete awaited-signal diagnosis is incomplete")
     expect(dotnetPlaywrightSkill.template).toContain("Bounded Rerun Contract (MANDATORY)")
     expect(dotnetPlaywrightSkill.template).toContain("Every local Playwright rerun must be launched through a bounded wrapper")
+    expect(dotnetPlaywrightSkill.template).toContain("The bounded wrapper must include a real hard timeout")
     expect(dotnetPlaywrightSkill.template).toContain("the exact results directory and intended TRX path")
     expect(dotnetPlaywrightSkill.template).toContain("If a rerun lives materially longer than the last comparable local baseline and still has no TRX file")
     expect(dotnetPlaywrightSkill.template).toContain("Do not silently burn more time on an unobservable rerun.")

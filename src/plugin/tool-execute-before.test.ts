@@ -408,7 +408,7 @@ describe("createToolExecuteBeforeHandler", () => {
         { tool: "bash", sessionID: "ses_playwright_inline_env", callID: "call_playwright_inline_env" },
         {
           args: {
-            command: "export OPTIEX_PLAYWRIGHT_BASE_URL=http://localhost:5055 OPTIEX_PLAYWRIGHT_CONF_CONNECTION_STRING='Data Source=localhost' && /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo",
+            command: "export OPTIEX_PLAYWRIGHT_BASE_URL=http://localhost:5055 OPTIEX_PLAYWRIGHT_CONF_CONNECTION_STRING='Data Source=localhost' && RESULTS_DIR='Optimizer.PlaywrightTests/TestResults/iterationX' && TRX_NAME='iterationX.trx' && python3 -c \"print('RERUN_START'); print('RERUN_END')\" && perl -e 'alarm shift; exec @ARGV' 900 /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --logger \"trx;LogFileName=$TRX_NAME\" --results-directory \"$RESULTS_DIR\"",
           } as Record<string, unknown>,
         },
       ),
@@ -432,11 +432,59 @@ describe("createToolExecuteBeforeHandler", () => {
         { tool: "bash", sessionID: "ses_playwright_generated_source", callID: "call_playwright_generated_source" },
         {
           args: {
-            command: "test -f Optimizer.WebSiteTests/generated/TestAppInstances.json && /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo",
+            command: "test -f Optimizer.WebSiteTests/generated/TestAppInstances.json && RESULTS_DIR='Optimizer.PlaywrightTests/TestResults/iterationX' && TRX_NAME='iterationX.trx' && python3 -c \"print('RERUN_START'); print('RERUN_END')\" && perl -e 'alarm shift; exec @ARGV' 900 /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --logger \"trx;LogFileName=$TRX_NAME\" --results-directory \"$RESULTS_DIR\"",
           } as Record<string, unknown>,
         },
       ),
     ).resolves.toBeUndefined()
+  })
+
+  test("blocks Playwright project dotnet test without bounded rerun markers and hard timeout wrapper", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID: "ses_playwright_unbounded", callID: "call_playwright_unbounded" },
+        {
+          args: {
+            command: "export OPTIEX_PLAYWRIGHT_BASE_URL=http://localhost:5055 OPTIEX_PLAYWRIGHT_CONF_CONNECTION_STRING='Data Source=localhost' && /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --filter '(FullyQualifiedName~Foo)'",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("without the bounded rerun markers")
+  })
+
+  test("blocks Playwright project dotnet test without hard timeout wrapper even when markers exist", async () => {
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID: "ses_playwright_no_timeout", callID: "call_playwright_no_timeout" },
+        {
+          args: {
+            command: "export OPTIEX_PLAYWRIGHT_BASE_URL=http://localhost:5055 OPTIEX_PLAYWRIGHT_CONF_CONNECTION_STRING='Data Source=localhost' && RESULTS_DIR='Optimizer.PlaywrightTests/TestResults/iterationX' && TRX_NAME='iterationX.trx' && python3 -c \"print('RERUN_START'); print('RERUN_END')\" && /opt/homebrew/opt/dotnet@8/libexec/dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo --logger \"trx;LogFileName=$TRX_NAME\" --results-directory \"$RESULTS_DIR\"",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("without a hard timeout wrapper")
   })
 
   test("blocks direct curl to Bamboo result endpoints", async () => {
