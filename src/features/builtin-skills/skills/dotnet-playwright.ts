@@ -127,6 +127,18 @@ Playwright can look "busy" while the test is actually waiting on the wrong thing
 - If a Playwright run spends minutes without converging, suspect an empty wait loop or wrong awaited predicate before blaming the app.
 - The fixing agent must watch for these hangs while writing, running, and diagnosing Playwright tests. A rerun that times out without a concrete awaited-signal diagnosis is incomplete.
 
+### Bounded Rerun Contract (MANDATORY)
+
+- Every local Playwright rerun must be launched through a bounded wrapper, not as an opaque fire-and-wait shell step.
+- The wrapper must emit:
+  - the exact results directory and intended TRX path
+  - the filtered test count or named failing-set coverage
+  - a visible start marker before \`dotnet test\`
+  - a visible terminal marker after \`dotnet test\`
+- If a rerun lives materially longer than the last comparable local baseline and still has no TRX file or no new result artifacts, treat that as a hang signal, not as "still probably running normally".
+- In that case, capture the hang as evidence, name the most likely stuck awaited surface, and continue diagnosis from that fact.
+- Do not silently burn more time on an unobservable rerun.
+
 ### Coverage Integrity (MANDATORY)
 
 Any Playwright fix must preserve the intended end-to-end chain:
