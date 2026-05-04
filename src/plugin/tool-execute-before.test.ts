@@ -557,7 +557,7 @@ describe("createToolExecuteBeforeHandler", () => {
       hooks: {},
     })
 
-    for (let index = 0; index < 12; index += 1) {
+    for (let index = 0; index < 6; index += 1) {
       await expect(
         handler(
           { tool: "grep", sessionID, callID: `call_ci_exploration_${index}` },
@@ -602,7 +602,7 @@ describe("createToolExecuteBeforeHandler", () => {
       hooks: {},
     })
 
-    for (let index = 0; index < 12; index += 1) {
+    for (let index = 0; index < 6; index += 1) {
       await expect(
         handler(
           { tool: "grep", sessionID, callID: `call_ci_budget_reset_${index}` },

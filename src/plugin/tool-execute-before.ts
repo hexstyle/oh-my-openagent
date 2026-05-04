@@ -35,6 +35,7 @@ export function createToolExecuteBeforeHandler(args: {
   const CI_DIRTY_BATCH_INSPECTED_FLAG = "ci-dirty-batch-inspected"
   const CI_FORWARD_PROGRESS_FLAG = "ci-forward-progress"
   const CI_PLAYWRIGHT_PREFLIGHT_READY_FLAG = "ci-playwright-preflight-ready"
+  const POST_DIRTY_BATCH_EXPLORATION_BUDGET = 6
   const dirtyBatchCodeReadCounts = new Map<string, Map<string, number>>()
   const postDirtyBatchExplorationCounts = new Map<string, number>()
 
@@ -794,7 +795,7 @@ export function createToolExecuteBeforeHandler(args: {
       && isPostDirtyBatchExplorationAttempt(normalizedToolName, output.args)
     ) {
       const explorationCount = trackPostDirtyBatchExploration(input.sessionID)
-      if (explorationCount > 12) {
+      if (explorationCount > POST_DIRTY_BATCH_EXPLORATION_BUDGET) {
         throw new Error(
           `[tool-execute-before] Post-dirty-batch exploration budget is exhausted for CI fast-path session ${input.sessionID}. ${normalizedToolName} would be exploration step ${explorationCount} since the current dirty-batch inspection. Move to an edit, bounded rerun, build/test step, Claude review, or evidence write instead of continuing source-pass exploration.`,
         )
