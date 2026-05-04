@@ -367,6 +367,64 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("blocks broad multi-file dirty-batch git diff output in CI fast-path", async () => {
+    const sessionID = "ses_ci_broad_dirty_diff"
+    setSessionFlag(sessionID, "ci-fast-path")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID, callID: "call_broad_dirty_diff" },
+        {
+          args: {
+            command: "git diff -- Optimizer.PlaywrightTests/CalculationSessionsE2ETests.cs Optimizer.PlaywrightTests/ReportFormTemplatesE2ETests.cs Optimizer.PlaywrightTests/ScenarioE2ETests.cs Optimizer.PlaywrightTests/TaskGroupExecutionE2ETests.cs Optimizer.PlaywrightTests/UserAdministrationE2ETests.cs",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).rejects.toThrow("Broad dirty-batch git diff output is blocked")
+
+    clearSessionTools()
+  })
+
+  test("allows narrow or summary dirty-batch git diff inspection in CI fast-path", async () => {
+    const sessionID = "ses_ci_narrow_dirty_diff"
+    setSessionFlag(sessionID, "ci-fast-path")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "bash", sessionID, callID: "call_narrow_dirty_diff" },
+        {
+          args: {
+            command: "git diff --stat -- Optimizer.PlaywrightTests/CalculationSessionsE2ETests.cs Optimizer.PlaywrightTests/ReportFormTemplatesE2ETests.cs Optimizer.PlaywrightTests/ScenarioE2ETests.cs Optimizer.PlaywrightTests/TaskGroupExecutionE2ETests.cs Optimizer.PlaywrightTests/UserAdministrationE2ETests.cs",
+          } as Record<string, unknown>,
+        },
+      ),
+    ).resolves.toBeUndefined()
+
+    clearSessionTools()
+  })
+
   test("blocks Playwright project dotnet test without provisioned contour env or generated instance source", async () => {
     const handler = createToolExecuteBeforeHandler({
       ctx: {

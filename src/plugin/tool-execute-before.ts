@@ -101,6 +101,36 @@ export function createToolExecuteBeforeHandler(args: {
     return /\bgit status\b|\bgit diff\b/i.test(command)
   }
 
+  function isBroadDirtyBatchDiffAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
+    if (toolName !== "bash") return false
+    const command = getStringArg(argsObject, ["command"])
+    if (typeof command !== "string") {
+      return false
+    }
+
+    const normalized = command.replace(/\s+/g, " ").trim()
+    if (!/\bgit diff\b/i.test(normalized) || !normalized.includes(" -- ")) {
+      return false
+    }
+
+    if (
+      normalized.includes(" --stat")
+      || normalized.includes(" --name-only")
+      || normalized.includes(" --name-status")
+      || normalized.includes(" --numstat")
+    ) {
+      return false
+    }
+
+    const afterSeparator = normalized.split(" -- ")[1] ?? ""
+    const pathTokens = afterSeparator
+      .split(" ")
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0 && !token.startsWith("-"))
+
+    return pathTokens.length >= 3
+  }
+
   function isEvidenceReflectionAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
     if (toolName === "read") {
       const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
@@ -380,6 +410,15 @@ export function createToolExecuteBeforeHandler(args: {
     ) {
       throw new Error(
         `[tool-execute-before] Evidence reflection loops are blocked for session ${input.sessionID} after dirty-batch inspection. Stop rereading evidence diffs/tool-output and move to a real write, edit, build, test, review, commit, or push step.`,
+      )
+    }
+
+    if (
+      hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
+      && isBroadDirtyBatchDiffAttempt(normalizedToolName, output.args)
+    ) {
+      throw new Error(
+        `[tool-execute-before] Broad dirty-batch git diff output is blocked for CI fast-path session ${input.sessionID}. Inspect the batch with git diff --stat first, then use per-file or otherwise narrow diff slices before verification.`,
       )
     }
 
