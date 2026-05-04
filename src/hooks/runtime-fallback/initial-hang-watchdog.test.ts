@@ -3,6 +3,7 @@ import type { OhMyOpenCodeConfig, RuntimeFallbackConfig } from "../../config"
 import { createRuntimeFallbackHook } from "./hook"
 import { createFallbackState } from "./fallback-state"
 import * as sharedModule from "../../shared"
+import { clearSessionTools, setSessionFlag } from "../../shared/session-tools-store"
 
 describe("runtime-fallback initial hang watchdog", () => {
   let logCalls: Array<{ msg: string; data?: unknown }>
@@ -61,6 +62,7 @@ describe("runtime-fallback initial hang watchdog", () => {
     jest.clearAllTimers()
     jest.useRealTimers()
     logSpy?.mockRestore()
+    clearSessionTools()
   })
 
   test("opens a fresh same-model handoff when a paid planner session stalls on its first turn", async () => {
@@ -3743,6 +3745,238 @@ describe("runtime-fallback initial hang watchdog", () => {
     expect(retriedModels).toHaveLength(0)
 
     jest.advanceTimersByTime(25)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toContain(sessionID)
+    expect(retriedModels).toContain("openai/gpt-5.4")
+  })
+
+  test("does not keep extending the watchdog on reasoning-only churn in ci fast-path after dirty-batch inspection", async () => {
+    const retriedModels: string[] = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-ci-reasoning-churn-after-dirty-batch"
+
+    setSessionFlag(sessionID, "ci-fast-path")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                retriedModels.push(`${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(10)
+    await hook.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            sessionID,
+            type: "step-start",
+          },
+        },
+      },
+    })
+
+    for (let index = 0; index < 3; index += 1) {
+      jest.advanceTimersByTime(15)
+      await hook.event({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            part: {
+              sessionID,
+              type: "reasoning",
+              text: `still thinking ${index}`,
+            },
+          },
+        },
+      })
+    }
+
+    jest.advanceTimersByTime(40)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(abortCalls).toContain(sessionID)
+    expect(retriedModels).toContain("openai/gpt-5.4")
+  })
+
+  test("does not keep extending the watchdog on delta-only planning churn in ci fast-path after dirty-batch inspection", async () => {
+    const retriedModels: string[] = []
+    const abortCalls: string[] = []
+    const sessionID = "ses-ci-delta-churn-after-dirty-batch"
+
+    setSessionFlag(sessionID, "ci-fast-path")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+    const hook = createRuntimeFallbackHook(
+      {
+        client: {
+          tui: {
+            showToast: async () => ({}),
+          },
+          session: {
+            messages: async () => ({
+              data: [
+                { info: { role: "user" }, parts: [{ type: "text", text: "continue" }] },
+              ],
+            }),
+            promptAsync: async (args: {
+              body?: { model?: { providerID?: string; modelID?: string } }
+            }) => {
+              const model = args.body?.model
+              if (model?.providerID && model?.modelID) {
+                retriedModels.push(`${model.providerID}/${model.modelID}`)
+              }
+              return {}
+            },
+            abort: async (args: { path: { id: string } }) => {
+              abortCalls.push(args.path.id)
+              return {}
+            },
+          },
+        },
+        directory: "/test/dir",
+      },
+      {
+        config: createMockConfig({ timeout_seconds: 30 }),
+        pluginConfig: createPluginConfig(),
+        session_timeout_ms: 20,
+      },
+    )
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "user",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    await hook.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID,
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            model: {
+              providerID: "anthropic",
+              modelID: "claude-opus-4-6",
+            },
+          },
+        },
+      },
+    })
+
+    jest.advanceTimersByTime(10)
+    await hook.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            sessionID,
+            type: "step-start",
+          },
+        },
+      },
+    })
+
+    for (let index = 0; index < 3; index += 1) {
+      jest.advanceTimersByTime(15)
+      await hook.event({
+        event: {
+          type: "message.part.delta",
+          properties: {
+            field: "text",
+            delta: `planning ${index}`,
+            part: {
+              sessionID,
+              type: "text",
+              text: "",
+            },
+          },
+        },
+      })
+    }
+
+    jest.advanceTimersByTime(40)
     await Promise.resolve()
     await Promise.resolve()
 

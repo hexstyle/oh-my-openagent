@@ -30,6 +30,7 @@ import { logTrackedProvider403, shouldPreferFreshTrackedProvider403Handoff } fro
 import { maybePauseForManualProviderClearance } from "./manual-provider-clearance"
 import { normalizeAgentForDisplay } from "../../shared/agent-display-names"
 import { getRuntimeFallbackSessionID } from "./session-id"
+import { hasSessionFlag } from "../../shared/session-tools-store"
 import {
   applyScopedFallbackSessionHint,
   clearScopedFallbackSessionHint,
@@ -158,6 +159,14 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     const hasReasoningStreamProgress =
       partType === "reasoning"
       && (partText.length > 0 || delta.trim().length > 0)
+    const isCiPreForwardProgressReasoningChurn =
+      hasSessionFlag(sessionID, "ci-fast-path")
+      && hasSessionFlag(sessionID, "ci-dirty-batch-inspected")
+      && !hasSessionFlag(sessionID, "ci-forward-progress")
+      && (
+        isStreamingTextDeltaProgress
+        || hasReasoningStreamProgress
+      )
     const hasMeaningfulProgress =
       hasVisibleTextDelta ||
       partType === "compaction" ||
@@ -170,6 +179,15 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
       hasReasoningStreamProgress
 
     if (!hasMeaningfulProgress) {
+      return
+    }
+
+    if (isCiPreForwardProgressReasoningChurn) {
+      log(`[${HOOK_NAME}] Ignoring CI reasoning-only churn after dirty-batch inspection`, {
+        sessionID,
+        source,
+        partType,
+      })
       return
     }
 
