@@ -273,6 +273,15 @@ const SISYPHUS_CI_INTERRUPTED_VISIBLE_TURN_RECOVERY_TEXT = [
   "If that verify wave already produced artifacts, continue from those artifacts instead of burning another redundant discovery pass.",
   "Do not emit another prose-only assistant turn before the next tool call.",
 ].join("\n");
+const SISYPHUS_CI_GUARDRAIL_TOOL_ERROR_RECOVERY_TEXT = [
+  "[session recovered - continue evidence-gated CI after the runtime guard now]",
+  "Your previous CI exploration tool call was blocked by a runtime guard because the source-pass had already gone far enough.",
+  "Do not keep exploring, and do not retry the same blocked search/read step.",
+  "Immediately continue from the current dirty-batch state with the next concrete action:",
+  "1. start or continue the unified edit batch, or",
+  "2. if the unified batch is already in place, run or resume the bounded local rerun.",
+  "Do not emit another prose-only or reasoning-only turn before a tool call.",
+].join("\n");
 const SISYPHUS_CI_ABORTED_VERIFY_WAVE_RECOVERY_TEXT = [
   "[session recovered - resume the launched evidence-gated CI verify wave now]",
   "Your previous Sisyphus CI turn already launched the bounded local verify wave before the session aborted.",
@@ -311,6 +320,7 @@ type AssistantRecoverySnapshot = {
   hasStreamingDelta: boolean;
   pendingPrometheusTool?: string;
   pendingSisyphusCiTool?: string;
+  erroredSisyphusCiGuardrailTool?: string;
 };
 const assistantRecoverySnapshotBySession = new Map<string, AssistantRecoverySnapshot>();
 const RECOVERABLE_PENDING_PROMETHEUS_TOOLS = new Set(["write", "edit", "todowrite"]);
@@ -730,6 +740,37 @@ function findRecoverablePendingSisyphusCiTool(
   return undefined;
 }
 
+function findRecoverableErroredSisyphusCiGuardrailTool(
+  parts: RecoveryMessagePart[] | undefined,
+): { tool: string } | undefined {
+  if (!Array.isArray(parts) || parts.length === 0) return undefined;
+
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const part = parts[index];
+    if (part?.type !== "tool" || typeof part.tool !== "string") {
+      continue;
+    }
+
+    if (part.state?.status !== "error") {
+      continue;
+    }
+
+    const errorText = typeof part.state?.error === "string" ? part.state.error.toLowerCase() : "";
+    const isRecoverableGuardrailError =
+      errorText.includes("post-dirty-batch exploration budget is exhausted")
+      || errorText.includes("repeated dirty-batch code rereads are blocked")
+      || errorText.includes("c# lsp_diagnostics is blocked");
+
+    if (!isRecoverableGuardrailError) {
+      continue;
+    }
+
+    return { tool: part.tool.trim().toLowerCase() };
+  }
+
+  return undefined;
+}
+
 function findRecoverableLaunchedSisyphusCiVerifyWaveTool(
   parts: RecoveryMessagePart[] | undefined,
 ): { tool: string } | undefined {
@@ -1063,6 +1104,12 @@ function updateAssistantRecoverySnapshotPart(
     const pendingSisyphusCiTool = findRecoverablePendingSisyphusCiTool([part]);
     if (pendingSisyphusCiTool) {
       snapshot.pendingSisyphusCiTool = pendingSisyphusCiTool.tool;
+      return;
+    }
+
+    const erroredSisyphusCiGuardrailTool = findRecoverableErroredSisyphusCiGuardrailTool([part]);
+    if (erroredSisyphusCiGuardrailTool) {
+      snapshot.erroredSisyphusCiGuardrailTool = erroredSisyphusCiGuardrailTool.tool;
       return;
     }
 
@@ -1773,6 +1820,114 @@ async function maybeRecoverSisyphusCiPendingEmptyToolCall(
       source,
       messageID: lastMessageID,
       tool: pendingTool.tool,
+      agent: lastMessageAgent,
+    });
+  }
+
+  return resumed;
+}
+
+async function maybeRecoverSisyphusCiGuardrailToolError(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "session.status.idle",
+): Promise<boolean> {
+  const session = ctx.client["session"] as {
+    messages?: (args: { path: { id: string } }) => Promise<unknown>;
+    abort?: (args: { path: { id: string } }) => Promise<unknown>;
+    promptAsync?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+    prompt?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+  } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    return false;
+  }
+
+  let response: unknown;
+  try {
+    response = await readMessages({
+      path: { id: sessionID },
+    });
+  } catch {
+    return false;
+  }
+
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = getMessageID(lastMessage);
+  const lastMessageAgent = getMessageAgent(lastMessage);
+  if (!lastMessageID) return false;
+  if (expectedMessageID && lastMessageID !== expectedMessageID) return false;
+  if (getMessageRole(lastMessage) !== "assistant") return false;
+  if (getMessageError(lastMessage)) return false;
+  if (!isSisyphusExecutorAgent(lastMessageAgent)) return false;
+  if (assistantMessageHasUserFacingContent(lastMessage.parts)) return false;
+  if (!assistantMessageHasRecoverablePlannerInternalParts(lastMessage.parts)) return false;
+
+  let lastRecoverableTool: { tool: string } | undefined;
+  let lastRecoverableMessageID: string | undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    if (getMessageRole(candidate) !== "assistant" || !isSisyphusExecutorAgent(getMessageAgent(candidate))) {
+      continue;
+    }
+    const recoverableTool = findRecoverableErroredSisyphusCiGuardrailTool(candidate.parts);
+    if (recoverableTool) {
+      lastRecoverableTool = recoverableTool;
+      lastRecoverableMessageID = getMessageID(candidate);
+      break;
+    }
+  }
+
+  if (!lastRecoverableTool || !lastRecoverableMessageID) {
+    return false;
+  }
+
+  const lastEvidenceGatedUser = findLastUserMessageMatching(
+    messages as RecoveryMessage[],
+    (message) => messageIndicatesEvidenceGatedCi(message),
+  );
+  const lastUser = lastEvidenceGatedUser ?? findLastUserMessage(messages as never);
+  if (!messageIndicatesEvidenceGatedCi(lastUser as RecoveryMessage | undefined)) {
+    return false;
+  }
+
+  const lastRecoveredMessageID = recoveredPendingEmptySisyphusToolMessageBySession.get(sessionID);
+  if (lastRecoveredMessageID === lastMessageID || lastRecoveredMessageID === lastRecoverableMessageID) {
+    return false;
+  }
+
+  await session?.abort?.({ path: { id: sessionID } }).catch(() => {});
+
+  const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+  resumeConfig.directory = ctx.directory;
+  resumeConfig.continuationText = SISYPHUS_CI_GUARDRAIL_TOOL_ERROR_RECOVERY_TEXT;
+  const resumed = await resumeRecoveredPrometheusSession(
+    ctx,
+    sessionID,
+    SISYPHUS_CI_GUARDRAIL_TOOL_ERROR_RECOVERY_TEXT,
+    resumeConfig,
+    session as RecoveryResumeSessionApi | undefined,
+  );
+
+  if (resumed) {
+    recoveredPendingEmptySisyphusToolMessageBySession.set(sessionID, lastRecoverableMessageID);
+    log("[event] recovered sisyphus CI guardrail tool error", {
+      sessionID,
+      source,
+      messageID: lastRecoverableMessageID,
+      tool: lastRecoverableTool.tool,
       agent: lastMessageAgent,
     });
   }
@@ -3179,6 +3334,17 @@ export function createEventHandler(args: {
             "message.updated.delayed",
           );
           if (recoveredPendingSisyphusTool) {
+            coordinator?.observe(sessionID, { kind: "recovery_result", success: true });
+            return;
+          }
+
+          const recoveredSisyphusGuardrailTool = await maybeRecoverSisyphusCiGuardrailToolError(
+            pluginContext,
+            sessionID,
+            messageID,
+            "message.updated.delayed",
+          );
+          if (recoveredSisyphusGuardrailTool) {
             coordinator?.observe(sessionID, { kind: "recovery_result", success: true });
             return;
           }

@@ -846,6 +846,113 @@ describe("createEventHandler idle empty assistant recovery", () => {
     })
   })
 
+  test("recovers delayed sisyphus CI guardrail tool errors into the next concrete step", async () => {
+    jest.useFakeTimers()
+
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_guardrail_sisyphus_ci",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nCurrent build evidence is on disk; continue the unified edit batch.",
+        }],
+      },
+      {
+        id: "msg_guardrail_tool_error_sisyphus_ci",
+        role: "assistant",
+        agent: "Sisyphus Junior (Focused Executor)",
+        parts: [
+          {
+            type: "tool",
+            tool: "grep",
+            state: {
+              status: "error",
+              error: "[tool-execute-before] Post-dirty-batch exploration budget is exhausted for CI fast-path session ses_guardrail_tool_error_sisyphus_ci. grep would be exploration step 7 since the current dirty-batch inspection.",
+            },
+          },
+        ],
+      },
+      {
+        id: "msg_after_guardrail_tool_error_sisyphus_ci",
+        role: "assistant",
+        agent: "Sisyphus Junior (Focused Executor)",
+        parts: [
+          {
+            type: "step-start",
+          },
+          {
+            type: "reasoning",
+            text: "",
+          },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_after_guardrail_tool_error_sisyphus_ci",
+            sessionID: "ses_guardrail_tool_error_sisyphus_ci",
+            role: "assistant",
+            agent: "Sisyphus Junior (Focused Executor)",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part_after_guardrail_tool_error_sisyphus_ci",
+            sessionID: "ses_guardrail_tool_error_sisyphus_ci",
+            messageID: "msg_after_guardrail_tool_error_sisyphus_ci",
+            type: "reasoning",
+            text: "",
+          },
+        },
+      },
+    } as const)
+
+    if (typeof jest.advanceTimersByTimeAsync === "function") {
+      await jest.advanceTimersByTimeAsync(5001)
+    } else {
+      jest.advanceTimersByTime(5001)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_guardrail_tool_error_sisyphus_ci" },
+      body: expect.objectContaining({
+        agent: "Atlas (Plan Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining("runtime guard"),
+          }),
+        ]),
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
   test("recovers idle sisyphus CI visible summary turns after dirty-batch inspection", async () => {
     const handler = createHandler([
       {
