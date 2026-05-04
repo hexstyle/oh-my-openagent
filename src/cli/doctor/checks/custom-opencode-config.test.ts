@@ -109,6 +109,10 @@ describe("managed custom OpenCode config assets", () => {
 
     // Explore is the only spark-primary speed lane.
     expect(pluginConfig.agents?.explore?.model).toBe("openai/gpt-5.3-codex-spark")
+    // Preemptive compaction must not ride the same Claude lane that powers long CI runs.
+    for (const agentName of ["sisyphus", "atlas", "hephaestus", "oracle", "librarian", "multimodal-looker", "prometheus", "metis", "momus", "sisyphus-junior", "explore"] as const) {
+      expect(pluginConfig.agents?.[agentName]?.compaction).toEqual({ model: "openai/gpt-5.4" })
+    }
     expect(pluginConfig.agents?.["sisyphus-junior"]?.variant).toBe("medium")
     expect(pluginConfig.agents?.["sisyphus-junior"]?.fallback_models).toEqual([
       "anthropic/claude-opus-4-7",

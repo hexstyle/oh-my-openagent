@@ -9,6 +9,9 @@
   "agents": {
     "sisyphus": {
       "model": "anthropic/claude-sonnet-4-6",
+      "compaction": {
+        "model": "openai/gpt-5.4"
+      },
       "variant": "high",
       "textVerbosity": "high",
       "fallback_models": [
@@ -23,6 +26,9 @@
     },
     "hephaestus": {
       "model": "anthropic/claude-sonnet-4-6",
+      "compaction": {
+        "model": "openai/gpt-5.4"
+      },
       "variant": "xhigh",
       "reasoningEffort": "xhigh",
       "textVerbosity": "high",
@@ -37,6 +43,9 @@
     },
     "oracle": {
       "model": "anthropic/claude-sonnet-4-6",
+      "compaction": {
+        "model": "openai/gpt-5.4"
+      },
       "variant": "high",
       "textVerbosity": "high",
       "fallback_models": [
@@ -50,6 +59,9 @@
     },
     "librarian": {
       "model": "anthropic/claude-sonnet-4-6",
+      "compaction": {
+        "model": "openai/gpt-5.4"
+      },
       "variant": "high",
       "reasoningEffort": "high",
       "textVerbosity": "high",
@@ -64,6 +76,9 @@
     },
     "explore": {
       "model": "openai/gpt-5.3-codex-spark",
+      "compaction": {
+        "model": "openai/gpt-5.4"
+      },
       "variant": "low",
       "textVerbosity": "low",
       "fallback_models": [
@@ -77,6 +92,9 @@
     },
     "multimodal-looker": {
       "model": "anthropic/claude-sonnet-4-6",
+      "compaction": {
+        "model": "openai/gpt-5.4"
+      },
       "variant": "medium",
       "reasoningEffort": "medium",
       "textVerbosity": "medium",
@@ -91,6 +109,9 @@
     },
     "prometheus": {
       "model": "anthropic/claude-opus-4-7",
+      "compaction": {
+        "model": "openai/gpt-5.4"
+      },
       "variant": "max",
       "maxTokens": 64000,
       "textVerbosity": "high",
@@ -106,6 +127,9 @@
     },
     "metis": {
       "model": "anthropic/claude-opus-4-7",
+      "compaction": {
+        "model": "openai/gpt-5.4"
+      },
       "variant": "max",
       "maxTokens": 64000,
       "textVerbosity": "high",
@@ -120,6 +144,9 @@
     },
     "momus": {
       "model": "anthropic/claude-opus-4-7",
+      "compaction": {
+        "model": "openai/gpt-5.4"
+      },
       "variant": "max",
       "maxTokens": 64000,
       "textVerbosity": "high",
@@ -134,6 +161,9 @@
     },
     "atlas": {
       "model": "anthropic/claude-sonnet-4-6",
+      "compaction": {
+        "model": "openai/gpt-5.4"
+      },
       "variant": "high",
       "textVerbosity": "high",
       "fallback_models": [
@@ -148,6 +178,9 @@
     },
     "sisyphus-junior": {
       "model": "anthropic/claude-sonnet-4-6",
+      "compaction": {
+        "model": "openai/gpt-5.4"
+      },
       "variant": "medium",
       "textVerbosity": "medium",
       "fallback_models": [
