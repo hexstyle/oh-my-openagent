@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { getProviderSmokeConfig, resolveSmokeTimeoutMs } from "./verify-local-opencode-install"
+import { MANAGED_RUNTIME_PLUGIN_DEPENDENCIES } from "../src/shared/managed-opencode-runtime"
 
 const GLOBAL_TIMEOUT_ENV = "OH_MY_OPENAGENT_VERIFY_SMOKE_TIMEOUT_MS"
 const ANTHROPIC_TIMEOUT_ENV = "OH_MY_OPENAGENT_VERIFY_ANTHROPIC_SMOKE_TIMEOUT_MS"
@@ -42,5 +43,9 @@ describe("verify-local-opencode-install smoke timeout policy", () => {
       agentName: "Sisyphus (Ultraworker)",
       model: { providerID: "openai", modelID: "gpt-5.4" },
     })
+  })
+
+  test("managed claude auth runtime pin tracks the OAuth-compatible release", () => {
+    expect(MANAGED_RUNTIME_PLUGIN_DEPENDENCIES["opencode-claude-auth"]).toBe("1.5.3")
   })
 })

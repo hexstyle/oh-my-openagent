@@ -29,7 +29,8 @@ function shouldUseDelayedRetryGrace(lastError: string | null | undefined): boole
     DEFAULT_CONFIG.retry_on_errors,
   )
 
-  return isSameModelRetryAction(errorAction)
+  return errorAction === "limit_fallback"
+    || isSameModelRetryAction(errorAction)
 }
 
 export interface PollOptions {

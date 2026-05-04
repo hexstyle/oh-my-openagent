@@ -441,6 +441,48 @@ describe("pollForCompletion", () => {
     expect(statusCalls).toBeGreaterThanOrEqual(5)
   })
 
+  it("waits out cross-model quota fallback errors before failing the run", async () => {
+    //#given - paid model quota errors trigger limit_fallback, but the next model does not flip busy immediately
+    let statusCalls = 0
+    const ctx = createMockContext({
+      statuses: {},
+    })
+    ;(ctx.client.session as any).status = mock(async () => {
+      statusCalls += 1
+      if (statusCalls < 5) {
+        return { data: {} }
+      }
+      return {
+        data: {
+          "test-session": {
+            type: statusCalls === 5 ? "busy" : "idle",
+          },
+        },
+      }
+    })
+
+    const eventState = createEventState()
+    eventState.mainSessionIdle = true
+    eventState.mainSessionError = true
+    eventState.lastError =
+      "You're out of extra usage. Add more at claude.ai/settings/usage and keep going."
+    eventState.hasReceivedMeaningfulWork = true
+    const abortController = new AbortController()
+
+    //#when
+    const result = await pollForCompletion(ctx, eventState, abortController, {
+      pollIntervalMs: 10,
+      requiredConsecutive: 1,
+      minStabilizationMs: 10,
+      delayedRetryErrorGraceMs: 60,
+    })
+
+    //#then - cross-model handoff gets the same grace as same-model transient recovery
+    expect(result).toBe(0)
+    expect(eventState.mainSessionError).toBe(false)
+    expect(statusCalls).toBeGreaterThanOrEqual(5)
+  })
+
   it("restarts delayed retry grace when a new transient 403 arrives during recovery", async () => {
     //#given - first delayed-retry error fires, recovery retries, then a second 403 arrives and must reset grace
     let statusCalls = 0

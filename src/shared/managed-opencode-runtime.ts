@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url"
 
 export const MANAGED_RUNTIME_PLUGIN_DEPENDENCIES = {
-  "opencode-claude-auth": "1.4.7",
+  "opencode-claude-auth": "1.5.3",
   "opencode-helicone-session": "1.0.1",
 } as const
 

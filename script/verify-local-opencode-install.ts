@@ -157,13 +157,22 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 function assertManagedRuntimePackageLayout(): void {
-  for (const packageName of Object.keys(MANAGED_RUNTIME_PLUGIN_DEPENDENCIES)) {
+  for (const [packageName, expectedVersion] of Object.entries(MANAGED_RUNTIME_PLUGIN_DEPENDENCIES)) {
     const packageRoot = join(cacheDir, "packages", `${packageName}@latest`)
     const packageJsonPath = join(packageRoot, "node_modules", "package.json")
     assert(existsSync(packageRoot), `Managed runtime package directory is missing: ${packageRoot}`)
     assert(
       existsSync(packageJsonPath),
       `Managed runtime package layout is incomplete for ${packageName}: missing ${packageJsonPath}`,
+    )
+    const packageManifest = readJson(packageJsonPath)
+    assert(
+      packageManifest.name === packageName,
+      `Managed runtime package manifest mismatch for ${packageName}: expected name ${packageName}, got ${String(packageManifest.name)}`,
+    )
+    assert(
+      packageManifest.version === expectedVersion,
+      `Managed runtime package ${packageName} drifted: expected ${expectedVersion}, got ${String(packageManifest.version)}`,
     )
   }
 }
