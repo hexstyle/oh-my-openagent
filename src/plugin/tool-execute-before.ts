@@ -610,7 +610,7 @@ export function createToolExecuteBeforeHandler(args: {
       return `[tool-execute-before] Tool "${toolName}" is blocked for CI fast-path session ${sessionID}. Stay on canonical evidence, source slices, bounded verify, mandatory Claude review, and push; do not detour through ${toolName}.`
     }
 
-    const preProgressBlockedTools = new Set(["task", "teammate"])
+    const preProgressBlockedTools = new Set(["teammate"])
     if (preProgressBlockedTools.has(toolName) && !hasSessionFlag(sessionID, CI_FORWARD_PROGRESS_FLAG)) {
       return `[tool-execute-before] Tool "${toolName}" is blocked for CI fast-path session ${sessionID} before forward progress. First make real progress with evidence writes, code edits, build/test verification, or a bounded rerun; only then may you consider review/delegation steps.`
     }
@@ -726,6 +726,23 @@ export function createToolExecuteBeforeHandler(args: {
 
     if (normalizedToolName === "task") {
       clearPlannerBootstrapEvidenceReads(input.sessionID)
+    }
+
+    if (
+      normalizedToolName === "task"
+      && hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
+      && !hasSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
+    ) {
+      const resolvedAgent = await resolveSessionAgent(ctx.client, input.sessionID)
+      const canDelegateBeforeProgress =
+        resolvedAgent === "Prometheus (Plan Builder)"
+        || resolvedAgent === "Atlas (Plan Executor)"
+
+      if (!canDelegateBeforeProgress) {
+        throw new Error(
+          `[tool-execute-before] Tool "task" is blocked for CI fast-path session ${input.sessionID} before forward progress. First make real progress with evidence writes, code edits, build/test verification, or a bounded rerun; only then may you consider review/delegation steps.`,
+        )
+      }
     }
 
     if (isStandalonePlaywrightPreflightAttempt(normalizedToolName, output.args)) {

@@ -112,6 +112,74 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("allows Prometheus task in ci fast-path before forward progress", async () => {
+    const sessionID = "ses_ci_prometheus_task_before_progress"
+    setSessionFlag(sessionID, "ci-fast-path")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({
+              data: [
+                {
+                  info: {
+                    role: "user",
+                    agent: "Prometheus (Plan Builder)",
+                  },
+                },
+              ],
+            }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "task", sessionID, callID: "call_prometheus_task_before_progress" },
+        { args: { prompt: "delegate now" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
+    clearSessionTools()
+  })
+
+  test("allows Atlas task in ci fast-path before forward progress", async () => {
+    const sessionID = "ses_ci_atlas_task_before_progress"
+    setSessionFlag(sessionID, "ci-fast-path")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({
+              data: [
+                {
+                  info: {
+                    role: "user",
+                    agent: "Atlas (Plan Executor)",
+                  },
+                },
+              ],
+            }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    await expect(
+      handler(
+        { tool: "task", sessionID, callID: "call_atlas_task_before_progress" },
+        { args: { prompt: "delegate now" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
+    clearSessionTools()
+  })
+
   test("allows task in ci fast-path after forward progress", async () => {
     const sessionID = "ses_ci_task_after_progress"
     setSessionFlag(sessionID, "ci-fast-path")
