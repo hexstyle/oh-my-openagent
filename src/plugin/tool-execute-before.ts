@@ -333,6 +333,10 @@ export function createToolExecuteBeforeHandler(args: {
       (lower.includes("perl -e") && lower.includes("alarm"))
       || /\b(gtimeout|timeout)\b/.test(lower)
       || (lower.includes("python3") && lower.includes("timeout="))
+    const hasObservableHeartbeat =
+      lower.includes("rerun_heartbeat")
+      && lower.includes("kill -0")
+      && lower.includes("sleep")
 
     if (!hasResultsDirectory || !hasTrxLogger || !hasVisibleStartMarker || !hasVisibleEndMarker) {
       throw new Error(
@@ -349,6 +353,12 @@ export function createToolExecuteBeforeHandler(args: {
     if (!hasExpectedCoverageCount || !hasTrxCoverageParse) {
       throw new Error(
         `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without explicit rerun coverage accounting. Declare the expected failing-set count in the same bash command and parse UnitTestResult entries from the TRX before treating the rerun as complete.`,
+      )
+    }
+
+    if (!hasObservableHeartbeat) {
+      throw new Error(
+        `[tool-execute-before] Refusing Playwright test run for session ${sessionID} without observable heartbeat logging. Emit recurring RERUN_HEARTBEAT lines from the same bounded rerun command so idle waits without TRX/artifact progress are visible before the hard timeout.`,
       )
     }
   }

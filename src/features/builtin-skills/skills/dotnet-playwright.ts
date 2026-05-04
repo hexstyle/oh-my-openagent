@@ -139,6 +139,8 @@ Playwright can look "busy" while the test is actually waiting on the wrong thing
 - The same bash command must also declare the expected test count for that rerun and parse the resulting TRX \`UnitTestResult\` entries before treating the verify step as complete.
 - A rerun is incomplete if the TRX shows fewer results than the intended failing-set coverage, even if the command itself exited 0.
 - If a rerun lives materially longer than the last comparable local baseline and still has no TRX file or no new result artifacts, treat that as a hang signal, not as "still probably running normally".
+- The rerun command must emit a recurring heartbeat while the test process is alive (for example \`RERUN_HEARTBEAT elapsed=... trx_exists=... artifact_count=...\` every 20-30s).
+- If the heartbeat keeps reporting "still no TRX" or no artifact growth, treat that as direct evidence of an idle wait or wrong awaited predicate and stop guessing.
 - In that case, capture the hang as evidence, name the most likely stuck awaited surface, and continue diagnosis from that fact.
 - Do not silently burn more time on an unobservable rerun.
 
@@ -147,6 +149,8 @@ Playwright can look "busy" while the test is actually waiting on the wrong thing
 Any Playwright fix must preserve the intended end-to-end chain:
 - Do NOT replace a real UI/API/data-path validation with a stub, fake response, or simplified smoke path unless the test is explicitly meant to verify that stubbed seam.
 - Do NOT weaken coverage by removing the assertion that proves the business outcome, skipping the step that triggers the real backend call, or turning a real full-chain test into a partial shortcut.
+- Do NOT turn a failing full-chain Playwright test into a helper-only shortcut, a direct database proof, or a fake green based on setup state alone.
+- Do NOT bypass the awaited UI/API/backend path just to get CI green. If the original failure is in the live chain, the fix must still prove that same live chain.
 - Retries, helper fallbacks, and direct-navigation recovery are allowed only when they still verify the same real product behavior.
 - If you add a fallback path, the final assertion must still prove the original user-visible or backend-visible outcome.
 
