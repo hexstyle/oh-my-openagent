@@ -21,6 +21,9 @@ type MessageLike = {
   providerID?: string
   modelID?: string
   tools?: Record<string, boolean>
+  parts?: Array<{
+    type?: string
+  }>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,7 +39,30 @@ export function getMessageID(message: MessageLike | undefined): string | undefin
 export function getMessageRole(message: MessageLike | undefined): string | undefined {
   if (!message) return undefined
   if (typeof message.info?.role === "string" && message.info.role.length > 0) return message.info.role
-  return typeof message.role === "string" && message.role.length > 0 ? message.role : undefined
+  if (typeof message.role === "string" && message.role.length > 0) return message.role
+
+  if (Array.isArray(message.parts)) {
+    const hasAssistantOnlyPart = message.parts.some((part) => {
+      const type = part?.type
+      return type === "reasoning"
+        || type === "thinking"
+        || type === "redacted_thinking"
+        || type === "tool"
+        || type === "tool_use"
+        || type === "tool_result"
+        || type === "step-start"
+        || type === "step-finish"
+        || type === "compaction"
+        || type === "patch"
+        || type === "meta"
+    })
+
+    if (hasAssistantOnlyPart) {
+      return "assistant"
+    }
+  }
+
+  return undefined
 }
 
 export function getMessageError(message: MessageLike | undefined): unknown {

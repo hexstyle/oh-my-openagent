@@ -592,6 +592,97 @@ describe("createEventHandler idle empty assistant recovery", () => {
     })
   })
 
+  test("recovers delayed sisyphus CI reasoning-only turns even when persisted message role is omitted", async () => {
+    jest.useFakeTimers()
+
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_reasoning_only_sisyphus_ci_raw",
+          role: "user",
+          agent: "Atlas (Plan Executor)",
+          model: {
+            providerID: "openai",
+            modelID: "gpt-5.4",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nCurrent build evidence is on disk; continue the unified edit batch.",
+        }],
+      },
+      {
+        id: "msg_reasoning_only_sisyphus_ci_raw",
+        agent: "Sisyphus (Ultraworker)",
+        parts: [
+          {
+            type: "step-start",
+          },
+          {
+            type: "reasoning",
+            text: "I have the stale plan rebased and should now move into the next constrained edit batch.",
+          },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_reasoning_only_sisyphus_ci_raw",
+            sessionID: "ses_reasoning_only_sisyphus_ci_raw",
+            role: "assistant",
+            agent: "Sisyphus (Ultraworker)",
+          },
+        },
+      },
+    } as const)
+
+    await handler({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part_reasoning_only_sisyphus_ci_raw",
+            sessionID: "ses_reasoning_only_sisyphus_ci_raw",
+            messageID: "msg_reasoning_only_sisyphus_ci_raw",
+            type: "reasoning",
+            text: "I have the stale plan rebased and should now move into the next constrained edit batch.",
+          },
+        },
+      },
+    } as const)
+
+    if (typeof jest.advanceTimersByTimeAsync === "function") {
+      await jest.advanceTimersByTimeAsync(5001)
+    } else {
+      jest.advanceTimersByTime(5001)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock).toHaveBeenCalledWith({
+      path: { id: "ses_reasoning_only_sisyphus_ci_raw" },
+      body: expect.objectContaining({
+        agent: "Atlas (Plan Executor)",
+        model: {
+          providerID: "openai",
+          modelID: "gpt-5.4",
+        },
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining("evidence-gated CI"),
+          }),
+        ]),
+      }),
+      query: { directory: "/tmp" },
+    })
+  })
+
   test("recovers and resumes when idle prometheus session ends with a raw-shape reasoning-only assistant turn", async () => {
     //#given
     const handler = createHandler([
