@@ -342,30 +342,69 @@ LOOP:
     ii)  Build the filter expression covering ALL failing tests:
          \`FullyQualifiedName~Test1|FullyQualifiedName~Test2|...\`
          **CRITICAL**: The filter MUST include ALL N tests, not just 1. Print the filter before running.
-    iii) Run: \`dotnet test --filter "{FilterExpr}" --nologo --logger "trx;LogFileName=local-verify.trx" -- RunConfiguration.ResultsDirectory=./TestResults\`
-    iv)  **TRX VALIDATION (MANDATORY)**:
-         After test run completes, parse the TRX file:
+    iii) Launch the local rerun as ONE bounded shell wave. For Playwright/E2E filters, the accepted shape is:
          \`\`\`bash
-         python3 -c "
-         import xml.etree.ElementTree as ET
-         tree = ET.parse('TestResults/local-verify.trx')
+         export rerun_expected_tests={N}
+         export RERUN_RESULTS_DIR=./TestResults/iterationX/current-dirty-bounded-rerun
+         export RERUN_TRX="$RERUN_RESULTS_DIR/local-verify-iterationX-host.trx"
+         export SELF=$$
+         echo "RERUN_PRECHECK session=$$ expected=$rerun_expected_tests"
+         ps -ax -o pid=,command= | grep -E "dotnet test|testhost|headless_shell|run-driver" | grep "eurochemeopt\\|Optimizer.PlaywrightTests" | grep -v "$SELF" || true
+         echo "RERUN_START phase=preflight"
+         # kill stale leftovers here if present, then:
+         echo "RERUN_END phase=preflight"
+         echo "RERUN_START phase=test results_dir=$RERUN_RESULTS_DIR trx=$RERUN_TRX expected=$rerun_expected_tests"
+         perl -e 'alarm shift; exec @ARGV' 5400 dotnet test Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --filter "{FilterExpr}" --nologo --results-directory "$RERUN_RESULTS_DIR" --logger "trx;LogFileName=$(basename "$RERUN_TRX")" &
+         PID=$!
+         while kill -0 "$PID" 2>/dev/null; do
+           trx_exists=0; [ -f "$RERUN_TRX" ] && trx_exists=1
+           artifact_count=$(find "$RERUN_RESULTS_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')
+           echo "RERUN_HEARTBEAT pid=$PID trx_exists=$trx_exists artifact_count=$artifact_count"
+           sleep 20
+         done
+         wait "$PID"; status=$?
+         JSON_RERUN_TRX="$RERUN_TRX" JSON_EXPECTED="$rerun_expected_tests" python3 <<'PY'
+         import json, os, sys, xml.etree.ElementTree as ET
+         trx = os.environ["JSON_RERUN_TRX"]
+         expected = int(os.environ["JSON_EXPECTED"])
+         tree = ET.parse(trx)
          ns = {'t': 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}
          results = tree.findall('.//t:UnitTestResult', ns)
          total = len(results)
          passed = sum(1 for r in results if r.get('outcome') == 'Passed')
          failed = sum(1 for r in results if r.get('outcome') == 'Failed')
+         print(json.dumps({"trx": trx, "expected": expected, "total": total, "passed": passed, "failed": failed}))
+         if total < expected:
+             raise SystemExit(f"TRX coverage incomplete: expected {expected}, got {total}")
+         PY
+         echo "RERUN_END phase=test status=$status"
+         test "$status" -eq 0
+         \`\`\`
+         Do NOT fall back to \`python3 -c\`, invisible subprocess polling, or a plain \`dotnet test\` without the bounded wrapper.
+    iv)  **TRX VALIDATION (MANDATORY)**:
+         After test run completes, parse the TRX file in the same shell wave:
+         \`\`\`bash
+         JSON_RERUN_TRX="$RERUN_TRX" JSON_EXPECTED="$rerun_expected_tests" python3 <<'PY'
+         import os, xml.etree.ElementTree as ET
+         tree = ET.parse(os.environ["JSON_RERUN_TRX"])
+         ns = {'t': 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}
+         results = tree.findall('.//t:UnitTestResult', ns)
+         total = len(results)
+         passed = sum(1 for r in results if r.get('outcome') == 'Passed')
+         failed = sum(1 for r in results if r.get('outcome') == 'Failed')
+         expected = int(os.environ["JSON_EXPECTED"])
          print(f'TRX: {total} total, {passed} passed, {failed} failed')
          if total == 0: print('ERROR: TRX has 0 results — filter expression is broken!')
-         if total < EXPECTED: print(f'WARNING: Expected {EXPECTED} tests but TRX has {total} — some tests were not found by the filter')
+         if total < expected: print(f'WARNING: Expected {expected} tests but TRX has {total} — some tests were not found by the filter')
          for r in results:
              name = r.get('testName', '?')
              outcome = r.get('outcome', '?')
              if outcome != 'Passed':
                  msg = (r.find('.//t:Message', ns) or ET.Element('x')).text or ''
                  print(f'  FAIL: {name}: {msg[:150]}')
-         "
+         PY
          \`\`\`
-         Replace \`EXPECTED\` with the actual failing test count N.
+         Use \`rerun_expected_tests={N}\` in the same shell block. Do not invent a second hidden parser step later.
     v)   **HARD CHECK: TRX total must be >= N.**
          If TRX total == 0 → your filter expression is WRONG. Fix it and re-run.
          If TRX total == 1 but N > 1 → your filter is matching only ONE test. Fix the filter syntax (\`|\` not \`||\`, correct escaping).

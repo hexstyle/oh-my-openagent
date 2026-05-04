@@ -88,6 +88,9 @@ describe("ci green loop builtin skills", () => {
     expect(ciGreenLoopSkill.template).toContain("Losing previously provisioned `OPTIEX_PLAYWRIGHT_*`")
     expect(ciGreenLoopSkill.template).toContain("you MUST reuse those values directly for the rerun")
     expect(ciGreenLoopSkill.template).toContain("Do NOT spend another loop rediscovering or reverse-engineering the same env contract")
+    expect(ciGreenLoopSkill.template).toContain("export rerun_expected_tests={N}")
+    expect(ciGreenLoopSkill.template).toContain("JSON_RERUN_TRX=\"$RERUN_TRX\" JSON_EXPECTED=\"$rerun_expected_tests\" python3 <<'PY'")
+    expect(ciGreenLoopSkill.template).toContain("Do NOT fall back to `python3 -c`")
   })
 
   test("ci-green-loop allows host-specific full-solution blockers after relevant project build passes", () => {
