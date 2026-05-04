@@ -35,6 +35,7 @@ export function createToolExecuteBeforeHandler(args: {
   const CI_DIRTY_BATCH_INSPECTED_FLAG = "ci-dirty-batch-inspected"
   const CI_FORWARD_PROGRESS_FLAG = "ci-forward-progress"
   const CI_PLAYWRIGHT_PREFLIGHT_READY_FLAG = "ci-playwright-preflight-ready"
+  const dirtyBatchCodeReadCounts = new Map<string, Map<string, number>>()
 
   function getStringArg(argsObject: Record<string, unknown>, keys: string[]): string | undefined {
     for (const key of keys) {
@@ -51,6 +52,20 @@ export function createToolExecuteBeforeHandler(args: {
     if (toolName !== "read") return false
     const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
     return typeof filePath === "string" && filePath.includes(".sisyphus/evidence/tests/")
+  }
+
+  function getCodeReadPath(toolName: string, argsObject: Record<string, unknown>): string | undefined {
+    if (toolName !== "read") return undefined
+    const filePath = getStringArg(argsObject, ["filePath", "path", "targetPath"])
+    if (typeof filePath !== "string") {
+      return undefined
+    }
+
+    if (filePath.includes(".sisyphus/")) {
+      return undefined
+    }
+
+    return filePath
   }
 
   function isCoreEvidenceReadAttempt(toolName: string, argsObject: Record<string, unknown>): boolean {
@@ -565,6 +580,18 @@ export function createToolExecuteBeforeHandler(args: {
     return undefined
   }
 
+  function clearDirtyBatchReadCounts(sessionID: string): void {
+    dirtyBatchCodeReadCounts.delete(sessionID)
+  }
+
+  function trackDirtyBatchCodeRead(sessionID: string, filePath: string): number {
+    const sessionCounts = dirtyBatchCodeReadCounts.get(sessionID) ?? new Map<string, number>()
+    const nextCount = (sessionCounts.get(filePath) ?? 0) + 1
+    sessionCounts.set(filePath, nextCount)
+    dirtyBatchCodeReadCounts.set(sessionID, sessionCounts)
+    return nextCount
+  }
+
   return async (input, output): Promise<void> => {
     if (isSessionToolDisabled(input.sessionID, input.tool)) {
       throw new Error(
@@ -682,6 +709,22 @@ export function createToolExecuteBeforeHandler(args: {
 
     if (isForwardProgressAttempt(normalizedToolName, output.args)) {
       setSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
+      clearDirtyBatchReadCounts(input.sessionID)
+    }
+
+    const codeReadPath = getCodeReadPath(normalizedToolName, output.args)
+    if (
+      codeReadPath
+      && hasSessionFlag(input.sessionID, CI_FAST_PATH_FLAG)
+      && hasSessionFlag(input.sessionID, CI_DIRTY_BATCH_INSPECTED_FLAG)
+      && !hasSessionFlag(input.sessionID, CI_FORWARD_PROGRESS_FLAG)
+    ) {
+      const readCount = trackDirtyBatchCodeRead(input.sessionID, codeReadPath)
+      if (readCount > 4) {
+        throw new Error(
+          `[tool-execute-before] Repeated dirty-batch code rereads are blocked for CI fast-path session ${input.sessionID}. ${codeReadPath} has already been read ${readCount - 1} times since the current dirty-batch inspection. Move to an edit, bounded rerun, build/test step, or evidence update instead of rereading the same file again.`,
+        )
+      }
     }
 
     if (normalizedToolName === "bash") {

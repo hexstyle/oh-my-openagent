@@ -400,6 +400,79 @@ describe("createToolExecuteBeforeHandler", () => {
     clearSessionTools()
   })
 
+  test("blocks repeated dirty-batch code rereads after the same file is read too many times", async () => {
+    const sessionID = "ses_ci_reread_cap"
+    setSessionFlag(sessionID, "ci-fast-path")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await expect(
+        handler(
+          { tool: "read", sessionID, callID: `call_code_read_${attempt}` },
+          { args: { filePath: "/repo/Optimizer.PlaywrightTests/TaskGroupExecutionE2ETests.cs" } as Record<string, unknown> },
+        ),
+      ).resolves.toBeUndefined()
+    }
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_code_read_5" },
+        { args: { filePath: "/repo/Optimizer.PlaywrightTests/TaskGroupExecutionE2ETests.cs" } as Record<string, unknown> },
+      ),
+    ).rejects.toThrow("Repeated dirty-batch code rereads are blocked")
+
+    clearSessionTools()
+  })
+
+  test("clears dirty-batch reread caps after forward progress", async () => {
+    const sessionID = "ses_ci_reread_after_progress"
+    setSessionFlag(sessionID, "ci-fast-path")
+    setSessionFlag(sessionID, "ci-dirty-batch-inspected")
+
+    const handler = createToolExecuteBeforeHandler({
+      ctx: {
+        client: {
+          session: {
+            messages: async () => ({ data: [] }),
+          },
+        },
+      },
+      hooks: {},
+    })
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await handler(
+        { tool: "read", sessionID, callID: `call_code_reset_${attempt}` },
+        { args: { filePath: "/repo/Optimizer.PlaywrightTests/UserAdministrationE2ETests.cs" } as Record<string, unknown> },
+      )
+    }
+
+    await handler(
+      { tool: "bash", sessionID, callID: "call_progress" },
+      { args: { command: "dotnet build Optimizer.PlaywrightTests/Optimizer.PlaywrightTests.csproj --nologo" } as Record<string, unknown> },
+    )
+
+    await expect(
+      handler(
+        { tool: "read", sessionID, callID: "call_code_after_progress" },
+        { args: { filePath: "/repo/Optimizer.PlaywrightTests/UserAdministrationE2ETests.cs" } as Record<string, unknown> },
+      ),
+    ).resolves.toBeUndefined()
+
+    clearSessionTools()
+  })
+
   test("blocks evidence-only git diff reflection after dirty-batch inspection and before forward progress", async () => {
     const sessionID = "ses_ci_evidence_diff_reflection"
     setSessionFlag(sessionID, "ci-evidence-core-read")
