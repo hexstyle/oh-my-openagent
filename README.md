@@ -22,11 +22,11 @@ Upstream reference at the last synced README:
 Primary model picture in this fork:
 
 - planning/review/controller roles prefer `anthropic/claude-opus-4-7` (Prometheus, Metis, Momus)
-- execution/coding lanes prefer `openai/gpt-5.4` (Sisyphus, Atlas, Hephaestus, Librarian, Multimodal Looker, Sisyphus Junior)
-- `Oracle` stays `anthropic/claude-sonnet-4-6` primary
-- `deep` category uses `openai/gpt-5.4` with Claude paid fallbacks behind it
+- every non-`Explore` agent keeps Claude ahead of OpenAI/Codex in the paid chain
+- execution/coding lanes default to `anthropic/claude-sonnet-4-6` (Sisyphus, Atlas, Hephaestus, Librarian, Multimodal Looker, Sisyphus Junior, Oracle)
+- the main work categories also default to `anthropic/claude-sonnet-4-6`, except `ultrabrain`, which stays `anthropic/claude-opus-4-7`
 - `Explore (Code Search)` is the only spark-primary lane and runs on `openai/gpt-5.3-codex-spark`
-- `Sisyphus Junior (Focused Executor)` is the fast coding lane on `openai/gpt-5.4`, with `claude-sonnet-4-6` ahead of `spark`
+- `Sisyphus Junior (Focused Executor)` is the fast executor lane on `anthropic/claude-sonnet-4-6`, with `gpt-5.4` ahead of `spark`
 - **every agent and category chain includes both Claude (Anthropic) and Codex/OpenAI paid models** — see cross-provider constraint below
 - free models stay behind every remaining paid OpenAI/Codex and Claude fallback
 - the managed free chain is `opencode/nemotron-3-super-free` -> `opencode/minimax-m2.5-free` -> `opencode/big-pickle`
@@ -37,14 +37,14 @@ Primary model picture in this fork:
 Primary agents and their visible fallback shape:
 
 - `Prometheus`, `Metis`, `Momus` (planning/review): `anthropic/claude-opus-4-7` -> `anthropic/claude-sonnet-4-6` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
-- `Sisyphus` (ultrawork executor): `openai/gpt-5.4` -> `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.3-codex-spark` -> free models
+- `Sisyphus` (ultrawork executor): `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
 - `Oracle`: `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
-- `Atlas` (orchestration): `openai/gpt-5.4` -> `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.3-codex-spark` -> free models
-- `Hephaestus` (deep executor): `openai/gpt-5.4` -> `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-6` -> `openai/gpt-5.3-codex-spark` -> free models
-- `Librarian`: `openai/gpt-5.4` -> `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.3-codex-spark` -> free models
-- `Multimodal Looker`: `openai/gpt-5.4` -> `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-6` -> `openai/gpt-5.3-codex-spark` -> free models
-- `Explore`: `openai/gpt-5.3-codex-spark` -> `openai/gpt-5.4` -> `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-6` -> free models
-- `Sisyphus Junior` (fast executor): `openai/gpt-5.4` -> `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.3-codex-spark` -> free models
+- `Atlas` (orchestration): `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
+- `Hephaestus` (deep executor): `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
+- `Librarian`: `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
+- `Multimodal Looker`: `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
+- `Explore`: `openai/gpt-5.3-codex-spark` -> `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.4` -> free models
+- `Sisyphus Junior` (fast executor): `anthropic/claude-sonnet-4-6` -> `anthropic/claude-opus-4-7` -> `openai/gpt-5.4` -> `openai/gpt-5.3-codex-spark` -> free models
 
 Managed source of truth for this table: `assets/custom-opencode/oh-my-opencode.json`.
 
@@ -76,8 +76,8 @@ This constraint is enforced by:
 - same-model transient retries stay alive for up to 15 minutes
 - the retry interval grows over time and caps at 5 minutes between attempts
 - quota/cooldown/payment/usage-limit failures exhaust the remaining paid OpenAI/Codex and Claude chain before any free model
-- for `Explore`, `gpt-5.3-codex-spark` is the primary model, with fallback through paid `gpt-5.4` and Claude before free models
-- for `Sisyphus Junior`, `gpt-5.4` is primary, with `claude-sonnet-4-6` ahead of `spark`
+- for `Explore`, `gpt-5.3-codex-spark` is the primary model, with fallback through paid Claude and then paid `gpt-5.4` before free models
+- for `Sisyphus Junior`, `claude-sonnet-4-6` is primary, with `gpt-5.4` ahead of `spark`
 - when a session is pushed down to `spark` or free models, background recovery probes can move it back up to stronger models when they recover
 - the fork only treats free models as valid when they resolve in the local runtime baseline; deprecated cache-only entries are ignored
 

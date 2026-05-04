@@ -49,7 +49,8 @@ Use this skill whenever work touches:
 - User-specific model and fallback changes belong in `oh-my-openagent.local.jsonc`, not in the managed base file.
 - Managed `oh-my-openagent.json` is installer-owned and may be overwritten on reinstall.
 - Do not reintroduce duplicate live plugin config files such as `oh-my-openagent.jsonc` or `oh-my-opencode.json`.
-- For coding agents, keep `openai/gpt-5.4` ahead of `openai/gpt-5.3-codex-spark` unless the user explicitly wants a spark-first speed lane.
+- In this fork's managed base policy, keep Claude ahead of OpenAI/Codex for every non-`explore` agent unless the user explicitly asks for a different lane order.
+- `explore` remains the only spark-primary speed lane.
 - Free fallbacks must be checked against refreshed availability and should not rely on deprecated cache-only entries.
 
 ## Consistency Checklist

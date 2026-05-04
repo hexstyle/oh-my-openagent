@@ -78,6 +78,24 @@ This fork keeps the upstream package identity but changes the local install and 
 - `Claude` stays configured by default and can be authorized later on demand
 - user-facing runtime surfaces must expose canonical agent display names
 
+## Host-Agent Boundary Rule
+
+When this repo is being used to drive CI or code-fix work in a separate target repository
+(for example `eurochemeopt`, `data_catalog`, or another external worktree/repo), the outer
+host agent working in `oh-my-openagent` must NOT manually edit files in that target repo.
+
+High-priority rule:
+
+- the outer host agent may inspect the target repo, run `opencode`, monitor CI, inspect logs,
+  adjust `oh-my-openagent` prompts/skills/hooks/config, and validate runtime behavior
+- but target-repo code/content edits must be performed only by the in-runtime `opencode`
+  executor session that the host agent launched or supervised
+- if the host agent notices itself preparing to patch a target repo directly, that is a workflow
+  violation and it must stop, revert to orchestration, and push the fix through `opencode`
+  instead
+
+This rule takes priority over convenience while working cross-repo CI loops from this fork.
+
 ## Source Of Truth
 
 Start here when changing models, agent names, or local install behavior:
@@ -158,10 +176,11 @@ If you add or rename an agent, update:
 
 ## Model Policy In This Fork
 
-- Architect, reviewer, critic, planner, and controller-style roles prefer `anthropic/claude-opus-4-6` first.
-- Deep execution roles like `Hephaestus` and `Atlas`, plus `Librarian` and `Multimodal Looker`, prefer `openai/gpt-5.4`.
+- Planner, reviewer, critic, advisor, and controller-style roles prefer `anthropic/claude-opus-4-7` first.
+- Every non-`explore` managed agent must keep a Claude model ahead of any OpenAI/Codex model in its paid chain.
+- Execution, coding, orchestration, librarian, and multimodal lanes default to `anthropic/claude-sonnet-4-6` primary unless a stronger Claude lane is explicitly warranted.
 - `Explore` is the only spark-primary speed lane.
-- `Sisyphus Junior` is the fast coding lane and must keep `openai/gpt-5.4` ahead of `anthropic/claude-sonnet-4-6`, with `anthropic/claude-sonnet-4-6` ahead of `openai/gpt-5.3-codex-spark`.
+- `Sisyphus Junior` remains a fast executor lane, but it must keep `anthropic/claude-sonnet-4-6` ahead of `openai/gpt-5.4`, and `openai/gpt-5.4` ahead of `openai/gpt-5.3-codex-spark`.
 - Do not move planner/review/controller roles onto `spark` primary.
 - Managed host context caps must stay within live model metadata:
   - keep `openai/gpt-5.4`, `anthropic/claude-opus-4-6`, and `anthropic/claude-sonnet-4-6` at or below `200000`
@@ -217,10 +236,10 @@ Current policy:
   - exhaust every remaining paid OpenAI/Codex and Claude fallback in configured order
   - only then descend to free fallback models
 - `Explore` stays `spark`-primary:
-  - keep its limit-fallback path as `spark` -> paid `gpt-5.4` -> paid `claude-sonnet-4-6` -> free models
+  - keep its limit-fallback path as `spark` -> paid `claude-sonnet-4-6` -> paid `claude-opus-4-7` -> paid `gpt-5.4` -> free models
 - `Sisyphus Junior` is not `spark`-primary:
+  - keep `claude-sonnet-4-6` ahead of `gpt-5.4`
   - keep `gpt-5.4` ahead of `spark`
-  - keep `claude-sonnet-4-6` ahead of `spark`
   - keep `spark` ahead of free models
 - active `session.status` events (`busy`, `running`) must refresh the watchdog with the extended long-running timeout window
 - meaningful `message.part.updated` progress (`tool`, `tool_use`, `tool_result`, `compaction`, visible `text`, visible `reasoning`) must refresh the watchdog instead of clearing it

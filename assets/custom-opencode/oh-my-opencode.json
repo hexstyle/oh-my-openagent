@@ -8,12 +8,12 @@
   ],
   "agents": {
     "sisyphus": {
-      "model": "openai/gpt-5.4",
+      "model": "anthropic/claude-sonnet-4-6",
       "variant": "high",
       "textVerbosity": "high",
       "fallback_models": [
-        "anthropic/claude-sonnet-4-6",
         "anthropic/claude-opus-4-7",
+        "openai/gpt-5.4",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
@@ -22,13 +22,13 @@
       "prompt_append": "Check AGENTS.md on first repo interaction; create/update if missing or stale. /start-work, Prometheus handoff, or active boulder = permission to execute. Drive the plan to completion — delegate, verify, iterate. Do not stop at summaries or partial progress. Return control only for destructive actions, missing info, or hard blockers (network/DNS failure = hard blocker — commit locally and stop, don't loop). Short timeouts by default; diagnose before retrying slow commands. CI RULES: Never escalate failures as 'data-dependent' or 'unfixable'. failed==0 is the only DoD — create missing data in TestInitialize, mock deps, adjust CI params. Test execution target: ≤15min, hard limit 20min. COMPREHENSIVE FIX: Every fix session must fix ALL known failures, not just a subset. Read ALL evidence, fix ALL files, push ONCE. If you see a fixable test — fix it, regardless of task boundaries. NO PARTIAL PUSHES: do not push while any current failing test lacks a current-iteration tracker update, concrete fix path or blocker conclusion, staged-diff coverage or explicit no-code-change rationale, and local verification coverage or explicit repo-native verification blocker. CI EVIDENCE ORDER: For `.sisyphus` CI repos, read only AGENTS.md, `.sisyphus/boulder.json`, the active plan, `ci-loop-checkpoint.md`, `repair-log.md`, the latest build analysis, and `.sisyphus/evidence/tests/`. Check tracker-dir existence only with `test -d` or `ls`; never use a file-read tool on the directory path. PER-TEST LEDGER HARD GATE: re-fetch the live failing test list every iteration and reconcile it one-by-one against tracker files before editing code. If the tracker directory is absent, if any current failing test lacks a tracker, or if canonical per-test tracker count/status/error text for the CURRENT live failing set disagrees with CI, STOP and rebuild the canonical tracker set before code edits. Legacy alias/build-summary tracker notes are supplemental context only: keep them if useful, but they must not block the first evidence write batch or inflate the failing tracker count. Never probe legacy alias paths like `.sisyphus/ci-loop-checkpoint.md` or `.sisyphus/repair-log.md`; read only the canonical `.sisyphus/evidence/*` files. If the current-build evidence already agrees on build/revision/failing-set scope, do NOT spend the startup turn on another Bamboo truth fetch; use the current evidence as startup truth, validate the dirty batch, and fetch Bamboo again only if the evidence proves stale or after a push/build-monitoring transition. EVIDENCE MATERIALIZATION GATE: after the live failing list is fetched, immediately write/update tracker files, `repair-log.md`, and `ci-loop-checkpoint.md` for the current build before any source-code reads outside `.sisyphus/evidence/`. EVIDENCE EXIT GATE: once live CI list, trackers, current-build analysis, checkpoint, and repair-log agree, do one compact evidence update and move directly into the constrained source pass. Do NOT waste a cycle on repeated `wc`, repeated clean-tree checks, or another evidence-only loop before the first edit batch. ACTIVE PLAN REBASE GATE: if the active plan still names an older build, revision, failing-test count, or superseded Task 2 scope, rewrite the active plan on disk immediately after evidence materialization and before any source-code reads outside `.sisyphus/evidence/`. SINGLE-FILE FIX RULE: one shared helper/file may cover multiple failing tests only if every affected test tracker explicitly maps that test to that shared file/helper and records the attempted approach, result, and conclusion for the current iteration. Do not glob notepads or `run-continuation` unless the core evidence is insufficient. HYPOTHESIS GATE: If the plan, checkpoint, and repair-log disagree on root cause, reconcile the conflicting hypotheses in evidence before editing code. TRIGGER-ONLY BUILDS: Distinguish empty/retrigger commits from code-changing revisions in `repair-log.md` and `ci-loop-checkpoint.md`; do not treat a retrigger revision as a code fix. LOCAL VERIFY MANDATE: Before pushing Playwright test fixes, run `dotnet test --filter` for ALL affected tests locally. Push ONLY after local pass. MANDATORY CLAUDE REVIEW: After local verify passes and before commit/push, run `review-work` or an Oracle review, record `Claude review: PASS` in evidence, and push ONLY after that review passes. PRE-PUSH GATE: Before commit/push, restate and satisfy the repair-log checklist: `dotnet build`, local targeted test filter, mandatory Claude review, staged-tree/symbol completeness, and one-to-one failing-test coverage for the current build. Evidence hygiene: delete any .sisyphus/evidence/ file >10KB and any raw JSON/log/TRX before each iteration. Total evidence <500KB."
     },
     "hephaestus": {
-      "model": "openai/gpt-5.4",
+      "model": "anthropic/claude-sonnet-4-6",
       "variant": "xhigh",
       "reasoningEffort": "xhigh",
       "textVerbosity": "high",
       "fallback_models": [
-        "anthropic/claude-sonnet-4-6",
-        "anthropic/claude-opus-4-6",
+        "anthropic/claude-opus-4-7",
+        "openai/gpt-5.4",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
@@ -49,13 +49,13 @@
       ]
     },
     "librarian": {
-      "model": "openai/gpt-5.4",
+      "model": "anthropic/claude-sonnet-4-6",
       "variant": "high",
       "reasoningEffort": "high",
       "textVerbosity": "high",
       "fallback_models": [
-        "anthropic/claude-sonnet-4-6",
         "anthropic/claude-opus-4-7",
+        "openai/gpt-5.4",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
@@ -67,22 +67,22 @@
       "variant": "low",
       "textVerbosity": "low",
       "fallback_models": [
-        "openai/gpt-5.4",
         "anthropic/claude-sonnet-4-6",
-        "anthropic/claude-opus-4-6",
+        "anthropic/claude-opus-4-7",
+        "openai/gpt-5.4",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
         "opencode/big-pickle"
       ]
     },
     "multimodal-looker": {
-      "model": "openai/gpt-5.4",
+      "model": "anthropic/claude-sonnet-4-6",
       "variant": "medium",
       "reasoningEffort": "medium",
       "textVerbosity": "medium",
       "fallback_models": [
-        "anthropic/claude-sonnet-4-6",
-        "anthropic/claude-opus-4-6",
+        "anthropic/claude-opus-4-7",
+        "openai/gpt-5.4",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
@@ -133,12 +133,12 @@
       ]
     },
     "atlas": {
-      "model": "openai/gpt-5.4",
+      "model": "anthropic/claude-sonnet-4-6",
       "variant": "high",
       "textVerbosity": "high",
       "fallback_models": [
-        "anthropic/claude-sonnet-4-6",
         "anthropic/claude-opus-4-7",
+        "openai/gpt-5.4",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
@@ -147,12 +147,12 @@
       "prompt_append": "Check AGENTS.md on first repo interaction; create/update if missing or stale. /start-work, Prometheus handoff, or active boulder = permission to execute. Drive the plan to completion — delegate, verify, iterate. Do not stop at summaries or partial progress. Return control only for destructive actions, missing info, or hard blockers (network/DNS failure = hard blocker — commit locally and stop, don't loop). Short timeouts by default; diagnose before retrying slow commands. CI RULES: Never escalate failures as 'data-dependent' or 'unfixable'. failed==0 is the only DoD — create missing data in TestInitialize, mock deps, adjust CI params. Test execution target: ≤15min, hard limit 20min. COMPREHENSIVE FIX: Every fix session must fix ALL known failures, not just a subset. Read ALL evidence, fix ALL files, push ONCE. If you see a fixable test — fix it, regardless of task boundaries. NO PARTIAL PUSHES: do not push while any current failing test lacks a current-iteration tracker update, concrete fix path or blocker conclusion, staged-diff coverage or explicit no-code-change rationale, and local verification coverage or explicit repo-native verification blocker. CI EVIDENCE ORDER: For `.sisyphus` CI repos, read only AGENTS.md, `.sisyphus/boulder.json`, the active plan, `ci-loop-checkpoint.md`, `repair-log.md`, the latest build analysis, and `.sisyphus/evidence/tests/`. Check tracker-dir existence only with `test -d` or `ls`; never use a file-read tool on the directory path. PER-TEST LEDGER HARD GATE: re-fetch the live failing test list every iteration and reconcile it one-by-one against tracker files before editing code. If the tracker directory is absent, if any current failing test lacks a tracker, or if canonical per-test tracker count/status/error text for the CURRENT live failing set disagrees with CI, STOP and rebuild the canonical tracker set before code edits. Legacy alias/build-summary tracker notes are supplemental context only: keep them if useful, but they must not block the first evidence write batch or inflate the failing tracker count. Never probe legacy alias paths like `.sisyphus/ci-loop-checkpoint.md` or `.sisyphus/repair-log.md`; read only the canonical `.sisyphus/evidence/*` files. If the current-build evidence already agrees on build/revision/failing-set scope, do NOT spend the startup turn on another Bamboo truth fetch; use the current evidence as startup truth, validate the dirty batch, and fetch Bamboo again only if the evidence proves stale or after a push/build-monitoring transition. EVIDENCE MATERIALIZATION GATE: after the live failing list is fetched, immediately write/update tracker files, `repair-log.md`, and `ci-loop-checkpoint.md` for the current build before any source-code reads outside `.sisyphus/evidence/`. EVIDENCE EXIT GATE: once live CI list, trackers, current-build analysis, checkpoint, and repair-log agree, do one compact evidence update and move directly into the constrained source pass. Do NOT waste a cycle on repeated `wc`, repeated clean-tree checks, or another evidence-only loop before the first edit batch. ACTIVE PLAN REBASE GATE: if the active plan still names an older build, revision, failing-test count, or superseded Task 2 scope, rewrite the active plan on disk immediately after evidence materialization and before any source-code reads outside `.sisyphus/evidence/`. SINGLE-FILE FIX RULE: one shared helper/file may cover multiple failing tests only if every affected test tracker explicitly maps that test to that shared file/helper and records the attempted approach, result, and conclusion for the current iteration. Do not glob notepads or `run-continuation` unless the core evidence is insufficient. HYPOTHESIS GATE: If the plan, checkpoint, and repair-log disagree on root cause, reconcile the conflicting hypotheses in evidence before editing code. TRIGGER-ONLY BUILDS: Distinguish empty/retrigger commits from code-changing revisions in `repair-log.md` and `ci-loop-checkpoint.md`; do not treat a retrigger revision as a code fix. LOCAL VERIFY MANDATE: Before pushing Playwright test fixes, run `dotnet test --filter` for ALL affected tests locally. Push ONLY after local pass. MANDATORY CLAUDE REVIEW: After local verify passes and before commit/push, run `review-work` or an Oracle review, record `Claude review: PASS` in evidence, and push ONLY after that review passes. PRE-PUSH GATE: Before commit/push, restate and satisfy the repair-log checklist: `dotnet build`, local targeted test filter, mandatory Claude review, staged-tree/symbol completeness, and one-to-one failing-test coverage for the current build. Evidence hygiene: delete any .sisyphus/evidence/ file >10KB and any raw JSON/log/TRX before each iteration. Total evidence <500KB."
     },
     "sisyphus-junior": {
-      "model": "openai/gpt-5.4",
+      "model": "anthropic/claude-sonnet-4-6",
       "variant": "medium",
       "textVerbosity": "medium",
       "fallback_models": [
-        "anthropic/claude-sonnet-4-6",
         "anthropic/claude-opus-4-7",
+        "openai/gpt-5.4",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
@@ -163,12 +163,12 @@
   },
   "categories": {
     "visual-engineering": {
-      "model": "openai/gpt-5.4",
+      "model": "anthropic/claude-sonnet-4-6",
       "variant": "high",
       "textVerbosity": "high",
       "fallback_models": [
-        "anthropic/claude-sonnet-4-6",
         "anthropic/claude-opus-4-7",
+        "openai/gpt-5.4",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
@@ -189,12 +189,12 @@
       ]
     },
     "deep": {
-      "model": "openai/gpt-5.4",
+      "model": "anthropic/claude-sonnet-4-6",
       "variant": "high",
       "textVerbosity": "high",
       "fallback_models": [
-        "anthropic/claude-sonnet-4-6",
         "anthropic/claude-opus-4-7",
+        "openai/gpt-5.4",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
@@ -202,12 +202,12 @@
       ]
     },
     "artistry": {
-      "model": "openai/gpt-5.4",
+      "model": "anthropic/claude-sonnet-4-6",
       "variant": "high",
       "textVerbosity": "high",
       "fallback_models": [
-        "anthropic/claude-sonnet-4-6",
         "anthropic/claude-opus-4-7",
+        "openai/gpt-5.4",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
@@ -215,13 +215,13 @@
       ]
     },
     "quick": {
-      "model": "openai/gpt-5.4",
+      "model": "anthropic/claude-sonnet-4-6",
       "variant": "low",
       "textVerbosity": "low",
       "reasoningEffort": "low",
       "fallback_models": [
-        "anthropic/claude-sonnet-4-6",
-        "anthropic/claude-opus-4-6",
+        "anthropic/claude-opus-4-7",
+        "openai/gpt-5.4",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
@@ -229,13 +229,13 @@
       ]
     },
     "unspecified-low": {
-      "model": "openai/gpt-5.4",
+      "model": "anthropic/claude-sonnet-4-6",
       "variant": "low",
       "textVerbosity": "low",
       "reasoningEffort": "low",
       "fallback_models": [
-        "anthropic/claude-sonnet-4-6",
-        "anthropic/claude-opus-4-6",
+        "anthropic/claude-opus-4-7",
+        "openai/gpt-5.4",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
@@ -243,13 +243,13 @@
       ]
     },
     "unspecified-high": {
-      "model": "openai/gpt-5.4",
+      "model": "anthropic/claude-sonnet-4-6",
       "variant": "high",
       "textVerbosity": "high",
       "reasoningEffort": "high",
       "fallback_models": [
-        "anthropic/claude-sonnet-4-6",
         "anthropic/claude-opus-4-7",
+        "openai/gpt-5.4",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",
@@ -257,12 +257,12 @@
       ]
     },
     "writing": {
-      "model": "openai/gpt-5.4",
+      "model": "anthropic/claude-sonnet-4-6",
       "variant": "medium",
       "textVerbosity": "high",
       "fallback_models": [
-        "anthropic/claude-sonnet-4-6",
-        "anthropic/claude-opus-4-6",
+        "anthropic/claude-opus-4-7",
+        "openai/gpt-5.4",
         "openai/gpt-5.3-codex-spark",
         "opencode/nemotron-3-super-free",
         "opencode/minimax-m2.5-free",

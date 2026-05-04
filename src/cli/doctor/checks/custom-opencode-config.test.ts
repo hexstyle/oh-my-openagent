@@ -99,9 +99,9 @@ describe("managed custom OpenCode config assets", () => {
       expect(reviewAgent?.model).toBe("anthropic/claude-opus-4-7")
     }
 
-    // Execution lanes follow AGENTS.md policy: OpenAI-first where speed/coding throughput matters.
+    // Managed policy is Claude-first for every non-explore agent.
     for (const executorName of ["sisyphus", "atlas", "hephaestus", "librarian", "multimodal-looker", "sisyphus-junior"] as const) {
-      expect(pluginConfig.agents?.[executorName]?.model).toBe("openai/gpt-5.4")
+      expect(pluginConfig.agents?.[executorName]?.model).toBe("anthropic/claude-sonnet-4-6")
     }
 
     // Oracle remains Claude-primary.
@@ -111,8 +111,8 @@ describe("managed custom OpenCode config assets", () => {
     expect(pluginConfig.agents?.explore?.model).toBe("openai/gpt-5.3-codex-spark")
     expect(pluginConfig.agents?.["sisyphus-junior"]?.variant).toBe("medium")
     expect(pluginConfig.agents?.["sisyphus-junior"]?.fallback_models).toEqual([
-      "anthropic/claude-sonnet-4-6",
       "anthropic/claude-opus-4-7",
+      "openai/gpt-5.4",
       "openai/gpt-5.3-codex-spark",
       "opencode/nemotron-3-super-free",
       "opencode/minimax-m2.5-free",
@@ -134,7 +134,7 @@ describe("managed custom OpenCode config assets", () => {
     }
 
     for (const categoryName of ["deep", "quick", "unspecified-low", "unspecified-high", "writing", "artistry", "visual-engineering"] as const) {
-      expect(pluginConfig.categories?.[categoryName]?.model).toBe("openai/gpt-5.4")
+      expect(pluginConfig.categories?.[categoryName]?.model).toBe("anthropic/claude-sonnet-4-6")
     }
     expect(pluginConfig.default_run_agent).toBe("Prometheus (Plan Builder)")
   })
