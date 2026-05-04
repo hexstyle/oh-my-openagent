@@ -1144,6 +1144,58 @@ describe("createEventHandler idle empty assistant recovery", () => {
     expect(plannerRecoveryCall?.body?.parts?.[0]?.text).toContain("core evidence files")
   })
 
+  test("recovers idle planner CI visible summary turns that stop before delegation", async () => {
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_planner_ci_visible_summary",
+          role: "user",
+          agent: "Prometheus (Plan Builder)",
+          model: {
+            providerID: "anthropic",
+            modelID: "claude-opus-4-6",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nCurrent CI state is already materialized under .sisyphus/evidence/. Continue the loop.",
+        }],
+      },
+      {
+        info: {
+          id: "msg_planner_ci_visible_summary",
+          role: "assistant",
+          agent: "Prometheus (Plan Builder)",
+        },
+        parts: [
+          {
+            type: "text",
+            text: "Canonical state verified — no plan churn, no rebase needed. Holding strict planner discipline per CI FAST PATH directive.",
+          },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionID: "ses_planner_ci_visible_summary",
+          status: { type: "idle" },
+        },
+      },
+    } as const)
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    const plannerVisibleSummaryCall = promptAsyncMock.mock.calls[0]?.[0] as Record<string, any>
+    expect(plannerVisibleSummaryCall?.path).toEqual({ id: "ses_planner_ci_visible_summary" })
+    expect(plannerVisibleSummaryCall?.query).toEqual({ directory: "/tmp" })
+    expect(plannerVisibleSummaryCall?.body?.agent).toBe("Prometheus (Plan Builder)")
+    expect(plannerVisibleSummaryCall?.body?.model?.providerID).toBe("anthropic")
+    expect(plannerVisibleSummaryCall?.body?.model?.modelID).toBe("claude-opus-4-6")
+    expect(plannerVisibleSummaryCall?.body?.parts?.[0]?.text).toContain("task delegation")
+  })
+
   test("recovers delayed atlas pending empty task calls in ci fast-path", async () => {
     jest.useFakeTimers()
 

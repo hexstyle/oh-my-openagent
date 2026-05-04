@@ -235,6 +235,14 @@ const PROMETHEUS_INTERRUPTED_VISIBLE_TURN_RECOVERY_TEXT = [
   "Only stop after the final plan file exists, has populated ## TODOs, and you provide a concise user-facing summary.",
   PROMETHEUS_FINAL_ARTIFACT_RECOVERY_TEXT,
 ].join("\n");
+const PROMETHEUS_CI_VISIBLE_SUMMARY_RECOVERY_TEXT = [
+  "[session recovered - continue CI planning after the visible summary now]",
+  "Your previous planner turn stopped after a user-facing CI state summary before the next concrete planner action happened.",
+  "Do not emit another summary-only turn.",
+  "Immediately continue from the verified canonical state and perform the next concrete planner action.",
+  "If the current executor batch should start now, emit the task delegation now.",
+  "If delegation already happened and only follow-through is missing, continue that follow-through instead of re-summarizing the same state.",
+].join("\n");
 const PROMETHEUS_TOOL_ONLY_TURN_RECOVERY_TEXT = [
   "[session recovered - continue plan generation after the tool call now]",
   "Your previous Prometheus turn ended on a tool-only step before the next planning action ran.",
@@ -305,6 +313,7 @@ const recoveredPendingEmptySisyphusToolMessageBySession = new Map<string, string
 const recoveredSisyphusCiGuardrailToolMessageBySession = new Map<string, string>();
 const recoveredPlannerCiBootstrapToolMessageBySession = new Map<string, string>();
 const recoveredPlannerReasoningOnlyMessageBySession = new Map<string, string>();
+const recoveredPlannerCiVisibleSummaryMessageBySession = new Map<string, string>();
 const recoveredSisyphusCiReasoningOnlyMessageBySession = new Map<string, string>();
 const recoveredInterruptedPlannerVisibleMessageBySession = new Map<string, string>();
 const recoveredInterruptedSisyphusCiVisibleMessageBySession = new Map<string, string>();
@@ -365,6 +374,7 @@ export function _resetEventRecoveryStateForTesting(): void {
   recoveredSisyphusCiGuardrailToolMessageBySession.clear();
   recoveredPlannerCiBootstrapToolMessageBySession.clear();
   recoveredPlannerReasoningOnlyMessageBySession.clear();
+  recoveredPlannerCiVisibleSummaryMessageBySession.clear();
   recoveredSisyphusCiReasoningOnlyMessageBySession.clear();
   recoveredInterruptedPlannerVisibleMessageBySession.clear();
   recoveredInterruptedSisyphusCiVisibleMessageBySession.clear();
@@ -2220,6 +2230,105 @@ async function maybeRecoverPrometheusInterruptedVisibleAssistantMessage(
   return resumed;
 }
 
+async function maybeRecoverPrometheusCiVisibleSummaryAssistantMessage(
+  ctx: { client: Record<string, unknown>; directory: string },
+  sessionID: string,
+  expectedMessageID?: string,
+  source = "session.status.idle",
+): Promise<boolean> {
+  if (hasRecentPrometheusRuntimeFallbackRecoveryGuard(sessionID, source, "planner ci visible-summary")) {
+    return false;
+  }
+
+  if (hasActivePrometheusProviderBlockedRetryWindow(sessionID)) {
+    log("[event] planner ci visible-summary recovery skipped: provider-blocked retry window active", {
+      sessionID,
+      source,
+    });
+    return false;
+  }
+
+  const session = ctx.client["session"] as {
+    messages?: (args: { path: { id: string } }) => Promise<unknown>;
+    promptAsync?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+    prompt?: (args: {
+      path: { id: string };
+      body: { parts: Array<Record<string, unknown>> };
+      query?: { directory: string };
+    }) => Promise<unknown>;
+  } | undefined;
+  const readMessages = session?.messages;
+  if (typeof readMessages !== "function") {
+    return false;
+  }
+
+  let response: unknown;
+  try {
+    response = await readMessages({
+      path: { id: sessionID },
+    });
+  } catch {
+    return false;
+  }
+
+  const messages = normalizeSDKResponse(response, [] as RecoveryMessage[], {
+    preferResponseOnMissingData: true,
+  });
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageID = getMessageID(lastMessage);
+  const lastMessageAgent = getMessageAgent(lastMessage);
+
+  if (!lastMessageID) return false;
+  if (expectedMessageID && lastMessageID !== expectedMessageID) return false;
+  if (getMessageRole(lastMessage) !== "assistant") return false;
+  if (getMessageError(lastMessage)) return false;
+  if (!isPrometheusPlannerAgent(lastMessageAgent)) return false;
+  if (!assistantMessageHasUserFacingContent(lastMessage.parts)) return false;
+  if (findRecoverablePendingPrometheusTool(lastMessage.parts)) return false;
+  if (findRecoverableErroredPlannerCiBootstrapTool(lastMessage.parts)) return false;
+
+  const lastEvidenceGatedUser = findLastUserMessageMatching(
+    messages as RecoveryMessage[],
+    (message) => messageIndicatesEvidenceGatedCi(message),
+  );
+  const lastUser = lastEvidenceGatedUser ?? findLastUserMessage(messages as never);
+  if (!messageIndicatesEvidenceGatedCi(lastUser as RecoveryMessage | undefined)) {
+    return false;
+  }
+
+  const lastRecoveredMessageID = recoveredPlannerCiVisibleSummaryMessageBySession.get(sessionID);
+  if (lastRecoveredMessageID === lastMessageID) {
+    return false;
+  }
+
+  const resumeConfig = extractResumeConfig(lastUser as never, sessionID);
+  resumeConfig.directory = ctx.directory;
+  resumeConfig.continuationText = PROMETHEUS_CI_VISIBLE_SUMMARY_RECOVERY_TEXT;
+  const resumed = await resumeRecoveredPrometheusSession(
+    ctx,
+    sessionID,
+    PROMETHEUS_CI_VISIBLE_SUMMARY_RECOVERY_TEXT,
+    resumeConfig,
+    session as RecoveryResumeSessionApi | undefined,
+  );
+
+  if (resumed) {
+    recoveredPlannerCiVisibleSummaryMessageBySession.set(sessionID, lastMessageID);
+    log("[event] recovered planner CI visible-summary stop", {
+      sessionID,
+      source,
+      messageID: lastMessageID,
+      agent: lastMessageAgent,
+    });
+  }
+
+  return resumed;
+}
+
 async function maybeRecoverPrometheusToolOnlyAssistantTurn(
   ctx: { client: Record<string, unknown>; directory: string },
   sessionID: string,
@@ -3844,6 +3953,16 @@ export function createEventHandler(args: {
       source,
     );
     if (recoveredInterruptedVisible) {
+      return true;
+    }
+
+    const recoveredPlannerCiVisibleSummary = await maybeRecoverPrometheusCiVisibleSummaryAssistantMessage(
+      pluginContext,
+      sessionID,
+      undefined,
+      source,
+    );
+    if (recoveredPlannerCiVisibleSummary) {
       return true;
     }
 
