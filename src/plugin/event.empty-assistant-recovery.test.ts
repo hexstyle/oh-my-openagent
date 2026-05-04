@@ -1196,6 +1196,69 @@ describe("createEventHandler idle empty assistant recovery", () => {
     expect(plannerVisibleSummaryCall?.body?.parts?.[0]?.text).toContain("task delegation")
   })
 
+  test("recovers planner CI visible summary immediately on finish-stop before direct run exits", async () => {
+    const handler = createHandler([
+      {
+        info: {
+          id: "msg_user_planner_ci_visible_summary_finish_stop",
+          role: "user",
+          agent: "Prometheus (Plan Builder)",
+          model: {
+            providerID: "anthropic",
+            modelID: "claude-opus-4-6",
+          },
+        },
+        parts: [{
+          type: "text",
+          text: "CI FAST PATH — ACTIVE\nCurrent CI state is already materialized under .sisyphus/evidence/. Continue the loop.",
+        }],
+      },
+      {
+        info: {
+          id: "msg_planner_ci_visible_summary_finish_stop",
+          role: "assistant",
+          agent: "Prometheus (Plan Builder)",
+          finish: "stop",
+        },
+        parts: [
+          {
+            type: "text",
+            text: [
+              "Canonical state verified — no plan churn, no rebase needed.",
+              "I am Prometheus — I plan, I do not execute.",
+              "Run:",
+              "/start-work",
+            ].join("\n"),
+          },
+        ],
+      },
+    ])
+
+    await handler({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_planner_ci_visible_summary_finish_stop",
+            sessionID: "ses_planner_ci_visible_summary_finish_stop",
+            role: "assistant",
+            agent: "Prometheus (Plan Builder)",
+            finish: "stop",
+          },
+        },
+      },
+    } as const)
+
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    const plannerVisibleSummaryCall = promptAsyncMock.mock.calls[0]?.[0] as Record<string, any>
+    expect(plannerVisibleSummaryCall?.path).toEqual({ id: "ses_planner_ci_visible_summary_finish_stop" })
+    expect(plannerVisibleSummaryCall?.query).toEqual({ directory: "/tmp" })
+    expect(plannerVisibleSummaryCall?.body?.agent).toBe("Prometheus (Plan Builder)")
+    expect(plannerVisibleSummaryCall?.body?.model?.providerID).toBe("anthropic")
+    expect(plannerVisibleSummaryCall?.body?.model?.modelID).toBe("claude-opus-4-6")
+    expect(plannerVisibleSummaryCall?.body?.parts?.[0]?.text).toContain("task delegation")
+  })
+
   test("recovers delayed atlas pending empty task calls in ci fast-path", async () => {
     jest.useFakeTimers()
 

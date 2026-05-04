@@ -4239,6 +4239,32 @@ export function createEventHandler(args: {
         if (assistantMessageID && !assistantError) {
           prometheusProviderBlockedRetryStateBySession.delete(sessionID);
           const snapshot = upsertAssistantRecoverySnapshot(sessionID, assistantMessageID, agent);
+          const shouldImmediatelyRecoverPlannerCiVisibleSummary =
+            info?.finish === "stop"
+            && isPrometheusPlannerAgent(snapshot.agent ?? getSessionAgent(sessionID));
+
+          if (
+            shouldImmediatelyRecoverPlannerCiVisibleSummary
+            && !hooks.stopContinuationGuard?.isStopped(sessionID)
+          ) {
+            try {
+              const recoveredPlannerCiVisibleSummary = await maybeRecoverPrometheusCiVisibleSummaryAssistantMessage(
+                pluginContext,
+                sessionID,
+                assistantMessageID,
+                "message.updated.finish-stop",
+              );
+              if (recoveredPlannerCiVisibleSummary) {
+                return;
+              }
+            } catch (err) {
+              log("[event] immediate planner ci visible-summary recovery failed in message.updated:", {
+                sessionID,
+                error: err,
+              });
+            }
+          }
+
           const shouldImmediatelyRecoverPlannerReasoningOnly =
             info?.finish === "other"
             && isPrometheusPlannerAgent(snapshot.agent ?? getSessionAgent(sessionID))
